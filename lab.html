@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="icon" href="data:,">
+</head>
+<body>
+<title>Forge Battle Lab</title>
+<style>
+/* one dark look, the game's own: a lab bench with a view of the arena */
+:root { --bg:#070a12; --panel:#0e1422; --panel2:#121a2c; --line:#1f2a44; --fg:#e8f0ff; --muted:#9eb3d8; --accent:#5fe3d0; --good:#7ef3b0; --bad:#ff7979; --warn:#ffd26a; --shield:#cf89ff; --font:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color-scheme: dark }
+html { background: var(--bg) }
+body { background: var(--bg); color: var(--fg); font: 14px/1.45 var(--font); margin: 0; padding-block: 14px 40px; padding-inline: 16px; max-width: 760px; margin-inline: auto }
+h1 { font-size: 18px; letter-spacing: .14em; text-transform: uppercase; margin: 0; color: var(--accent) }
+h1 small { color: var(--muted); letter-spacing: 0; text-transform: none; font-size: 13px; font-weight: 400; margin-left: 8px }
+h2 { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 22px 0 8px }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px }
+.ctl { display: flex; flex-wrap: wrap; gap: 8px; align-items: end }
+.ctl label { display: grid; gap: 3px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em }
+.ctl input { width: 84px; background: #04070f; color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: 15px var(--font) }
+.ctl .chk { display: flex; flex-direction: row; align-items: center; gap: 6px; text-transform: none; letter-spacing: 0; font-size: 12px; padding-bottom: 10px }
+.ctl .chk input { width: auto }
+.mline { display: grid; grid-template-columns: 150px 1fr auto; gap: 8px; align-items: baseline; padding: 4px 0 4px 8px; border-left: 3px solid var(--c); margin-bottom: 4px; font-size: 12px }
+.mline span { color: var(--muted) }
+.mline b { color: var(--fg) }
+@media (max-width: 520px) { .mline { grid-template-columns: 1fr; gap: 1px } }
+.ship .n button { padding: 2px 8px; font-size: 11px }
+button { background: var(--panel2); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 9px 14px; font: 600 14px var(--font); cursor: pointer }
+button.go { background: rgba(126,243,176,.18); border-color: var(--good) }
+button:disabled { opacity: .5 }
+.tiny { font-size: 11px; color: var(--muted); line-height: 1.5 }
+#status { margin-top: 8px; font-size: 12px; color: var(--muted) }
+.bar { display: grid; grid-template-columns: 96px 1fr 44px; gap: 8px; align-items: center; padding: 5px 0; font-size: 13px }
+.bar .track { height: 10px; background: rgba(255,255,255,.07); border-radius: 5px; overflow: hidden }
+.bar .track div { height: 100% }
+.bar b { text-align: right; font-variant-numeric: tabular-nums }
+.bar small { grid-column: 2; font-size: 10px; color: var(--muted); margin-top: -4px }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums }
+th, td { padding: 6px 4px; text-align: center; font-size: 13px; border-bottom: 1px solid var(--line) }
+th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .06em }
+td small { display: block; font-size: 10px; color: var(--muted) }
+#gensTable { overflow-x: auto; -webkit-overflow-scrolling: touch }
+table.gens { min-width: 560px }
+table.gens th, table.gens td { text-align: left; vertical-align: top; padding: 6px 6px; border-top: 1px solid var(--line); border-bottom: 0; font-size: 12px; line-height: 1.35 }
+table.gens tr:first-child th { border-top: 0 }
+table.gens tr.on td { background: rgba(255,255,255,.04) }
+table.gens .how { color: var(--muted) }
+table.gens td.held .how { color: #7ef3b0 } table.gens td.child .how { color: #ffd26a } table.gens td.line .how { color: #ff8a6b }
+table.gens .rec { color: var(--warn); font-weight: 700 }
+.ship .gen { color: var(--muted) }
+.ship .sub { margin: 6px 0 0 10px; padding-left: 10px; border-left: 2px solid var(--line) }
+.pc #cmdStart { margin-left: auto; white-space: nowrap }
+.cmds { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px }
+.cmds button { font-size: 12px }
+.cmds button.armed { outline: 2px solid var(--good); box-shadow: 0 0 0 3px rgba(126,243,176,.18) }
+.cmds button.on { background: rgba(255,210,106,.18); border-color: #ffd26a }
+.ctx[hidden] { display: none }
+.codes input { flex: 1; min-width: 140px; background: #04070f; color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: 12px monospace }
+.ctx { position: fixed; z-index: 50; background: #0b1120; border: 1px solid var(--line); border-radius: 10px; padding: 6px; display: flex; flex-direction: column; gap: 4px; min-width: 200px; box-shadow: 0 10px 30px rgba(0,0,0,.55) }
+.ctx .ttl { font-size: 11px; color: var(--muted); padding: 2px 6px; text-transform: uppercase; letter-spacing: .05em }
+.ctx button { text-align: left; font-size: 13px }
+#arena { cursor: crosshair }
+.ship .sub > b { font-size: 12px }
+#arena { display: block; width: 100%; height: 360px; border-radius: 10px 10px 0 0; border: 1px solid var(--line); border-bottom: 0; background: #04070f; touch-action: pan-y }
+#grip { height: 18px; border: 1px solid var(--line); border-top: 0; border-radius: 0 0 10px 10px; background: var(--panel2); cursor: ns-resize; touch-action: none; display: flex; align-items: center; justify-content: center }
+#grip span { width: 44px; height: 4px; border-radius: 2px; background: var(--muted); opacity: .6 }
+.ship.picked { background: rgba(255,210,106,.06) }
+.ship .pick { width: 26px; padding: 2px 0; text-align: center }
+.fight.custom { border-color: rgba(255,210,106,.5) }
+.fight.chal { border-color: rgba(255,224,138,.45) }
+select { background: #04070f; color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; font: 12px var(--font) }
+.prow { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 6px }
+.prow .tiny { width: 58px }
+.chipb { display: inline-block; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--c); color: var(--c); font-size: 12px; font-weight: 700; cursor: grab; user-select: none; touch-action: none; background: rgba(255,255,255,.03) }
+.chipb.role { border-style: dashed }
+.chipb.ghost { position: fixed; transform: translate(-50%, -50%); pointer-events: none; z-index: 99; opacity: .9; box-shadow: 0 6px 20px rgba(0,0,0,.6) }
+#tray { min-height: 54px; margin-top: 6px; padding: 8px; border: 1px dashed var(--line); border-radius: 10px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center }
+#tray.over { border-color: var(--good) }
+.stack { position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--c); background: rgba(255,255,255,.05); color: var(--c); font-size: 13px; cursor: pointer; box-shadow: 3px 3px 0 -1px rgba(255,255,255,.08), 6px 6px 0 -2px rgba(255,255,255,.05) }
+.stack.sel { outline: 2px solid var(--warn) }
+.stack.over { background: rgba(126,243,176,.18); border-color: var(--good) }
+.stack .hh { font-style: normal; font-weight: 800; color: var(--warn) }
+.stack small { color: var(--fg); font-size: 11px }
+.stack .x { padding: 0 6px; font-size: 12px; color: var(--muted) }
+.pc { display: flex; gap: 8px; align-items: center; margin-top: 8px }
+.pc input[type=range] { flex: 1; min-width: 0 }
+#fightTitle { font-size: 13px; margin-bottom: 8px }
+#fightTitle small, .fight small { color: var(--muted); font-weight: 400 }
+.fight { display: grid; gap: 2px; width: 100%; text-align: left; margin-bottom: 6px; padding: 9px 12px; font-weight: 400; font-size: 13px }
+.fight.on { border-color: var(--warn); box-shadow: 0 0 0 1px var(--warn) inset }
+.fight .res { font-size: 12px; color: var(--muted) }
+.ship { padding: 8px 0; border-bottom: 1px dashed var(--line) }
+.ship .n { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap }
+.ship .arch { color: var(--muted); font-size: 12px }
+.ship .rec { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--warn); font-weight: 700 }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto } }
+</style>
+<header style="display:flex;align-items:baseline;flex-wrap:wrap;gap:4px;margin-bottom:12px"><h1>Forge · Battle Lab</h1><small style="color:var(--muted)">random ships, one price, who wins</small></header>
+<section class="card">
+  <div class="codes" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><span class="tiny" style="min-width:60px"><b>Fleet 1</b> code</span><input id="codeA" placeholder="FLEET2:… from the Fleet Generator"><span class="tiny" style="min-width:60px"><b>Fleet 2</b> code</span><input id="codeB" placeholder="FLEET2:…"><button id="fightCodes" class="go">⚔ Fight the codes</button><button id="toGen" class="x" title="design fleets: price, ships, style, grand tactics">⚙ Fleet Generator</button></div>
+  <div id="codesNote" class="tiny" style="margin-top:6px">Two fleets from the Fleet Generator, pasted here, fight each other — any sizes; both join the pool below so the Challenger and the pick-two fight work with them too.</div>
+</section>
+<section class="card">
+  <div class="ctl">
+    <label>Price of a fleet<input id="budget" type="number" value="600" min="150" step="50" inputmode="numeric"></label>
+    <label>Fleet 1 ships<input id="nA" type="number" value="1" min="1" max="25" step="1" inputmode="numeric"></label>
+    <label>Fleet 2 ships<input id="nB" type="number" value="1" min="1" max="25" step="1" inputmode="numeric"></label>
+    <label>Battles<input id="n" type="number" value="60" min="5" max="400" step="10" inputmode="numeric"></label>
+    <label>Seed<input id="seed" type="number" value="" inputmode="numeric"></label>
+    <label>Generations<input id="gens" type="number" value="1" min="1" max="20" step="1" inputmode="numeric"></label>
+    <button id="run" class="go">Run</button><button id="rand">New seed</button>
+    <label class="chk"><input id="pure" type="checkbox"> single-weapon ships only</label>
+  </div>
+  <div id="status">…</div>
+  <div class="tiny" style="margin-top:6px;display:flex;gap:6px;align-items:center;flex-wrap:wrap"><b>Silhouettes:</b> <span id="hullsNote"></span> <input id="hullsIn" placeholder="paste a library code from the painter" style="width:230px;background:#04070f;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:3px 6px;font:12px var(--font)"><button id="hullsImport" class="x">Take it in</button><button id="toPainter" class="x" title="draw and paint silhouettes">✎ Painter</button></div>
+  <div class="tiny" style="margin-top:6px">Every ship is rolled at random — hull, guns and their dials, armour, shields, thrusters — then auto-fitted (reactor, star drive, weapons computer) and trimmed to the same price. The same seed gives the same ships and the same fights. <b>Fleets</b>: the price is a FLEET's, split between its ships evenly, as a flagship with escorts, in tiers (corvettes, destroyers, a capital) or at random — no ship under 150, up to 25 a fleet; with different sizes every fight is a fleet-1 shape against a fleet-2 shape (one big ship against three small ones, say). Each ship picks its own target, holds its range from it and keeps clear of its wingmen; a fleet has lost when its last ship is gone. The Compositions card below says which splits and compositions won, and what countered what. <b>Generations</b> above 1: four ships of each kind, every ship fights every other, then the best of each kind breeds the next crop (itself kept, plus three tweaked children) — that many times. Watch whether the same designs keep the crown.</div>
+</section>
+<h2>Who wins</h2>
+<section class="card"><div id="rates"></div><div id="matrix" style="margin-top:10px"></div></section>
+<h2 id="compH" hidden>Compositions</h2>
+<section class="card" id="compCard" hidden><div id="comp"></div></section>
+<h2 id="gensH" hidden>Generations</h2>
+<section class="card" id="gensCard" hidden><div id="gensTable"></div><div id="gensNote" class="tiny" style="margin-top:8px"></div></section>
+<h2>The challenger</h2>
+<section class="card">
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="tiny">The best</span><select id="chKind"><option value="hangar">Drone ship</option><option value="weapon_energy">Beam ship</option><option value="weapon_kinetic">Gun ship</option><option value="weapon_missile">Missile ship</option></select><span class="tiny">we can find at this price</span><button id="chRun" class="go">Find it and run 40 fights</button></div>
+  <div id="chStatus" class="tiny" style="margin-top:8px">Searches 24 designs of that kind — hangar sizes, roles, escorts, armour, shields, speed, fabricator — picks the one that wins most against a shared field, then throws it at 40 fresh random ships of the same price. The fights it loses are the ones to study.</div>
+  <div id="chOut" style="margin-top:8px"></div>
+</section>
+<h2 id="replay">Watch a fight</h2>
+<section class="card">
+  <div id="fightTitle">…</div>
+  <canvas id="arena"></canvas>
+  <div id="grip" title="drag to make the arena taller or shorter"><span></span></div>
+  <div class="pc"><button id="play">▶</button><button id="speed">×1</button><input id="scrub" type="range" min="0" max="1" value="0" step="0.05"><button id="camFit" hidden title="camera back to following the fight (middle button does the same)">⌖ Follow</button><button id="cmdStart" class="go" title="fight this pairing again, live, with you giving Fleet 1 its orders">⚑ Command this fight</button><label class="chk" title="ships painted in their fleet's style and colours, from the painter"><input id="skins" type="checkbox" checked> painted</label></div>
+  <div id="ctxMenu" class="ctx" hidden></div>
+  <div id="cmdBar" hidden>
+    <div class="cmds"><button data-cmd="eliminate">☠ Eliminate</button><button data-cmd="avoid">↔ Keep away from</button><button data-cmd="protect">⛨ Protect area</button><button data-cmd="attack-area">⚔ Attack area</button><button data-cmd="avoid-area">⊘ Avoid area</button><button data-cmd="retreat">⟲ Retreat</button><button data-cmd="clear">Clear orders</button></div>
+    <div id="cmdNote" class="tiny" style="margin-top:6px"></div>
+  </div>
+  <div class="tiny" style="margin-top:6px"><b>Painted:</b> every fleet draws a plating style and a two-colour wash from its name (the same in every fight, never the same style as the other side) and its ships wear the painter's skin — rings, spine, greebles, engines, lights, the turret mounts under the hard points and the style's own turrets on them. The skin is painted once per design when its sheets arrive; until then the plain plate shows. <b>Controls:</b> <b>tap a ship</b> and the camera rides it, close enough to watch its turrets swing and fire; wheel zooms round the cursor, drag pans (both stay on top of the following camera), middle button or ⌖ goes back to the whole fight; <b>space</b> pauses. Zoomed out, ships become tactical symbols — triangle / diamond / pentagon / hexagon / block from the smallest to the biggest ship in this fight — each a vessel filled with its hull like fluid in its side's colour, turning red as it drains, a purple arc for the shield; zoom in and the ship itself fades back with its bars. In command mode, <b>right-click</b> (long-press on a phone) an enemy ship for Eliminate / Keep away, or an empty spot for the area orders and Retreat (asked twice). Up close, every gun sits on its hard point and turns onto what it shoots (a launcher sits fixed, firing forward). Shots are drawn live, anchored to where things are at that moment: a beam flashes from the barrel to the target and is gone in a third of a second; a shell runs down to where the target is now and bursts on it; a missile flies all the way in and bursts where it lands. A hit the shield takes flashes <span style="color:#cf89ff">purple</span> at the shield's edge, a hit on the hull bursts orange. The shield is a purple skin over the ship, solid at its rim and fading fast inward, dimmer as it drains. ×1 runs the fight at half pace; ×3 and ×8 scale from there.</div>
+  <div class="tiny" style="margin-top:6px">Each ship holds the distance where most of its guns reach: closes when too far, backs off when too close, circles when about right; the faster ship wins that argument, and the big dashed circle is the field's edge, where a runner gets cornered. Ships are drawn to scale (a corvette is about 30 u long, a beam reaches 200 u, a missile 2000 u). Bars: purple shield, grey armour (the shell outside the hull; layers ring outward and get bulky fast), green hull — once the hull is being hit the whole ship slows and fires slower, and a fabricator aboard patches it up to a point. Purple skin: shield. Small dashed circle: the range a ship wants. Cyan lines = beams, orange = kinetic shells, red darts = missiles in flight (they corkscrew in and burst on the hull), pale yellow chevrons = drones, which fly until they die. Yellow sparks are missiles swatted by point defence, white sparks are hits on drones. A gun with the point-defence role shoots missiles and drones first and the ship only when nothing is coming in — so a swarm costs the enemy the damage he was putting on you. Missiles and drones run out unless a fabricator aboard builds more. A drone flies on a battery: every unit flown and every volley drains it, and it keeps enough to get home — so a carrier standing 450 u off gets one volley per drone, one standing 150 u off gets seven. A hollow chevron is a drone heading home; a fabricator with stock refurbishes it, otherwise it is spent.</div>
+</section>
+<section id="design" class="card" hidden style="margin-top:12px">
+  <h2 style="margin:0 0 8px">The design</h2>
+  <div id="dsgnTitle" style="margin-bottom:6px"></div>
+  <canvas id="dsgn" style="display:block;width:100%;height:220px;border-radius:10px;border:1px solid var(--line);background:#04070f"></canvas>
+  <div id="dsgnInfo" style="margin-top:8px"></div>
+  <div class="tiny" style="margin-top:6px">Double-click a ship in the fight, or press "design" next to a ship below, to see it here.</div>
+</section>
+<h2>Your own ship, from chips</h2>
+<section class="card" id="builder">
+  <div id="palette"></div>
+  <div id="tray"></div>
+  <div id="trayNote" class="tiny" style="margin-top:6px;min-height:16px"></div>
+  <div style="display:flex;gap:6px;margin-top:8px"><button id="buildChips" class="go" disabled>Build it</button><button id="clearChips">Clear</button></div>
+  <div class="tiny" style="margin-top:6px">One weapon chip is two guns (a drone chip, four drones). Pile the same chip on a stack for emphasis — ×2, ×3. Drop a role on a weapon stack to make it a sniper, a capital gun, point defence… Traits pile up too: two armour chips, twice the armour. The ship is built for the same price as the rest, so emphasis is paid for by the other parts.</div>
+</section>
+<h2>…or in words</h2>
+<section class="card">
+  <div style="display:flex;gap:6px;flex-wrap:wrap"><input id="words" type="text" placeholder="e.g. 2 beams sniper + missiles + drones + armoured + fabricator" style="flex:1;min-width:200px;background:#04070f;color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:14px var(--font)"><button id="make" class="go">Build it</button></div>
+  <div class="tiny" style="margin-top:6px">Name weapons (beam, gun, missile, drone) with a count and a role if you like — sniper, capital, point defence, anti-shield, anti-armour — and traits: armoured, shielded, fast, fabricator. It is built for the same price as the others and joins the pool below, picked and ready to fight. Start with a count — <b>20 x 2 beams pd + fast</b> — for a fleet of that many ships sharing the price; otherwise it takes fleet 1's shape.</div>
+  <div id="wordsNote" class="tiny" style="margin-top:4px"></div>
+</section>
+<h2>The fights</h2>
+<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap"><button id="duel" class="go" disabled>Pick two ships (0 of 2)</button><label class="tiny">show <select id="ffilter"><option value="all">all</option><option value="custom">my fights</option><option value="challenge">challenge</option><option value="Beam">Beam ships</option><option value="Gun">Gun ships</option><option value="Missile">Missile ships</option><option value="Drone">Drone ships</option></select></label></div>
+<div id="fights"></div>
+<h2 id="shipsH">The ships</h2>
+<div class="tiny" style="margin:-4px 0 8px">Tick two ships (○) and press Fight above. Order: <select id="order"><option value="number">by number</option><option value="record">best record first</option></select></div>
+<section class="card"><div id="ships"></div></section>
+<script type="module" src="src/eon/lab.js"></script>
+</body>
+</html>

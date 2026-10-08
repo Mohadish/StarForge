@@ -1,0 +1,104 @@
+<title>Forge Painter</title>
+<style>
+:root { --bg:#070a12; --panel:#0e1422; --panel2:#121a2c; --line:#1f2a44; --fg:#e8f0ff; --muted:#9eb3d8; --accent:#5fe3d0; --good:#7ef3b0; --bad:#ff7979; --warn:#ffd26a; --font:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color-scheme: dark }
+html { background: var(--bg) }
+body { background: var(--bg); color: var(--fg); font: 14px/1.45 var(--font); margin: 0; padding: 14px 16px 40px; max-width: 1100px; margin-inline: auto }
+h1 { font-size: 18px; letter-spacing: .14em; text-transform: uppercase; margin: 0 0 12px; color: var(--accent) }
+h1 small { color: var(--muted); letter-spacing: 0; text-transform: none; font-size: 13px; font-weight: 400; margin-left: 8px }
+h2 { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px }
+.ctl { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin-bottom: 10px }
+.ctl label { display: grid; gap: 3px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em }
+.ctl select, .ctl input[type=number], .ctl input[type=text] { background: #04070f; color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; font: 13px var(--font) }
+.ctl input[type=range] { width: 150px; accent-color: var(--accent) }
+.ctl .chk { display: flex; flex-direction: row; align-items: center; gap: 6px; text-transform: none; letter-spacing: 0; font-size: 12px; padding-bottom: 8px }
+button { background: var(--panel2); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; font: 600 13px var(--font); cursor: pointer }
+button.go { background: rgba(126,243,176,.18); border-color: var(--good) }
+button.x { padding: 3px 8px; font-size: 12px }
+.tiny { font-size: 11px; color: var(--muted); line-height: 1.5 }
+.stage { position: relative }
+#out { display: block; width: 100%; aspect-ratio: 16 / 9; border-radius: 10px; border: 1px solid var(--line); background: #04070f; touch-action: none; user-select: none; -webkit-user-select: none }
+#editHint { position: absolute; left: 10px; bottom: 8px; font-size: 11px; color: var(--muted); background: rgba(7,10,18,.7); padding: 3px 8px; border-radius: 6px; pointer-events: none }
+#editBar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; padding: 8px 10px; border: 1px solid var(--good); border-radius: 10px; background: rgba(126,243,176,.06) }
+#editBar[hidden], #editHint[hidden] { display: none }
+#editBar label { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em }
+#editBar input, #editBar select { background: #04070f; color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: 13px var(--font) }
+#toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(20px); background: #121a2c; border: 1px solid var(--good); color: var(--fg); padding: 8px 14px; border-radius: 10px; font-size: 13px; opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none }
+#toast.on { opacity: 1; transform: translateX(-50%) }
+.sizes button { padding: 4px 9px; font-size: 12px }
+details.fine { margin-top: 6px; border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px }
+details.fine summary { cursor: pointer; color: var(--muted) }
+.ctl input[type=number] { width: 70px; padding: 5px 7px }
+.ctl input[type=color] { width: 44px; height: 30px; padding: 2px; background: #04070f; border: 1px solid var(--line); border-radius: 8px }
+.ctl .wk { display: flex; gap: 4px; text-transform: none; letter-spacing: 0 }
+.ctl .wk input[type=number] { width: 56px }
+</style>
+<h1>Forge · Painter<small>draw the outline, the skin paints itself</small></h1>
+<section class="card">
+  <div class="ctl">
+    <label>Style<select id="style"></select></label>
+    <label>Silhouette<select id="hull"></select></label>
+    <label>Size (volume) <b id="volv"></b><input id="vol" type="range" min="100" max="4000" step="25" value="600"></label>
+    <span class="sizes"><button id="s400" class="x">≈ price 400</button> <button id="s1000" class="x">1000</button> <button id="s3000" class="x">3000</button> <button id="s6000" class="x">6000</button></span>
+    <button id="edEdit" class="x">✎ Edit the outline</button>
+    <button id="toLab" class="x" title="open the battle lab — random ships there wear your silhouettes">⚔ To the lab</button>
+    <button id="libCode" class="x" title="copy the library as a code, to paste into the lab's Silhouettes box">⧉ Library code</button>
+  </div>
+  <div class="stage">
+    <canvas id="out" width="960" height="540"></canvas>
+    <div id="editHint">double-tap the ship to edit its outline</div>
+  </div>
+  <div id="editBar" hidden>
+    <label>Name<input id="edName" type="text" placeholder="name it" style="width:160px"></label>
+    <label>Symmetry<select id="edSym"><option value="y">mirror across the spine</option><option value="x">mirror left / right</option><option value="">none</option></select></label>
+    <button id="edUndo" class="x">Undo point</button><button id="edClear" class="x">Clear</button>
+    <button id="edSave" class="x go">Save</button><button id="edDelete" class="x" hidden>Delete</button>
+    <span style="flex:1"></span>
+    <button id="edDone" class="x">Done</button>
+    <span class="tiny" style="flex-basis:100%">Drag a point. Double-tap on the line to add a point there, elsewhere to add one at the end, on a point to remove it. Draw above the spine; the other half mirrors; cross the spine to cut a hole. Save keeps the shape under its name (same name = overwrite); it is in the game's library too.</span>
+  </div>
+  <div id="info" class="tiny" style="margin-top:6px">loading the sheet…</div>
+  <div class="ctl" style="margin-top:10px">
+    <label>Plating · master (%)<input id="mPlating" type="range" min="-40" max="40" step="1" value="0"><small id="mPlatingV" class="tiny"></small></label>
+    <label>Fittings · master (%)<input id="mFittings" type="range" min="-40" max="40" step="1" value="0"><small id="mFittingsV" class="tiny"></small></label>
+    <label>Greeble seed <b id="seedV"></b><input id="seed" type="range" min="0" max="999" step="1" value="0"><span style="display:flex;gap:4px;text-transform:none"><input id="seedN" type="number" min="0" max="999" value="0" style="width:70px"><button id="seedNext" class="x" title="the next seed">+1</button></span></label>
+    <label class="chk"><input id="greebles" type="checkbox" checked> greebles</label>
+    <label class="chk"><input id="glow" type="checkbox" checked> engine glow</label>
+    <button id="resetOff" class="x" title="masters and fine offsets back to zero">Reset</button>
+    <button id="png">Download PNG</button>
+  </div>
+  <div class="ctl">
+    <label>Wash · outline → core<span style="display:flex;gap:6px;align-items:center"><input id="washA" type="color" value="#7fb2e5"><input id="washB" type="color" value="#e5b07f"></span></label>
+    <label>Wash strength (%)<input id="wash" type="range" min="0" max="100" step="1" value="45"></label>
+    <label>Lights<input id="lightColor" type="color" value="#9fd8ff"></label>
+    <label>Lights strength (%)<input id="lights" type="range" min="0" max="100" step="1" value="50"></label>
+  </div>
+  <div class="ctl">
+    <label style="color:#5fe3d0">Beams · count × size<span class="wk"><input id="nE" type="number" min="0" max="12" value="2"><select id="sE"><option value="0.5">× ½</option><option value="1" selected>× 1</option><option value="2">× 2</option><option value="4">× 4</option></select></span></label>
+    <label style="color:#ffb347">Guns<span class="wk"><input id="nK" type="number" min="0" max="12" value="2"><select id="sK"><option value="0.5">× ½</option><option value="1" selected>× 1</option><option value="2">× 2</option><option value="4">× 4</option></select></span></label>
+    <label style="color:#ff8a6b">Missiles<span class="wk"><input id="nM" type="number" min="0" max="12" value="2"><select id="sM"><option value="0.5">× ½</option><option value="1" selected>× 1</option><option value="2">× 2</option><option value="4">× 4</option></select></span></label>
+    <label style="color:#ffe08a">Hangars<span class="wk"><input id="nH" type="number" min="0" max="12" value="1"><select id="sH"><option value="0.5">× ½</option><option value="1" selected>× 1</option><option value="2">× 2</option><option value="4">× 4</option></select></span></label>
+    <label class="chk"><input id="turrets" type="checkbox" checked> turrets (the style's art, icons where it has none)</label>
+    <small id="gunsV" class="tiny" style="padding-bottom:8px"></small>
+  </div>
+  <details class="fine"><summary class="tiny">Fine settings — the parts the masters move, one by one</summary>
+  <div class="ctl" style="margin-top:8px">
+    <label>Outer ribbon width · offset (%)<input id="ribOff" type="range" min="-30" max="30" step="1" value="0"><small id="ribV" class="tiny"></small></label>
+    <label>Core ring width · offset (%)<input id="coreOff" type="range" min="-40" max="25" step="1" value="0"><small id="coreV" class="tiny"></small></label>
+    <label>Spine ribbon width · offset (%)<input id="spineOff" type="range" min="-40" max="40" step="1" value="0"><small id="spineV" class="tiny"></small></label>
+    <label>Inner ribbons fatter · offset (%)<input id="fatOff" type="range" min="-75" max="125" step="5" value="0"><small id="fatV" class="tiny"></small></label>
+    <label>Engine size · offset (%)<input id="engOff" type="range" min="-30" max="30" step="1" value="0"><small id="engV" class="tiny"></small></label>
+    <label>Greeble size · offset (%)<input id="greebleOff" type="range" min="-30" max="30" step="1" value="0"><small id="greebleV" class="tiny"></small></label>
+    <label>Hard point size · offset (%)<input id="mountOff" type="range" min="-30" max="30" step="1" value="0"><small id="mountV" class="tiny"></small></label>
+    <label>Turret art size · offset (%)<input id="turretOff" type="range" min="-40" max="40" step="1" value="0"><small id="turretV" class="tiny"></small></label>
+    <label>Under the plating<select id="base"><option value="ribbon">more plating, shifted</option><option value="none">nothing — holes cut through</option><option value="tone">the hull's own tone</option></select></label>
+    <label class="chk"><input id="inner" type="checkbox" checked> inner rings on top</label>
+    <label class="chk"><input id="spine" type="checkbox" checked> spine ribbon</label>
+    <label class="chk"><input id="engines" type="checkbox" checked> engines</label>
+    <label class="chk"><input id="outline" type="checkbox"> show the outline</label>
+  </div>
+  </details>
+  <div class="tiny" style="margin-top:8px">Everything follows the volume. Rings tile edge to edge; the outer one is thin and they swell toward the middle, up to 67 % of the hull's half width at the core, with the spine ribbon at 61 % on top — so a corvette gets one or two rings and a capital ship six to eight. The outer ribbon's width starts at 47 % of its range on the smallest hull and loses 3 % per 500 of volume. Inner rings are drawn 1.75× fatter than their band so ragged strips still fill a big hull (the outer ring and the spine are left alone). Engines are 30 % of the hull's half width ×1.32, one per 280 of volume, banking up in rows when the stern is short; each nozzle glows. Greebles from the style's own set are scattered over the plating, ×1.6 the engine size, some straddling the outline to break it (more of those on a small hull); the turret mounts from the same sets are kept in stock for the hard points. <b>Plating</b> moves the outer ribbon, the core, the spine and the fatness together; <b>Fittings</b> moves engines and greebles together; the fine settings under the flap add on top. <b>Greeble seed</b> reshuffles the scatter and nothing else — a nudge left or right is usually enough. <b>Wash</b> lays two colours along the rings — the first at the outline, the second at the core, so it follows the plating and stays symmetric — on the brighter greys only (the deep shadows stay dark) and never on the engine cones. <b>Lights</b> takes the plating's brightest specks (the top few per cent), paints them again in a colour and blooms them softly. <b>Weapons</b>: four kinds count (orbital bombardment is never shown) — give each a count and a size, and the hard points land where the game's own rule puts them (pairs mirrored across the spine, column after column from the front: missiles, then guns, then beams; an odd gun alone on the spine; hangars along the belly behind them). Every hard point gets a turret <b>mount</b> from the style's own set — one shape per kind — sized like the engines × the gun's size (×4 = twice as wide), never on the engines; greebles keep off them. The turret on top is the style's own art where it has some (Shards, Leaf, Leaf II and Serpent so far — a beam turret, a gun and a missile pod each, the body scaled to the mount and turning on its pivot), else the battle view's icon: a drum rimmed in the weapon's colour with a pale barrel. Beams and guns swing to the pointer (touch the ship and drag); a launcher sits fixed facing forward, as in the game; a hangar is a bay with no art yet. The sliders are offsets from the locked values — find a setting you like and read it off the line under the picture.</div>
+</section>
+<div id="toast"></div>
+<script type="module" src="src/eon/painter.js"></script>

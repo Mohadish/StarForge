@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
+<title>Forge — Eon</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="eon.css">
+</head>
+<body>
+<header id="topbar">
+  <div class="brand">FORGE · EON</div>
+  <nav id="eTabs">
+    <button data-tab="empire" class="on">Empire</button>
+    <button data-tab="galaxy">Galaxy</button>
+    <button data-tab="system">Star system</button>
+    <button data-tab="design">Design</button>
+  </nav>
+  <div id="eStats"></div>
+  <button id="eEnd" class="go">End eon ▸</button>
+  <button id="eNew" class="x">new game</button>
+</header>
+
+<!-- EMPIRE: focus and research belong to the whole empire -->
+<main id="tab-empire" class="eon-grid">
+  <section>
+    <h2>Research — where the attention goes</h2>
+    <div id="eFields"></div>
+  </section>
+  <section>
+    <h2>Focus — what the empire is for <span class="tiny" style="text-transform:none;letter-spacing:0">· drag the ball · click a corner name to pull toward it · drag empty space to turn the pyramid</span></h2>
+    <canvas id="eTetra" width="620" height="420" style="display:block;margin:0 auto;max-width:100%;touch-action:none"></canvas>
+    <div id="eFocus"></div>
+    <h2 style="margin-top:12px">This eon</h2>
+    <div id="ePredict"></div>
+    <h2 style="margin-top:12px">Last eon</h2>
+    <div id="eReport" class="tiny">Nothing yet.</div>
+  </section>
+  <section>
+    <h2>Breakthroughs found</h2>
+    <div id="eBreaks"></div>
+  </section>
+</main>
+
+<!-- GALAXY: every star system, grown from one seed; click a star to see what is there -->
+<main id="tab-galaxy" class="eon-sys hidden">
+  <section style="padding:6px;position:relative">
+    <canvas id="gMap" style="display:block;width:100%;height:100%"></canvas>
+    <div id="gHover" class="tiny" style="position:absolute;left:18px;top:14px;max-width:80%"></div>
+  </section>
+  <section id="gPanel"></section>
+</main>
+
+<!-- STAR SYSTEM: the map of places; click one to see what can be learned there and who is there -->
+<main id="tab-system" class="eon-sys hidden">
+  <section style="padding:6px;position:relative">
+    <canvas id="sMap" style="display:block;width:100%;height:100%"></canvas>
+    <div id="sHover" class="tiny" style="position:absolute;left:18px;top:14px;max-width:70%"></div>
+  </section>
+  <section id="sPanel"></section>
+</main>
+
+<!-- DESIGN: systems on the left, the silhouette in the middle, weapons on the right with lines to their guns -->
+<main id="tab-design" class="eon-des hidden" style="position:relative">
+  <section id="dSys">
+    <div style="display:flex;gap:4px;margin-bottom:10px"><select id="dPick" style="flex:1;min-width:0"></select><button id="dNew" title="new design">＋</button><button id="dCopy" title="copy this design">⧉</button><button id="dDel" class="x" title="delete this design">✕</button></div>
+    <div class="grp">Add a system</div>
+    <div id="dSysAdd" class="palette"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px"><h2 style="margin:0">Systems</h2><button id="dAuto" class="go" title="size the reactor, the star drive and the weapons computer to the need, add shields until the hull is covered">⚙ Auto-fit</button></div>
+    <div id="dSysList"></div>
+  </section>
+  <section id="dMain">
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+      <input type="text" id="dName" style="width:200px">
+      <span id="dClass"></span>
+    </div>
+    <div id="dHullPick" style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-bottom:6px"></div>
+    <canvas id="dHull" width="900" height="400" style="display:block;width:100%;background:#04070f;border:1px solid var(--line);border-radius:10px"></canvas>
+    <div class="tiny" style="margin:6px 0 8px">the silhouette grows with what is inside it · purple rings are the shields' fields, red hull is outside every field · the bar is how much of your space dock's room it takes · the open weapon's guns are lit yellow — drag a gun to move its group along the hull, double-click it to put the group back</div>
+    <div id="dSummary"></div>
+  </section>
+  <section id="dWeap">
+    <div class="grp">Add a weapon</div>
+    <div id="dWeapAdd" class="palette"></div>
+    <h2 style="margin-top:10px">Weapons</h2>
+    <div id="dFire"></div>
+    <div id="dWeapList"></div>
+  </section>
+</main>
+<!-- the silhouette editor, over everything -->
+<div id="hullEd" class="hidden"></div>
+<script type="module" src="src/eon/app.js"></script>
+</body>
+</html>

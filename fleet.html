@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="icon" href="data:,">
+<title>Forge Fleet Generator</title>
+<style>
+:root { --bg:#070a12; --panel:#0e1422; --panel2:#121a2c; --line:#1f2a44; --fg:#e8f0ff; --muted:#9eb3d8; --accent:#5fe3d0; --good:#7ef3b0; --bad:#ff7979; --warn:#ffd26a; --font:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color-scheme: dark }
+html { background: var(--bg) }
+[hidden] { display: none !important }
+body { background: var(--bg); color: var(--fg); font: 14px/1.45 var(--font); margin: 0; padding-block: 14px 40px; padding-inline: 16px; max-width: 900px; margin-inline: auto }
+h1 { font-size: 18px; letter-spacing: .14em; text-transform: uppercase; margin: 0; color: var(--accent) }
+h2 { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 22px 0 8px }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px }
+.ctl { display: flex; flex-wrap: wrap; gap: 10px; align-items: end }
+.ctl label { display: grid; gap: 3px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em }
+.ctl input, .ctl select { background: #04070f; color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: 15px var(--font) }
+.ctl input[type=number] { width: 84px }
+.ctl input[type=color] { width: 52px; height: 38px; padding: 2px }
+button { background: var(--panel2); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 9px 14px; font: 600 14px var(--font); cursor: pointer }
+button.go { background: rgba(126,243,176,.18); border-color: var(--good) }
+button.x { padding: 2px 8px; font-size: 11px }
+button:disabled { opacity: .5 }
+.tiny { font-size: 11px; color: var(--muted); line-height: 1.5 }
+.chk { display: flex; align-items: center; gap: 6px; font-size: 13px }
+#sample { display: block; width: 100%; max-width: 420px; height: 200px; border: 1px solid var(--line); border-radius: 10px; background: #04070f; margin-top: 10px }
+.trow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 5px 0; border-bottom: 1px dashed var(--line) }
+.trow .chk { min-width: 150px }
+.trow input[type=range] { width: 130px; padding: 0 }
+.trow .pct { width: 36px; text-align: right; font-size: 12px; font-variant-numeric: tabular-nums }
+.trow .what { flex: 1; min-width: 180px }
+.ship { display: grid; grid-template-columns: 1fr 220px; gap: 10px; padding: 8px 0; border-bottom: 1px dashed var(--line); align-items: start }
+@media (max-width: 640px) { .ship { grid-template-columns: 1fr } .ship .pic { width: 100%; height: 110px } }
+.ship .n { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap }
+.ship .arch { color: var(--muted); font-size: 12px }
+.ship .rec { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--warn); font-weight: 700 }
+.ship .left { display: grid; gap: 4px; min-width: 0 }
+.ship input[type=range] { width: 100%; padding: 0 }
+.ship input[type=text] { background: #04070f; color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; font: 12px var(--font); width: 100%; box-sizing: border-box }
+.pic { display: block; width: 220px; height: 124px; border: 1px solid var(--line); border-radius: 8px; background: #04070f; cursor: pointer }
+#edPic { display: block; width: 100%; height: 340px; border: 1px solid var(--line); border-radius: 10px; background: #04070f; touch-action: none; margin-top: 8px }
+.prow { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 6px }
+.prow .tiny { width: 58px }
+.chipb { display: inline-block; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--c); color: var(--c); font-size: 12px; font-weight: 700; cursor: grab; user-select: none; touch-action: none; background: rgba(255,255,255,.03) }
+.chipb.role { border-style: dashed }
+.chipb.ghost { position: fixed; transform: translate(-50%, -50%); pointer-events: none; z-index: 99; opacity: .9 }
+#tray { min-height: 54px; margin-top: 6px; padding: 8px; border: 1px dashed var(--line); border-radius: 10px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center }
+.stack { position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--c); background: rgba(255,255,255,.05); color: var(--c); font-size: 13px; cursor: pointer }
+.stack.sel { outline: 2px solid var(--warn) }
+.stack.over { background: rgba(126,243,176,.18); border-color: var(--good) }
+.stack .hh { font-style: normal; font-weight: 800; color: var(--warn) }
+.stack small { color: var(--fg); font-size: 11px }
+.stack .x { padding: 0 6px; font-size: 12px; color: var(--muted) }
+textarea { width: 100%; box-sizing: border-box; background: #04070f; color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 6px; font: 11px monospace }
+select { background: #04070f; color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font: 13px var(--font) }
+.row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 8px }
+</style>
+</head>
+<body>
+<header style="display:flex;align-items:baseline;flex-wrap:wrap;gap:8px;margin-bottom:12px"><h1>Forge · Fleet Generator</h1><small style="color:var(--muted)">price, ships, a coat, grand tactics — a fleet as one code</small><button id="toLabTop" class="x" style="margin-left:auto" onclick="location.href='lab.html'">⚔ Battle Lab</button></header>
+<section class="card" id="step1">
+  <div class="ctl">
+    <label>Price of the fleet<input id="budget" type="number" value="6000" min="150" step="50" inputmode="numeric"></label>
+    <label>Ships<input id="n" type="number" value="8" min="1" max="25" step="1" inputmode="numeric"></label>
+    <label>Name<input id="name" type="text" value="My fleet" style="width:150px"></label>
+    <label>Style<select id="style"></select></label>
+    <label>Colour A<input id="colA" type="color" value="#7fb3ff"></label>
+    <label>Colour B<input id="colB" type="color" value="#ffb347"></label>
+  </div>
+  <canvas id="sample" width="420" height="200" title="a standard dart of about 1200, in this coat"></canvas>
+  <div class="tiny" style="margin-top:4px">The coat every ship of the fleet wears: the plating style and your two colours, on a standard dart of about 1200.</div>
+  <h2>Grand tactics</h2>
+  <div class="tiny">Up to three, and how much of the fleet goes to each. Brute force buys few big hulls, hit &amp; run many small quick ones; too few ships for the tactics and every ship carries the whole mix.</div>
+  <div id="tactics" style="margin-top:6px"></div>
+  <div class="row"><button id="compose" class="go">Compose the fleet</button><span id="note1" class="tiny"></span></div>
+</section>
+<section class="card" id="fleet" hidden style="margin-top:14px">
+  <div id="note" class="tiny"></div>
+  <div id="ships" style="margin-top:6px"></div>
+  <h2>The fleet code</h2>
+  <textarea id="code" rows="3" readonly></textarea>
+  <div class="row"><button id="copy" class="go">⧉ Copy the code</button><button id="toLab">⚔ Take it to the lab</button><button id="codeIn" class="x">Take a pasted code in</button><button id="save">Save</button><select id="saved"><option value="">saved fleets…</option></select><button id="load">Load</button><button id="recompose" class="x">↑ Back to the setup</button></div>
+  <div id="codeNote" class="tiny" style="margin-top:4px">Paste it into the Battle Lab as Fleet 1 or Fleet 2; it carries the coat and any silhouettes you drew.</div>
+</section>
+<section class="card" id="editor" hidden style="margin-top:14px">
+  <div id="edTitle"></div>
+  <canvas id="edPic" width="760" height="340" title="double-tap to reshape the outline"></canvas>
+  <div id="outBar" hidden class="row"><span class="tiny">Outline:</span><input id="outName" type="text" placeholder="name" style="background:#04070f;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:4px 6px;font:12px var(--font)"><select id="outSym"><option value="y">mirror across the spine</option><option value="x">mirror left/right</option><option value="">no symmetry</option></select><button id="outUndo" class="x">undo point</button><button id="outSave" class="go">Save the outline</button><button id="outCancel" class="x">cancel</button><span id="outNote" class="tiny"></span></div>
+  <div class="tiny" style="margin-top:4px">Drag the points; double-tap the line to add one, a point to remove it. The shape is this ship's and travels inside the fleet code.</div>
+  <div class="row"><span class="tiny">Price</span><input id="edCost" type="range" min="150" max="6000" value="600" style="flex:1;min-width:140px;padding:0"><b id="edCostShow"></b><button id="edLock" class="x">🔒 lock / unlock</button><span class="tiny">Silhouette</span><select id="edHull"></select></div>
+  <h2>Chips</h2>
+  <div id="palette"></div>
+  <div id="tray"></div>
+  <div id="trayNote" class="tiny" style="margin-top:6px;min-height:16px"></div>
+  <div class="row"><button id="edApply" class="go">Build it into the fleet</button><button id="edDone">Done</button></div>
+</section>
+<script type="module" src="src/eon/fleetgen.js"></script>
+</body>
+</html>

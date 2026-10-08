@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
+<title>Forge 4X</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header id="topbar">
+  <div class="brand">FORGE</div>
+  <nav id="tabs"></nav>
+  <div id="res"></div>
+  <button id="endTurn" class="go">End turn ▸</button>
+  <button id="newGame" class="x">new game</button>
+</header>
+<main id="view"></main>
+<div id="modal" class="hidden"><div class="box" id="modalBox"></div></div>
+<div id="toast"></div>
+<script type="module" src="src/app.js"></script>
+</body>
+</html>
