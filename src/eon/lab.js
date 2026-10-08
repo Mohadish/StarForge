@@ -7,7 +7,7 @@ import { KINDS, PRESETS, traverseOf } from './modules.js';
 import { drawHull } from './hullview.js';
 import { setUserHulls, hullDef } from './hull.js';
 import { lookOf, spriteOf, lookFromColors } from './skins.js';
-import { buildPlan, planFromCode } from './fleetplan.js';
+import { buildPlan, planFromCode, planCode, plansLoad, exportAllText } from './fleetplan.js';
 const TCELL = { weapon_energy: 0, weapon_kinetic: 1, weapon_missile: 2 };   // a style's turret cells: beam, gun, missile
 const skinsOn = () => !!($('skins') && $('skins').checked);
 
@@ -741,6 +741,35 @@ function fightCodes() {
 }
 $('fightCodes').onclick = fightCodes;
 $('toGen').onclick = () => { location.href = 'fleet.html'; };
+// ---------------- the saved fleets (the Fleet Generator's, same browser): pick one into a code box, copy its code, export them all ----------------
+function showFleetPick(anchor) {
+  const box = $('fleetPick'), list = plansLoad(), r = anchor.getBoundingClientRect();
+  box.innerHTML = (list.length ? list.map((p, i) => `<div class="frow"><b title="${esc(p.name)}">${esc(p.name)}</b><small>${p.ships.length} ships · ${fmt(p.budget)}</small><button data-fpk="A:${i}" title="into Fleet 1">→ 1</button><button data-fpk="B:${i}" title="into Fleet 2">→ 2</button><button data-fpk="C:${i}" title="copy its code">⧉</button></div>`).join('')
+    : '<div class="tiny" style="padding:6px">No saved fleets yet — compose one in the ⚙ Fleet Generator and press Save there.</div>')
+    + `<div class="frow" style="border:0"><button data-fpk="X" class="x">⤓ Export all as text</button><button data-fpk="G" class="x">⚙ Fleet Generator</button><span class="tiny" style="margin-left:auto">${list.length} saved</span></div>`;
+  box.hidden = false; box._list = list;
+  box.style.left = Math.max(4, Math.min(r.left, innerWidth - 300)) + 'px'; box.style.top = Math.min(r.bottom + 4, innerHeight - 120) + 'px';
+}
+document.addEventListener('click', e => {
+  const k = e.target.closest('[data-fpk]');
+  if (k) {
+    const [what, i] = k.dataset.fpk.split(':'), list = $('fleetPick')._list || [];
+    if (what === 'G') { location.href = 'fleet.html'; return; }
+    if (what === 'X') { downloadText('starforge-fleets.txt', exportAllText(list)); $('fleetPick').hidden = true; return; }
+    const p = list[+i]; if (!p) return; const code = planCode(p);
+    if (what === 'A') { $('codeA').value = code; $('codesNote').innerHTML = `<b>${esc(p.name)}</b> is Fleet 1.`; }
+    else if (what === 'B') { $('codeB').value = code; $('codesNote').innerHTML = `<b>${esc(p.name)}</b> is Fleet 2.`; }
+    else { (navigator.clipboard ? navigator.clipboard.writeText(code) : Promise.reject()).then(() => { $('codesNote').innerHTML = `Copied the code of <b>${esc(p.name)}</b>.`; }).catch(() => { $('codeA').value = code; $('codeA').select(); $('codesNote').textContent = 'Put in Fleet 1 and selected — copy it from there.'; }); }
+    $('fleetPick').hidden = true; return;
+  }
+  if (!e.target.closest('#fleetPick') && !e.target.closest('#pickFleet') && !e.target.closest('#codeA') && !e.target.closest('#codeB')) $('fleetPick').hidden = true;
+});
+$('pickFleet').onclick = e => showFleetPick(e.currentTarget);
+for (const id of ['codeA', 'codeB']) $(id).addEventListener('focus', e => { if (plansLoad().length) showFleetPick(e.currentTarget); });   // a click in a code box offers the saved fleets; typing or pasting still works
+function downloadText(name, text) {
+  try { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' })); a.download = name; document.body.appendChild(a); a.click(); a.remove(); $('codesNote').textContent = `Saved ${name}.`; }
+  catch (e) { $('codeA').value = text.slice(0, 2000); $('codesNote').textContent = 'Could not save a file here — the text is in the Fleet 1 box.'; }
+}
 { const m = /[#&]fleetA=([^&]+)/.exec(location.hash), m2 = /[#&]fleetB=([^&]+)/.exec(location.hash); if (m) $('codeA').value = decodeURIComponent(m[1]); if (m2) $('codeB').value = decodeURIComponent(m2[1]); if (m || m2) { try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* fine */ } } }
 if (!$('seed').value) $('seed').value = Math.floor(Math.random() * 1e6);
 run();

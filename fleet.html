@@ -58,8 +58,9 @@ select { background: #04070f; color: var(--fg); border: 1px solid var(--line); b
 </style>
 </head>
 <body>
-<header style="display:flex;align-items:baseline;flex-wrap:wrap;gap:8px;margin-bottom:12px"><h1>Forge · Fleet Generator</h1><small style="color:var(--muted)">price, ships, a coat, grand tactics — a fleet as one code</small><button id="toLabTop" class="x" style="margin-left:auto" onclick="location.href='lab.html'">⚔ Battle Lab</button></header>
+<header style="display:flex;align-items:baseline;flex-wrap:wrap;gap:8px;margin-bottom:12px"><h1>Forge · Fleet Generator</h1><small style="color:var(--muted)">price, ships, a coat, grand tactics — a fleet as one code</small><button id="toLabTop" class="x" style="margin-left:auto">⚔ Battle Lab</button></header>
 <section class="card" id="step1">
+  <div class="row" style="margin:0 0 10px"><span class="tiny"><b>Saved fleets</b></span><select id="savedTop"><option value="">pick one…</option></select><button id="loadTop" class="x">Load</button><button id="exportTop" class="x" title="every saved fleet, name and code, as one text file">⤓ Export all</button><span id="noteTop" class="tiny"></span></div>
   <div class="ctl">
     <label>Price of the fleet<input id="budget" type="number" value="6000" min="150" step="50" inputmode="numeric"></label>
     <label>Ships<input id="n" type="number" value="8" min="1" max="25" step="1" inputmode="numeric"></label>
@@ -80,8 +81,9 @@ select { background: #04070f; color: var(--fg); border: 1px solid var(--line); b
   <div id="ships" style="margin-top:6px"></div>
   <h2>The fleet code</h2>
   <textarea id="code" rows="3" readonly></textarea>
-  <div class="row"><button id="copy" class="go">⧉ Copy the code</button><button id="toLab">⚔ Take it to the lab</button><button id="codeIn" class="x">Take a pasted code in</button><button id="save">Save</button><select id="saved"><option value="">saved fleets…</option></select><button id="load">Load</button><button id="recompose" class="x">↑ Back to the setup</button></div>
-  <div id="codeNote" class="tiny" style="margin-top:4px">Paste it into the Battle Lab as Fleet 1 or Fleet 2; it carries the coat and any silhouettes you drew.</div>
+  <div class="row"><button id="copy" class="go">⧉ Copy the code</button><button id="toLab">⚔ Take it to the lab</button><button id="codeIn" class="x">Take a pasted code in</button><button id="recompose" class="x">↑ Back to the setup</button></div>
+  <div class="row"><span class="tiny"><b>Save as</b></span><input id="saveName" type="text" placeholder="fleet name" style="background:#04070f;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font:13px var(--font);width:180px"><button id="save" class="go">Save</button><select id="saved"><option value="">saved fleets…</option></select><button id="load" class="x">Load</button><button id="exportAll" class="x">⤓ Export all</button></div>
+  <div id="codeNote" class="tiny" style="margin-top:4px">Saved fleets live in this browser; the Battle Lab lists them under ▤ Saved fleets, so you never paste a code by hand on the same device. Copy or export the code to send it anywhere else; it carries the coat and any silhouettes you drew.</div>
 </section>
 <section class="card" id="editor" hidden style="margin-top:14px">
   <div id="edTitle"></div>

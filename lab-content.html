@@ -49,6 +49,11 @@ table.gens .rec { color: var(--warn); font-weight: 700 }
 .cmds button.on { background: rgba(255,210,106,.18); border-color: #ffd26a }
 .ctx[hidden] { display: none }
 .codes input { flex: 1; min-width: 140px; background: #04070f; color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: 12px monospace }
+#fleetPick { min-width: 280px; max-width: min(520px, 94vw); max-height: 70vh; overflow: auto }
+#fleetPick .frow { display: flex; gap: 6px; align-items: center; padding: 6px 4px; border-bottom: 1px dashed var(--line); font-size: 13px }
+#fleetPick .frow b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+#fleetPick .frow small { color: var(--muted); white-space: nowrap }
+#fleetPick .frow button { padding: 2px 8px; font-size: 11px }
 .ctx { position: fixed; z-index: 50; background: #0b1120; border: 1px solid var(--line); border-radius: 10px; padding: 6px; display: flex; flex-direction: column; gap: 4px; min-width: 200px; box-shadow: 0 10px 30px rgba(0,0,0,.55) }
 .ctx .ttl { font-size: 11px; color: var(--muted); padding: 2px 6px; text-transform: uppercase; letter-spacing: .05em }
 .ctx button { text-align: left; font-size: 13px }
@@ -90,8 +95,9 @@ select { background: #04070f; color: var(--fg); border: 1px solid var(--line); b
 </style>
 <header style="display:flex;align-items:baseline;flex-wrap:wrap;gap:4px;margin-bottom:12px"><h1>Forge · Battle Lab</h1><small style="color:var(--muted)">random ships, one price, who wins</small></header>
 <section class="card">
-  <div class="codes" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><span class="tiny" style="min-width:60px"><b>Fleet 1</b> code</span><input id="codeA" placeholder="FLEET2:… from the Fleet Generator"><span class="tiny" style="min-width:60px"><b>Fleet 2</b> code</span><input id="codeB" placeholder="FLEET2:…"><button id="fightCodes" class="go">⚔ Fight the codes</button><button id="toGen" class="x" title="design fleets: price, ships, style, grand tactics">⚙ Fleet Generator</button></div>
-  <div id="codesNote" class="tiny" style="margin-top:6px">Two fleets from the Fleet Generator, pasted here, fight each other — any sizes; both join the pool below so the Challenger and the pick-two fight work with them too.</div>
+  <div class="codes" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><span class="tiny" style="min-width:60px"><b>Fleet 1</b> code</span><input id="codeA" placeholder="FLEET2:… from the Fleet Generator"><span class="tiny" style="min-width:60px"><b>Fleet 2</b> code</span><input id="codeB" placeholder="FLEET2:…"><button id="fightCodes" class="go">⚔ Fight the codes</button><button id="pickFleet" class="x" title="your saved fleets">▤ Saved fleets</button><button id="toGen" class="x" title="design fleets: price, ships, style, grand tactics">⚙ Fleet Generator</button></div>
+  <div id="fleetPick" class="ctx" hidden></div>
+  <div id="codesNote" class="tiny" style="margin-top:6px">Two fleets from the Fleet Generator fight each other — paste their codes, or click a code box and pick from your saved fleets. Any sizes; both join the pool below so the Challenger and the pick-two fight work with them too.</div>
 </section>
 <section class="card">
   <div class="ctl">

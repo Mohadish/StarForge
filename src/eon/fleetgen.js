@@ -6,7 +6,7 @@ import { designFromWords, designFromChips, shipFromDesign, archetype, rng32 } fr
 import { KINDS, PRESETS } from './modules.js';
 import { TEMPLATES, hullDef, setUserHulls, areaOf, bboxOf, HULL_VOLUME } from './hull.js';
 import { lookFromColors, styleChoices, spriteOf } from './skins.js';
-import { TACTICS, TACTIC_IDS, composePlan, setCost, buildPlan, shipLabel, wordsToChips, chipsToWords, plansLoad, plansSave, planStrip, planCode, planFromCode } from './fleetplan.js';
+import { TACTICS, TACTIC_IDS, composePlan, setCost, buildPlan, shipLabel, wordsToChips, chipsToWords, plansLoad, plansSave, planStrip, planCode, planFromCode, exportAllText } from './fleetplan.js';
 import { createShapeEditor, GW, GH } from './shapeedit.js';
 
 const $ = id => document.getElementById(id);
@@ -77,6 +77,7 @@ function renderFleet() {
       <canvas class="pic" data-pic="${i}" width="220" height="124" title="Edit to open it"></canvas></div>`; }).join('');
   for (const cv of $('ships').querySelectorAll('[data-pic]')) { const s = p.ships[+cv.dataset.pic]; drawShip(cv, s.built, lk); }
   $('code').value = planCode({ ...p, style: $('style').value, colA: $('colA').value, colB: $('colB').value });
+  if (document.activeElement !== $('saveName')) $('saveName').value = p.name;
   if (editing != null) refreshEditor();
 }
 $('ships').addEventListener('input', e => { const c = e.target.closest('[data-cost]'); if (c) { const show = $('ships').querySelector(`[data-show="${c.dataset.cost}"]`); if (show) show.textContent = fmt(+c.value); } });
@@ -196,8 +197,17 @@ $('compose').onclick = compose;
 $('recompose').onclick = () => { $('fleet').hidden = true; closeEditor(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
 $('copy').onclick = async () => { const c = $('code'); c.select(); try { await navigator.clipboard.writeText(c.value); $('codeNote').textContent = 'Copied — paste it into the lab as Fleet 1 or Fleet 2.'; } catch (e) { document.execCommand && document.execCommand('copy'); $('codeNote').textContent = 'Selected — copy it.'; } };
 $('toLab').onclick = () => { if (!PLAN) return; location.href = 'lab.html#fleetA=' + encodeURIComponent($('code').value); };
-function refreshSaved() { const list = plansLoad(); $('saved').innerHTML = '<option value="">saved fleets…</option>' + list.map((p, i) => `<option value="${i}">${esc(p.name)} · ${p.ships.length} ships · ${fmt(p.budget)}</option>`).join(''); }
-$('save').onclick = () => { if (!PLAN) return; const list = plansLoad().filter(p => p.name !== PLAN.name); list.unshift(planStrip({ ...PLAN, style: $('style').value, colA: $('colA').value, colB: $('colB').value })); plansSave(list); refreshSaved(); $('saved').value = '0'; $('codeNote').textContent = `Saved "${PLAN.name}" in this browser.`; };
+function refreshSaved() { const list = plansLoad(), opts = list.map((p, i) => `<option value="${i}">${esc(p.name)} · ${p.ships.length} ships · ${fmt(p.budget)}</option>`).join(''); $('saved').innerHTML = '<option value="">saved fleets…</option>' + opts; $('savedTop').innerHTML = '<option value="">pick one…</option>' + opts; $('noteTop').textContent = list.length ? `${list.length} saved` : 'none yet'; }
+$('save').onclick = () => {
+  if (!PLAN) return; const name = $('saveName').value.trim() || PLAN.name || 'My fleet'; PLAN.name = name; $('name').value = name;
+  const list = plansLoad().filter(p => p.name !== name); list.unshift(planStrip({ ...PLAN, name, style: $('style').value, colA: $('colA').value, colB: $('colB').value })); plansSave(list); refreshSaved(); $('saved').value = '0'; renderFleet();
+  $('codeNote').innerHTML = `Saved <b>${esc(name)}</b> in this browser — the Battle Lab's ▤ Saved fleets has it now.`;
+};
+$('saveName').addEventListener('input', () => { if (PLAN) { PLAN.name = $('saveName').value.trim() || PLAN.name; } });
+$('loadTop').onclick = () => { const i = $('savedTop').value; if (i !== '') loadPlan(plansLoad()[+i]); };
+const exportAll = () => { const list = plansLoad(); if (!list.length) { $('noteTop').textContent = 'nothing saved yet'; return; } try { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([exportAllText(list)], { type: 'text/plain' })); a.download = 'starforge-fleets.txt'; document.body.appendChild(a); a.click(); a.remove(); $('noteTop').textContent = 'saved starforge-fleets.txt'; } catch (e) { $('code').value = exportAllText(list); $('codeNote').textContent = 'Could not save a file here — all the codes are in the box above; copy them.'; } };
+$('exportTop').onclick = exportAll; $('exportAll').onclick = exportAll;
+$('toLabTop').onclick = () => { location.href = 'lab.html'; };
 function loadPlan(p) {
   if (!p) return; PLAN = { ...p, ships: p.ships.map(s => ({ ...s })), hulls: p.hulls || {} };
   $('budget').value = p.budget; $('n').value = p.ships.length; $('name').value = p.name || 'My fleet'; if (p.style) $('style').value = p.style; if (p.colA) $('colA').value = p.colA; if (p.colB) $('colB').value = p.colB;

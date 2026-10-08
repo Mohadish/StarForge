@@ -112,6 +112,8 @@ export const PLANS_KEY = 'forge.eon.fleets.v1';
 export const plansLoad = () => { try { return JSON.parse(localStorage.getItem(PLANS_KEY) || '[]'); } catch (e) { return []; } };
 export const plansSave = list => { try { localStorage.setItem(PLANS_KEY, JSON.stringify(list)); } catch (e) { /* storage may be off */ } };
 export const planStrip = plan => ({ ...plan, ships: plan.ships.map(({ built, ...p }) => p) });
+// every saved fleet as one text file: a line of what it is, then its code, blank line between — paste any code back into a lab
+export const exportAllText = list => list.map(p => `# ${p.name} — ${p.ships.length} ships, ${Math.round(p.budget)} · ${(p.mix || []).map(m => (TACTICS[m.id] ? TACTICS[m.id].name : m.id) + ' ' + Math.round(m.share * 100) + '%').join(', ')}${p.style ? ' · ' + p.style : ''}\n${planCode(p)}\n`).join('\n');
 // the code: FLEET2 carries the plan, its two colours, and any hand-drawn silhouettes its ships wear (so it builds anywhere)
 export const planCode = plan => 'FLEET2:' + btoa(unescape(encodeURIComponent(JSON.stringify(planStrip(plan)))));
 export const planFromCode = code => { try { const m = String(code).trim().match(/^FLEET[12]:(.+)$/s); const p = JSON.parse(decodeURIComponent(escape(atob((m ? m[1] : String(code).trim()).replace(/\s+/g, ''))))); return p && Array.isArray(p.ships) ? p : null; } catch (e) { return null; } };
