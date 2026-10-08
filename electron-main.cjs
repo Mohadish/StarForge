@@ -17,8 +17,9 @@ function createWindow() {
     backgroundColor: '#060a14', title: 'Forge 4X', autoHideMenuBar: true, show: !SMOKE,
     webPreferences: { contextIsolation: true, sandbox: true },
   });
-  // FORGE_PAGE picks the entry page: index.html = the map game, eon.html = the eon-loop prototype
-  win.loadURL('app://game/' + (process.env.FORGE_PAGE || 'index.html'));
+  // FORGE_PAGE picks the entry page: colony.html = the old map game (the default, as before), eon.html = the
+  // eon-loop prototype, lab.html / fleet.html / paint.html the tools; index.html is the launcher page and the site's front door
+  win.loadURL('app://game/' + (process.env.FORGE_PAGE || 'colony.html'));
   if (SMOKE) smokeTest(win);
 }
 
