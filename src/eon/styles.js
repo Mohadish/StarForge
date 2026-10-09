@@ -14,7 +14,9 @@ export const STYLES = Object.fromEntries([
   // machines
   // UTOPIA (2026-10-09): one sheet carries everything — TWO strips (ring k wears strip k % 2: the first leads), four
   // engines, three mounts, three turrets and 22 fittings (see below). His first clean sci-fi style.
-  P('utopia1', 'Utopia (clean panels)', 'utopia-1.webp', R(4, 66, 1126, 146), [R(28, 469, 615, 177), R(687, 471, 431, 192), R(17, 664, 539, 215), R(574, 663, 540, 199)], 0.02, { ribbons: [R(4, 66, 1126, 146), R(25, 269, 1099, 146)] }),
+  // the strip rectangles are the SOLID body of each strip: the pointed prow on the left, the stepped end on the right
+  // and the thin rail under the body are left out — inside a hull they were notches (magenta at the nacelle corners)
+  P('utopia1', 'Utopia (clean panels)', 'utopia-1.webp', R(30, 69, 1078, 131), [R(28, 469, 615, 177), R(687, 471, 431, 192), R(17, 664, 539, 215), R(574, 663, 540, 199)], 0.02, { ribbons: [R(30, 69, 1078, 131), R(30, 272, 1078, 131)] }),
   P('greeble1', 'Greeble (grey plating)', 'greeble-1.webp', R(15, 133, 1970, 185), [R(119, 366, 518, 227), R(1382, 365, 545, 243), R(696, 396, 627, 168)], 0.04),
   P('pipes1', 'Pipes (plumbing and vents)', 'pipes-1.webp', R(5, 106, 1990, 202), [R(84, 343, 461, 281), R(1444, 339, 517, 285), R(605, 395, 773, 183)], 0.07),
   P('crate1', 'Crates (boxes and tanks)', 'crate-1.webp', R(20, 102, 1962, 198), [R(74, 361, 561, 243), R(1344, 351, 603, 262), R(691, 381, 599, 199)], 0.07),
