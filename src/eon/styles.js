@@ -17,6 +17,10 @@ export const STYLES = Object.fromEntries([
   // the strip rectangles are the SOLID body of each strip: the pointed prow on the left, the stepped end on the right
   // and the thin rail under the body are left out — inside a hull they were notches (magenta at the nacelle corners)
   P('utopia1', 'Utopia (clean panels)', 'utopia-1.webp', R(30, 69, 1078, 131), [R(28, 469, 615, 177), R(687, 471, 431, 192), R(17, 664, 539, 215), R(574, 663, 540, 199)], 0.02, { ribbons: [R(30, 69, 1078, 131), R(30, 272, 1078, 131)] }),
+  // UTOPIA II (2026-10-10): his one continuous strip; utopia-3.webp = that strip + Utopia's four engines composed on one
+  // sheet (a style's engines must sit on its ribbon sheet). Mounts, fittings and everything else are Utopia's (below);
+  // the turrets are the crates' turrets, a bit brighter (turret-9 = turret-4 lifted, same cells).
+  P('utopia2', 'Utopia II (continuous panels)', 'utopia-3.webp', R(0, 0, 2000, 250), [R(20, 270, 615, 177), R(675, 270, 431, 192), R(20, 505, 539, 215), R(599, 505, 540, 199)], 0.02),
   P('greeble1', 'Greeble (grey plating)', 'greeble-1.webp', R(15, 133, 1970, 185), [R(119, 366, 518, 227), R(1382, 365, 545, 243), R(696, 396, 627, 168)], 0.04),
   P('pipes1', 'Pipes (plumbing and vents)', 'pipes-1.webp', R(5, 106, 1990, 202), [R(84, 343, 461, 281), R(1444, 339, 517, 285), R(605, 395, 773, 183)], 0.07),
   P('crate1', 'Crates (boxes and tanks)', 'crate-1.webp', R(20, 102, 1962, 198), [R(74, 361, 561, 243), R(1344, 351, 603, 262), R(691, 381, 599, 199)], 0.07),
@@ -87,6 +91,7 @@ STYLES.serpent1 = P('serpent1', 'Serpent (scales and plates)', 'serpent-1.webp',
 { const U = 'assets/parts/utopia-1.webp', U2 = 'assets/parts/utopia-2.webp';
   STYLES.utopia1.deco = { sheet: U, sheets: [U, U2], mounts: [[25, 906, 339, 228], [396, 905, 363, 225], [786, 928, 340, 203]],
     greebles: [[18,167,620,189],[660,182,576,189],[25,425,597,201],[644,467,594,163],[24,687,586,211],[643,700,583,199],[41,944,570,190],[643,962,583,176]].map(b => [...b, 1]) };
+  STYLES.utopia2.deco = STYLES.utopia1.deco;                                          // Utopia II wears Utopia's mounts and fittings
   STYLES.utopia1.turrets = { sheet: U, cells: [[46,1166,318,223,119,111,223],[388,1167,376,221,133,110,221],[786,1163,332,227,123,113,227]] }; }
 for (const [id, [sheet, at]] of Object.entries(DECO)) if (STYLES[id]) STYLES[id].deco = { sheet: 'assets/parts/' + sheet + '.webp', sheets: ['assets/parts/' + sheet + '.webp'], mounts: CELLS[sheet].slice(at, at + 3), greebles: CELLS[sheet].slice(at + 3, at + 6).map(c => [...c, 0]) };
 for (const [id, list] of Object.entries(EXTRA)) {
@@ -113,13 +118,14 @@ const TCELLS = {
   'turret-7': [[27,233,550,499,190,252,499],[600,253,549,459,194,235,457],[1189,249,468,502,193,249,501]],   // one row: crystal, upgraded
   'turret-8': [[26,126,587,410,236,204,410],[673,140,664,381,236,191,381],[1391,131,582,399,238,197,399]],   // one row: pipes
 };
+TCELLS['turret-9'] = TCELLS['turret-4'];   // turret-4 lifted a little (gamma 0.82) for Utopia II — the same cells
 // sheet rows → styles (his calls). turret-1: [row 1 the first shards set — FREE], leaf, leaf II, [row 4 "scales and plates"
 // — FREE]; turret-2: [row 1 "armored tech" — FREE, greeble moved on], bio-mecha insect → wings, serpentine scale → serpent,
 // [row 4 "crystal leaf" — FREE]; turret-3: [row 1 "honeycomb shell" — FREE], elder foliage → thorns, sail panels, wooden
 // vessel → deck; turret-4 (unlabelled): tendrils → eyes, cobbles, crates, castle; turret-5: ribbed shell → carapace, coral,
 // [row 3 old cables — FREE], shards; turret-6: tanks, cables (the new version), greeble, bone; turret-7: crystal (upgraded);
 // turret-8: pipes. Every style has its turrets.
-const TURRETS = { crystal1: ['turret-7', 0], pipes1: ['turret-8', 0], leaf1: ['turret-1', 3], leaf2: ['turret-1', 6],
+const TURRETS = { utopia2: ['turret-9', 6], crystal1: ['turret-7', 0], pipes1: ['turret-8', 0], leaf1: ['turret-1', 3], leaf2: ['turret-1', 6],
   wing1: ['turret-2', 3], serpent1: ['turret-2', 6],
   thorn1: ['turret-3', 3], sail1: ['turret-3', 6], deck1: ['turret-3', 9],
   eye1: ['turret-4', 0], cobble1: ['turret-4', 3], crate1: ['turret-4', 6], castle1: ['turret-4', 9],
