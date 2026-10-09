@@ -186,7 +186,7 @@ export function paintHull(cv, poly, img, style, opt = {}, decoImg = null) {
   const ox = W / 2 - wc[0] * S, oy = H / 2 - wc[1] * S;
   const P = poly.map(([x, y]) => [ox + x * S, oy + y * S]);
   const path = new Path2D(); P.forEach(([x, y], i) => i ? path.lineTo(x, y) : path.moveTo(x, y)); path.closePath();
-  const R = style.ribbon, pitch = o.pitch, rag = ragOf(style, img), top = o.edge ?? rag.top, bot = rag.bot, area = areaOf(poly);   // how ragged the strip's top and bottom are (shares of its height)
+  const RS = style.ribbons || [style.ribbon], R = RS[0], pitch = o.pitch, rag = ragOf(style, img), top = o.edge ?? rag.top, bot = rag.bot, area = areaOf(poly);   // RS: a style may carry more than one strip — ring k wears RS[k % n]; `rag`: how ragged the strip's top and bottom are (shares of its height)
   // the distance field: how far every point inside is from the outline (even-odd, so a shape drawn through its own spine has a hole)
   const G = o.grid, Wg = Math.ceil(W / G) + 2, Hg = Math.ceil(H / G) + 2;
   const mc = new OffscreenCanvas(Wg, Hg), mg = mc.getContext('2d'); mg.setTransform(1 / G, 0, 0, 1 / G, 1, 1); mg.fillStyle = '#fff'; mg.fill(path, 'evenodd');
@@ -272,7 +272,7 @@ export function paintHull(cv, poly, img, style, opt = {}, decoImg = null) {
     // a straight piece of strip: texture from uTex over `lenTex` px of strip, laid along the local x axis (already
     // translated, rotated and — on the side where the line runs the other way — mirrored by the caller), centred,
     // `hh` tall; the strip is read back and forth (ping-pong) so it never seams
-    const strip = (uTex, lenTex, w, hh) => {
+    const strip = (uTex, lenTex, w, hh, R) => {
       const period = 2 * R.w, k = w / lenTex; let u = ((uTex % period) + period) % period, left = lenTex, x = -w / 2;
       while (left > 1e-6) {
         const fwd = u < R.w, pos = fwd ? u : period - u, room = fwd ? R.w - u : u - R.w, take = Math.min(left, room > 0 ? room : left);
@@ -283,7 +283,7 @@ export function paintHull(cv, poly, img, style, opt = {}, decoImg = null) {
     };
     // the ribbon along one open run of points, nose first, as planks `hh` tall; `shift` = where this ring starts
     // reading the strip. Each plank reaches a little past both its ends, and more where the line bends there.
-    const lay = (pts, shift, hh, upFixed = null) => {
+    const lay = (pts, shift, hh, upFixed = null, R = RS[0]) => {
       const Sm = sample(pts, o.step, false); if (Sm.length < 2) return;
       const texScale = R.h / hh, ov = o.overlap * hh;
       const C = planks(Sm, o.plank * hh, o.turn).map(({ i, j }) => { const a = Sm[i], c = Sm[j], dx = c.x - a.x, dy = c.y - a.y, len = Math.hypot(dx, dy) || 1e-6; return { a, c, len, tx: dx / len, ty: dy / len }; });
@@ -293,7 +293,7 @@ export function paintHull(cv, poly, img, style, opt = {}, decoImg = null) {
         const e0 = ov + (hh / 2) * Math.tan(bend(C[n - 1], c) / 2), e1 = ov + (hh / 2) * Math.tan(bend(c, C[n + 1]) / 2);
         const w = c.len + e0 + e1, mx = (c.a.x + c.c.x) / 2 + c.tx * (e1 - e0) / 2, my = (c.a.y + c.c.y) / 2 + c.ty * (e1 - e0) / 2;
         const up = upFixed || outward(mx, my, c.tx, c.ty), rx = -up[1], ry = up[0], dir = (c.tx * rx + c.ty * ry) >= 0 ? 1 : -1;   // the strip's top faces out; where the line runs against the frame, the plank is mirrored, not re-read
-        g.save(); g.translate(mx, my); g.rotate(Math.atan2(ry, rx)); g.scale(dir, 1); strip(shift + (c.a.s - e0) * texScale, w * texScale, w, hh); g.restore();
+        g.save(); g.translate(mx, my); g.rotate(Math.atan2(ry, rx)); g.scale(dir, 1); strip(shift + (c.a.s - e0) * texScale, w * texScale, w, hh, R); g.restore();
       });
     };
     const clipped = fn => { g.save(); g.clip(path, 'evenodd'); fn(); g.restore(); };
@@ -304,11 +304,11 @@ export function paintHull(cv, poly, img, style, opt = {}, decoImg = null) {
     else if (o.base === 'ribbon') clipped(() => {
       if (first) tone();
       const hh = Math.max(wEdge, Math.min(wCore, wEdge * 2)), dy = hh * Math.max(0.45, Math.min(0.85, 1 - top - bot - 0.05));   // courses step by the strip's solid share, so their solid parts meet
-      for (let k = 0, y = y0 + hh * (0.5 - top); y < y1 + hh; y += dy, k++) lay([[x1 + hh, y], [x0 - hh, y]], (rings.length + 2 + k) * o.shift * R.w, hh, [0, -1]);
+      for (let k = 0, y = y0 + hh * (0.5 - top); y < y1 + hh; y += dy, k++) lay([[x1 + hh, y], [x0 - hh, y]], (rings.length + 2 + k) * o.shift * R.w, hh, [0, -1], RS[(k + 1) % RS.length]);
     });
     // the rings. The OUTER one is not clipped: the strip's own ragged edge IS the ship's outline; the inner ones are
     const order = [...rings.keys()]; if (!o.innerOnTop) order.reverse();
-    const ring = k => { const r = rings[k]; for (const loop of contours(dist, Wg, Hg, r.level)) for (const side of halves(loop.map(toPx))) lay(side, r.shift, r.draw); };
+    const ring = k => { const r = rings[k]; for (const loop of contours(dist, Wg, Hg, r.level)) for (const side of halves(loop.map(toPx))) lay(side, r.shift, r.draw, null, RS[k % RS.length]); };
     for (const k of order) { if (k === 0) ring(0); else clipped(() => ring(k)); }
     if (o.spine) clipped(() => lay([[x1, oy], [x0, oy]], rings.length * o.shift * R.w, wSpine, [0, -1]));   // the spine ribbon, nose to tail, on top
     // GREEBLES: the style's own decorations, scattered over the plating; sized like the engines (a little smaller on
@@ -343,7 +343,7 @@ export function paintHull(cv, poly, img, style, opt = {}, decoImg = null) {
         if (symY && Math.abs(p.y - oy) > p.sz * 0.15) { if (spots.length + 2 > want) continue; spots.push(p, { ...p, y: 2 * oy - p.y, flip: true }); placed.push(p); }
         else { spots.push(p); placed.push(p); }
       }
-      for (const s of spots) { const sp = pool[s.i], h = s.sz, w = h * sp[2] / sp[3]; g.save(); g.translate(s.x, s.y); g.scale(1, s.flip ? -1 : 1); g.drawImage(dOf(sp[4]), sp[0], sp[1], sp[2], sp[3], -w / 2, -h / 2, w, h); g.restore(); }
+      for (const s of spots) { const sp = pool[s.i], h = s.sz * (sp[5] || 1) /* cell[5]: a small fitting stays small */, w = h * sp[2] / sp[3]; g.save(); g.translate(s.x, s.y); g.scale(1, s.flip ? -1 : 1); g.drawImage(dOf(sp[4]), sp[0], sp[1], sp[2], sp[3], -w / 2, -h / 2, w, h); g.restore(); }
       if (first) { greebles = spots.length; greebleSpots = spots.map(s => ({ x: s.x, y: s.y, sz: s.sz })); }
     }
     // the turret MOUNTS, one under every hard point (the turret itself is the page's, drawn on top)
