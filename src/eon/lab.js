@@ -6,7 +6,8 @@ const breathe = () => new Promise(r => setTimeout(r, 0));   // handed back from 
 import { KINDS, PRESETS, traverseOf } from './modules.js';
 import { drawHull } from './hullview.js';
 import { setUserHulls, hullDef } from './hull.js';
-import { readLocal, loadLibrary, saveLibrary, decodeLibrary, mergeLibrary } from './library.js';
+import { readLocal, loadLibrary, saveLibrary, decodeLibrary, mergeLibrary, loadFleets } from './library.js';
+loadFleets();                                                                      // the saved fleets kept with the page come down into the browser's copy, which the picker reads
 import { lookOf, spriteOf, lookFromColors } from './skins.js';
 import { buildPlan, planFromCode, planCode, plansLoad, exportAllText } from './fleetplan.js';
 const TCELL = { weapon_energy: 0, weapon_kinetic: 1, weapon_missile: 2 };   // a style's turret cells: beam, gun, missile

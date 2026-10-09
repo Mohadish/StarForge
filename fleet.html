@@ -74,6 +74,16 @@ select { background: #04070f; color: var(--fg); border: 1px solid var(--line); b
 #arenaFrame { display: block; width: 100%; height: 540px; border: 0; background: #04070f }
 #arenaWrap.big { position: fixed; inset: 0; z-index: 100; margin: 0; border: 0; border-radius: 0 }
 #arenaWrap.big #arenaFrame { flex: 1; height: auto }
+/* the ribbon of saved fleets */
+.fstrip { display: flex; gap: 8px; overflow-x: auto; padding: 4px 2px 8px; -webkit-overflow-scrolling: touch; scrollbar-width: thin; touch-action: pan-x; min-height: 40px }
+.fthumb { flex: 0 0 auto; width: 158px; border: 1px solid var(--line); border-radius: 10px; padding: 3px; background: #04070f; cursor: grab; user-select: none; -webkit-user-select: none }
+.fthumb canvas { display: block; width: 150px; height: 100px; border-radius: 8px }
+.fthumb .nm { font-weight: 700; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 2px 2px 0 }
+.fthumb .sm { font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 2px 2px }
+.fthumb.ghost { position: fixed; transform: translate(-50%, -50%); pointer-events: none; z-index: 99; opacity: .85; box-shadow: 0 6px 20px rgba(0,0,0,.6) }
+.ftip[hidden] { display: none }
+.ftip { position: fixed; z-index: 65; max-width: 320px; background: #0b1120; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: 12px; line-height: 1.4; box-shadow: 0 10px 30px rgba(0,0,0,.55); pointer-events: none }
+.side.over canvas { border-color: var(--good); box-shadow: 0 0 0 2px rgba(126,243,176,.35) }
 </style>
 </head>
 <body>
@@ -84,6 +94,12 @@ select { background: #04070f; color: var(--fg); border: 1px solid var(--line); b
   <div class="sides"><div class="side a" id="sideA"><canvas width="420" height="170"></canvas><div class="sum tiny"></div></div><div class="side b" id="sideB"><canvas width="420" height="170"></canvas><div class="sum tiny"></div></div></div>
   <div id="fightNote" class="tiny" style="margin-top:6px"></div>
   <div id="arenaWrap" hidden><div class="abar"><span id="arenaNote" class="tiny"></span><button id="fightAgain" class="x" title="the same two fleets, fresh dice">⚔ Again</button><button id="arenaBig" class="x">⛶ Full screen</button><button id="arenaLab" class="x" title="this fight in the full Battle Lab">⚗ Open in the lab</button></div><iframe id="arenaFrame" title="the fight" allow="fullscreen"></iframe></div>
+</section>
+<h2>Your fleets</h2>
+<section class="card" id="fleetsCard">
+  <div class="tiny" style="margin-bottom:4px">Every fleet you saved, its biggest ship in front. Hover (or tap) one for the whole story; right-click or long-press for edit / rename / delete / fight as 1 or 2 / copy the code; drag one onto the Fleet 1 or Fleet 2 picture above and it is that fleet.</div>
+  <div id="fleetStrip" class="fstrip"></div>
+  <div id="fleetTip" class="ftip" hidden></div>
 </section>
 <h2>Compose a fleet</h2>
 <section class="card" id="step1">
@@ -108,8 +124,8 @@ select { background: #04070f; color: var(--fg); border: 1px solid var(--line); b
   <h2>The fleet code</h2>
   <textarea id="code" rows="3" readonly></textarea>
   <div class="row"><button id="asA" class="go" title="put this fleet in the Fleet 1 box at the top">↑ Fight it as Fleet 1</button><button id="asB" class="go" title="put this fleet in the Fleet 2 box at the top">↑ as Fleet 2</button><button id="copy">⧉ Copy the code</button><button id="codeIn" class="x">Take a pasted code in</button><button id="recompose" class="x">↑ Back to the setup</button></div>
-  <div class="row"><span class="tiny"><b>Save as</b></span><input id="saveName" type="text" placeholder="fleet name" style="background:#04070f;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font:13px var(--font);width:180px"><button id="save" class="go">Save</button></div>
-  <div id="codeNote" class="tiny" style="margin-top:4px">Saved fleets live in this browser: click the Fleet 1 or Fleet 2 box at the top and pick one. Copy the code to send the fleet to a friend; it carries the coat and any silhouettes you drew.</div>
+  <div class="row"><button id="save" class="go">Save…</button><span class="tiny">Overwrite the fleet you opened, or keep this one as a new fleet with a name of its own — it joins the ribbon above the composer.</span></div>
+  <div id="codeNote" class="tiny" style="margin-top:4px">Saved fleets are kept with the page (and in this browser): pick one from the ribbon above the composer, or click the Fleet 1 / Fleet 2 box at the top. Copy the code to send the fleet to a friend; it carries the coat and any silhouettes you drew.</div>
 </section>
 <section class="card" id="editor" hidden style="margin-top:14px">
   <div id="edTitle"></div>

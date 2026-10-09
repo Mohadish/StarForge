@@ -85,15 +85,15 @@ export function createDialog() {
     ask: h => show('ask', `Save “${h.name}”`),                                                              // → 'over' | 'new' | null
     name: (def, title = 'A new silhouette') => show('name', title, def),                                    // → a name | null
     rename: h => show('name', `Rename “${h.name}”`, h.name),
-    confirmDelete: h => show('delete', `Delete “${h.name}”? Designs using it fall back to a built-in one.`),   // → true | null
+    confirmDelete: (h, note = 'Designs using it fall back to a built-in one.') => show('delete', `Delete “${h.name}”? ${note}`),   // → true | null
     code: c => show('code', "The library as a code — copy it, paste it into the lab's Silhouettes box", c),
   };
 }
 // SAVE, the one way: one of yours → overwrite it, or keep it as a new one (named); anything else → a new one (named).
 // `taken(name)` says a different shape already has that name (asked again); `commit(id | null, name)` does the saving
 // and returns the hull. Resolves with the saved hull, or null when cancelled.
-export async function saveFlow(dlg, { mine, defaultName, taken, commit }) {
+export async function saveFlow(dlg, { mine, defaultName, taken, commit, what = 'silhouette' }) {
   if (mine) { const c = await dlg.ask(mine); if (!c) return null; if (c === 'over') return commit(mine.id, mine.name); }
-  let def = defaultName || 'My silhouette', title = 'A new silhouette';
+  let def = defaultName || `My ${what}`, title = `A new ${what}`;
   for (;;) { const name = await dlg.name(def, title); if (!name) return null; if (taken && taken(name)) { def = name; title = `There is already a “${name}” — another name?`; continue; } return commit(null, name); }
 }
