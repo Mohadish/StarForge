@@ -168,6 +168,16 @@ function ragOf(style, img) {
   } catch (e) { style._rag = fallback; }
   return style._rag;
 }
+// (test) a strip's BACKING: its solid middle rows (between the ragged top and bottom) stretched to the strip's full
+// height — laid under the strip itself on the very same planks, so a lacy strip sits on its own material, not on space.
+// One canvas per strip rectangle, cached on the style.
+function backingOf(style, img, R) {
+  if (!style._backing) style._backing = new Map();
+  if (style._backing.has(R)) return style._backing.get(R);
+  const rag = ragOf(style, img), y0 = Math.round(R.h * Math.min(0.45, rag.top + 0.05)), y1 = Math.round(R.h * Math.max(0.55, 1 - rag.bot - 0.05));
+  const c = new OffscreenCanvas(R.w, R.h), g = c.getContext('2d'); g.drawImage(img, R.x, R.y + y0, R.w, Math.max(1, y1 - y0), 0, 0, R.w, R.h);
+  const b = { sheet: c, rect: { x: 0, y: 0, w: R.w, h: R.h } }; style._backing.set(R, b); return b;
+}
 // the hull's own TONE: the strip's mean colour, darkened — what shows through where the plating is lace
 function toneOf(style, img) {
   if (!style._base) { const c1 = new OffscreenCanvas(1, 1), c1g = c1.getContext('2d'), R = style.ribbon; c1g.drawImage(img, R.x, R.y, R.w, R.h, 0, 0, 1, 1); const p = c1g.getImageData(0, 0, 1, 1).data; style._base = `rgb(${Math.round(p[0] * 0.45)},${Math.round(p[1] * 0.45)},${Math.round(p[2] * 0.45)})`; }
@@ -186,7 +196,7 @@ export function paintHull(cv, poly, img, style, opt = {}, decoImg = null) {
   const ox = W / 2 - wc[0] * S, oy = H / 2 - wc[1] * S;
   const P = poly.map(([x, y]) => [ox + x * S, oy + y * S]);
   const path = new Path2D(); P.forEach(([x, y], i) => i ? path.lineTo(x, y) : path.moveTo(x, y)); path.closePath();
-  const RS = style.ribbons || [style.ribbon], R = RS[0], pitch = o.pitch, rag = ragOf(style, img), top = o.edge ?? rag.top, bot = rag.bot, area = areaOf(poly);   // RS: a style may carry more than one strip — ring k wears RS[k % n]; `rag`: how ragged the strip's top and bottom are (shares of its height)
+  const RS = style.ribbons || [style.ribbon], R = RS[0], pitch = o.pitch, raggedness = o.edge ?? style.edge ?? 0, area = areaOf(poly);   // RS: a style may carry more than one strip — ring k wears RS[k % n]
   // the distance field: how far every point inside is from the outline (even-odd, so a shape drawn through its own spine has a hole)
   const G = o.grid, Wg = Math.ceil(W / G) + 2, Hg = Math.ceil(H / G) + 2;
   const mc = new OffscreenCanvas(Wg, Hg), mg = mc.getContext('2d'); mg.setTransform(1 / G, 0, 0, 1 / G, 1, 1); mg.fillStyle = '#fff'; mg.fill(path, 'evenodd');
@@ -202,24 +212,9 @@ export function paintHull(cv, poly, img, style, opt = {}, decoImg = null) {
   const rings = [];                                                                 // { w, d, draw, level (cells), shift }
   for (let d = 0, k = 0; k < o.maxRings; k++) {
     const w = widthAt(d); if (d + w * 0.3 >= deep) break;
-    rings.push({ w, d, draw: k === 0 ? w : w * o.innerFat, shift: k * o.shift * R.w });
+    rings.push({ w, draw: k === 0 ? w : w * o.innerFat, level: Math.max(0.5, d + w / 2 - (k === 0 ? raggedness * w : 0)) / G, shift: k * o.shift * R.w });
     d += w * pitch;
   }
-  // The drawn heights, so the SOLID parts of neighbouring rings meet: a ragged strip is only solid in its middle, and
-  // laid edge to edge its rings leave a lace band between them (the voids he saw at the nacelles and through the body).
-  // The outer ring keeps its ragged top outside the outline and is drawn taller (up to 1.5×) until its solid part
-  // reaches the next ring's; each inner ring, fatter than its band already, grows a little more (up to 1.3× that) when
-  // its solid top still falls short of the previous ring's solid bottom. What is still lace shows the tone under it.
-  if (rings.length && top < 0.45) {
-    const mg = 0.08, solidTop = r => r.d + r.w / 2 - r.draw * (0.5 - top), solidBot = r => r.d + r.w / 2 + r.draw * (0.5 - bot);
-    const r0 = rings[0], reach = rings.length > 1 ? solidTop(rings[1]) : deep;   // a lone ring must reach the middle from both sides
-    r0.draw = Math.max(r0.w, Math.min(1.5 * r0.w, (reach + mg * r0.w) / Math.max(0.3, 1 - top - bot)));
-    for (let k = 1; k < rings.length; k++) {
-      const r = rings[k], below = k === 1 ? r0.draw * (1 - top - bot) : solidBot(rings[k - 1]);
-      r.draw = Math.max(r.draw, Math.min(1.3 * o.innerFat * r.w, (r.d + r.w / 2 - below + mg * r.w) / (0.5 - top)));
-    }
-  }
-  for (const [k, r] of rings.entries()) r.level = Math.max(0.5, k === 0 ? r.draw * (0.5 - top) : r.d + r.w / 2) / G;   // the outer ring's top sits `top` of its height outside the outline
   const xs = P.map(p => p[0]), ys = P.map(p => p[1]), x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
   const symY = poly.every(([x, y]) => poly.some(([x2, y2]) => Math.abs(x2 - x) < 1e-6 && Math.abs(y2 + y) < 1e-6));   // mirrored across the spine: engines and greebles must be too
   const engineH = Math.max(0.6 * wEdge, 0.3 * deep) * o.engineSize;              // an engine's natural size: it grows with the hull, never under the small-hull minimum
@@ -272,12 +267,12 @@ export function paintHull(cv, poly, img, style, opt = {}, decoImg = null) {
     // a straight piece of strip: texture from uTex over `lenTex` px of strip, laid along the local x axis (already
     // translated, rotated and — on the side where the line runs the other way — mirrored by the caller), centred,
     // `hh` tall; the strip is read back and forth (ping-pong) so it never seams
-    const strip = (uTex, lenTex, w, hh, R) => {
+    const strip = (uTex, lenTex, w, hh, R, sh = sheet) => {
       const period = 2 * R.w, k = w / lenTex; let u = ((uTex % period) + period) % period, left = lenTex, x = -w / 2;
       while (left > 1e-6) {
         const fwd = u < R.w, pos = fwd ? u : period - u, room = fwd ? R.w - u : u - R.w, take = Math.min(left, room > 0 ? room : left);
-        if (fwd) g.drawImage(sheet, R.x + pos, R.y, take, R.h, x, -hh / 2, take * k, hh);
-        else { g.save(); g.translate(x + take * k, 0); g.scale(-1, 1); g.drawImage(sheet, R.x + pos - take, R.y, take, R.h, 0, -hh / 2, take * k, hh); g.restore(); }
+        if (fwd) g.drawImage(sh, R.x + pos, R.y, take, R.h, x, -hh / 2, take * k, hh);
+        else { g.save(); g.translate(x + take * k, 0); g.scale(-1, 1); g.drawImage(sh, R.x + pos - take, R.y, take, R.h, 0, -hh / 2, take * k, hh); g.restore(); }
         u = (u + take) % period; left -= take; x += take * k;
       }
     };
@@ -293,18 +288,20 @@ export function paintHull(cv, poly, img, style, opt = {}, decoImg = null) {
         const e0 = ov + (hh / 2) * Math.tan(bend(C[n - 1], c) / 2), e1 = ov + (hh / 2) * Math.tan(bend(c, C[n + 1]) / 2);
         const w = c.len + e0 + e1, mx = (c.a.x + c.c.x) / 2 + c.tx * (e1 - e0) / 2, my = (c.a.y + c.c.y) / 2 + c.ty * (e1 - e0) / 2;
         const up = upFixed || outward(mx, my, c.tx, c.ty), rx = -up[1], ry = up[0], dir = (c.tx * rx + c.ty * ry) >= 0 ? 1 : -1;   // the strip's top faces out; where the line runs against the frame, the plank is mirrored, not re-read
-        g.save(); g.translate(mx, my); g.rotate(Math.atan2(ry, rx)); g.scale(dir, 1); strip(shift + (c.a.s - e0) * texScale, w * texScale, w, hh, R); g.restore();
+        g.save(); g.translate(mx, my); g.rotate(Math.atan2(ry, rx)); g.scale(dir, 1);
+        if (o.backing && first) { const b = backingOf(style, img, R); strip(shift + (c.a.s - e0) * texScale, w * texScale, w, hh, b.rect, b.sheet); }   // (test) the strip's own solid middle, under the same plank
+        strip(shift + (c.a.s - e0) * texScale, w * texScale, w, hh, R); g.restore();
       });
     };
     const clipped = fn => { g.save(); g.clip(path, 'evenodd'); fn(); g.restore(); };
+    // (test) a colour under EVERYTHING: whatever shows of it is a hole through every layer
+    if (o.voidColor && first) clipped(() => { g.fillStyle = o.voidColor; g.fill(path, 'evenodd'); });
     // what lies UNDER the plating, where it has holes: nothing (true alpha), more plating (straight courses of the
-    // strip, each read from somewhere else, over the hull's own tone so a lacy strip never shows space), or the tone alone
-    const tone = () => { g.fillStyle = o.baseColor || toneOf(style, img); g.fill(path, 'evenodd'); };
-    if (o.base === 'tone' && first) clipped(tone);
+    // strip, each read from somewhere else), or the hull's own tone
+    if (o.base === 'tone' && first) clipped(() => { g.fillStyle = toneOf(style, img); g.fill(path, 'evenodd'); });
     else if (o.base === 'ribbon') clipped(() => {
-      if (first) tone();
-      const hh = Math.max(wEdge, Math.min(wCore, wEdge * 2)), dy = hh * Math.max(0.45, Math.min(0.85, 1 - top - bot - 0.05));   // courses step by the strip's solid share, so their solid parts meet
-      for (let k = 0, y = y0 + hh * (0.5 - top); y < y1 + hh; y += dy, k++) lay([[x1 + hh, y], [x0 - hh, y]], (rings.length + 2 + k) * o.shift * R.w, hh, [0, -1], RS[(k + 1) % RS.length]);
+      const hh = Math.max(wEdge, Math.min(wCore, wEdge * 2));
+      for (let k = 0, y = y0 + hh * 0.4; y < y1 + hh; y += hh * 0.85, k++) lay([[x1 + hh, y], [x0 - hh, y]], (rings.length + 2 + k) * o.shift * R.w, hh, [0, -1], RS[(k + 1) % RS.length]);
     });
     // the rings. The OUTER one is not clipped: the strip's own ragged edge IS the ship's outline; the inner ones are
     const order = [...rings.keys()]; if (!o.innerOnTop) order.reverse();

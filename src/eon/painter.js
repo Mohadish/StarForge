@@ -148,7 +148,7 @@ function repaint(overlayOnly = false) {
     const engineSize = Math.max(0.3, (DEF.engine + engO / 50) * kF), greebleSize = Math.max(0.3, (DEF.greeble + grO / 50) * kF), mountSize = Math.max(0.3, (DEF.mount + mtO / 50) * kF);
     const t0 = performance.now(), L = lock, G = guns();
     const wash = +$('wash').value / 100, lights = +$('lights').value / 100;
-    last = paintHull(cv, poly(), img, style, { ribbon, centre, spineW, innerFat, engineSize, engineN: autoEngines(v), greebleSize, seed, wash, washA: $('washA').value, washB: $('washB').value, lights, lightColor: $('lightColor').value, guns: G, mountSize, glow: $('glow').checked, greebles: $('greebles').checked, innerOnTop: $('inner').checked, spine: $('spine').checked, engines: $('engines').checked, outline: $('outline').checked, base: $('base').value, baseColor: $('voids').checked ? '#ff00ff' : undefined, ...(L ? { px: L.S, center: [0, 0] } : {}) }, decoImg);
+    last = paintHull(cv, poly(), img, style, { ribbon, centre, spineW, innerFat, engineSize, engineN: autoEngines(v), greebleSize, seed, wash, washA: $('washA').value, washB: $('washB').value, lights, lightColor: $('lightColor').value, guns: G, mountSize, glow: $('glow').checked, greebles: $('greebles').checked, innerOnTop: $('inner').checked, spine: $('spine').checked, engines: $('engines').checked, outline: $('outline').checked, base: $('base').value, voidColor: $('voids').checked ? '#ff00ff' : undefined, backing: $('backing').checked, ...(L ? { px: L.S, center: [0, 0] } : {}) }, decoImg);
     last._snap = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height);   // the painted ship, kept so a hover only redraws the overlay
     last._turret = Math.max(0.3, (DEF.turret + ttO / 50) * kF);                   // the turret art's body, × the mount
     const sgn = n => (n > 0 ? '+' : '') + n;
@@ -178,7 +178,7 @@ $('style').onchange = async e => { style = STYLES[e.target.value]; await loadBot
 for (const id of ['vol', 'mPlating', 'mFittings', 'seed', 'wash', 'lights', 'washA', 'washB', 'lightColor', 'ribOff', 'engOff', 'coreOff', 'spineOff', 'fatOff', 'greebleOff', 'mountOff', 'turretOff']) $(id).oninput = () => { if (id === 'vol' && ed.editing && !ed.dragging) lock = currentLock(); repaint(); };
 $('seedN').onchange = e => { $('seed').value = Math.max(0, Math.min(999, Math.round(+e.target.value || 0))); repaint(); };
 $('seedNext').onclick = () => { $('seed').value = (+$('seed').value + 1) % 1000; repaint(); };
-for (const id of ['glow', 'greebles', 'inner', 'spine', 'engines', 'outline', 'base', 'voids', ...WEAPONS.flatMap(([k]) => ['n' + k, 's' + k])]) $(id).onchange = () => repaint();
+for (const id of ['glow', 'greebles', 'inner', 'spine', 'engines', 'outline', 'base', 'voids', 'backing', ...WEAPONS.flatMap(([k]) => ['n' + k, 's' + k])]) $(id).onchange = () => repaint();
 $('turrets').onchange = () => repaint(true);
 $('resetOff').onclick = () => { for (const id of ['mPlating', 'mFittings', 'ribOff', 'engOff', 'coreOff', 'spineOff', 'fatOff', 'greebleOff', 'mountOff', 'turretOff']) $(id).value = 0; repaint(); };
 // the turrets follow the pointer over the ship (a finger too); off the canvas they face forward again
