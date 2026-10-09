@@ -17,10 +17,10 @@
 // and short where it bends, with a little overlap (more where the line bends). The strip is read from
 // the NOSE outward along both sides, so a symmetric hull gets a mirrored skin; every ring starts the
 // strip somewhere else. Pure canvas work: no DOM beyond the canvases it is handed.
-import { bboxOf, areaOf, edgeAt, hardPoints } from './hull.js';
+import { bboxOf, areaOf, edgeAt, hardPoints, HULL_VOLUME } from './hull.js';
 
 export const PAINT = { ribbon: 0.9, centre: 0.75, spineW: 0.6, innerFat: 1.25, power: 1.5, pitch: 1, grid: 2, step: 3, plank: 2.2, turn: 0.35, overlap: 0.12, shift: 0.37,
-  engineSize: 1, engineN: 0, glow: true, greebles: true, greebleN: 0, greebleSize: 1, seed: 0, innerOnTop: true, spine: true, engines: true, outline: false, base: 'ribbon', maxRings: 40,
+  engineSize: 1, engineN: 0, glow: true, greebles: true, greebleN: 0, greebleSize: 1, seed: 0, innerOnTop: true, spine: true, engines: true, outline: false, base: 'ribbon', underlay: true, maxRings: 40,
   wash: 0, washA: '#7fb2e5', washB: '#e5b07f', lights: 0, lightColor: '#9fd8ff', guns: [], mounts: true, mountSize: 1 };
 // guns: [{ kind, n, size }] the weapons aboard (kind as in modules.js KINDS; size = the gun's volume ratio, 1 = standard) ·
 // mounts: draw a turret mount under every hard point · mountSize: × the mount's natural size (80 % of the engine's)
@@ -305,7 +305,10 @@ export function paintHull(cv, poly, img, style, opt = {}, decoImg = null) {
     });
     // the rings. The OUTER one is not clipped: the strip's own ragged edge IS the ship's outline; the inner ones are
     const order = [...rings.keys()]; if (!o.innerOnTop) order.reverse();
-    const ring = k => { const r = rings[k]; for (const loop of contours(dist, Wg, Hg, r.level)) for (const side of halves(loop.map(toPx))) lay(side, r.shift, r.draw, null, RS[k % RS.length]); };
+    const ring = (k, dShift = 0) => { const r = rings[k]; for (const loop of contours(dist, Wg, Hg, r.level)) for (const side of halves(loop.map(toPx))) lay(side, r.shift + dShift, r.draw, null, RS[k % RS.length]); };
+    // a SECOND COAT of the rings under the first (his idea, 2026-10-09): the same rings again, read from the other half
+    // of the strip, so the holes of one coat land on the plating of the other; clipped, so the outline stays the top coat's
+    if (o.underlay) clipped(() => { for (const k of order) ring(k, 0.5 * R.w); });
     for (const k of order) { if (k === 0) ring(0); else clipped(() => ring(k)); }
     if (o.spine) clipped(() => lay([[x1, oy], [x0, oy]], rings.length * o.shift * R.w, wSpine, [0, -1]));   // the spine ribbon, nose to tail, on top
     // GREEBLES: the style's own decorations, scattered over the plating; sized like the engines (a little smaller on
@@ -319,7 +322,10 @@ export function paintHull(cv, poly, img, style, opt = {}, decoImg = null) {
     if (o.greebles && dsheets[0] && pool.length) {
       const rng = die(hashOf(style.id + '|' + poly.length + '#' + (o.greebleN || 0) + '#' + (o.seed || 0)));
       const want = o.greebleN || Math.max(2, Math.min(16, Math.round(2 + area / 12))), pOut = Math.max(0.15, Math.min(0.65, 1 - area / 25));
-      const size = engineH * o.greebleSize * (area > 60 ? 0.8 : 1), perim = sample(P, 2, true), placed = [];
+      // under volume 300 a fitting keeps the size it has AT 300, relative to the hull (his call): the engine floor (60 % of
+      // the ribbon) is what blew them up on tiny hulls, so that floor shrinks with the hull below the reference area
+      const kRef = Math.min(1, Math.sqrt(area / (300 / HULL_VOLUME))), engineHRef = Math.max(0.6 * wEdge * kRef, 0.3 * deep) * o.engineSize;
+      const size = engineHRef * o.greebleSize * (area > 60 ? 0.8 : 1), perim = sample(P, 2, true), placed = [];
       const inside = (x, y) => dAt(x, y) > 0;
       const onTip = (x, sz) => { if (x < x1 - sz * 1.5) return false; const e = edgeAt(poly, (x - ox) / S); return !e || (e.max - e.min) * S < sz * 1.2; };   // in the nose, and the hull there is narrower than the greeble
       const tryPlace = () => {
