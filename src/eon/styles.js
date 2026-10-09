@@ -62,13 +62,15 @@ const CELLS = {
   'deco-19': [[46,37,346,319],[421,86,353,278],[774,23,313,341],[1087,70,340,294],[19,378,403,237],[422,364,352,255],[774,364,372,246],[1146,365,279,254],[55,625,288,252],[369,619,366,269],[756,648,351,210],[1134,619,284,269],[17,889,386,169],[403,888,305,180],[724,889,349,162],[1094,888,335,161]],
   'deco-20': [[27,173,336,167],[380,168,341,171],[737,171,346,168],[1097,167,330,172],[19,401,342,172],[377,402,345,171],[736,401,356,171],[1106,397,328,171],[24,645,336,158],[371,644,347,162],[734,648,350,170],[1097,642,330,174],[18,849,336,166],[367,858,359,163],[740,838,353,192],[1104,850,324,175]],
   'deco-21': [[16,19,860,217],[906,20,846,218],[12,264,867,186],[895,265,866,175],[16,468,853,164],[886,466,873,179],[13,655,849,206],[885,667,870,198]],
+  'deco-22': [[32,57,681,224],[739,58,688,239],[25,311,696,246],[752,326,674,224],[24,563,683,219],[739,584,688,200],[25,788,694,263],[753,818,673,239]],
 };
 // the add-ons: style → [sheet, from, to] (cell indices), or a list of those. His order of sheets follows the style list;
 // deco-19 / deco-20 arrived swapped (thorn + serpent, then carapace + eye). deco-21 (leaves, berries, mushrooms — long
-// strips) is a GUESS onto leaf1 until he says.
+// strips) is a GUESS onto leaf1 until he says. deco-22 (eight long tendril strips, a few with an eye) REPLACES the eye
+// add-ons of deco-20 rows 3–4, which he did not like (too many eyes) — those cells stay in CELLS but nothing uses them.
 const EXTRA = { greeble1: ['deco-11', 0, 6], pipes1: ['deco-11', 6, 12], crate1: ['deco-12', 0, 6], cable1: ['deco-12', 6, 12], tank1: ['deco-13', 0, 8], cobble1: ['deco-13', 8, 16],
   castle1: ['deco-14', 0, 6], deck1: ['deco-14', 6, 12], sail1: ['deco-15', 0, 8], crystal1: ['deco-15', 8, 12], shard1: ['deco-16', 0, 6], leaf1: [['deco-16', 6, 12], ['deco-21', 0, 8]],
-  leaf2: ['deco-17', 0, 8], wing1: ['deco-17', 8, 16], coral1: ['deco-18', 0, 8], bone1: ['deco-18', 8, 16], thorn1: ['deco-19', 0, 8], serpent1: ['deco-19', 8, 16], carapace1: ['deco-20', 0, 8], eye1: ['deco-20', 8, 16] };
+  leaf2: ['deco-17', 0, 8], wing1: ['deco-17', 8, 16], coral1: ['deco-18', 0, 8], bone1: ['deco-18', 8, 16], thorn1: ['deco-19', 0, 8], serpent1: ['deco-19', 8, 16], carapace1: ['deco-20', 0, 8], eye1: ['deco-22', 0, 8] };
 const DECO = { greeble1: ['deco-1', 0], pipes1: ['deco-1', 6], crystal1: ['deco-2', 0], crate1: ['deco-2', 6], eye1: ['deco-3', 0], cobble1: ['deco-3', 6], carapace1: ['deco-4', 0], coral1: ['deco-4', 6],
   cable1: ['deco-5', 0], castle1: ['deco-5', 6], bone1: ['deco-6', 0], thorn1: ['deco-6', 6], tank1: ['deco-7', 0], sail1: ['deco-7', 6], deck1: ['deco-8', 0], leaf1: ['deco-8', 6], wing1: ['deco-9', 0], serpent1: ['deco-9', 6],
   shard1: ['deco-10', 0], leaf2: ['deco-10', 6] };
