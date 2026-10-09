@@ -20,7 +20,9 @@ export const STYLES = Object.fromEntries([
   // UTOPIA II (2026-10-10): his one continuous strip; utopia-3.webp = that strip + Utopia's four engines composed on one
   // sheet (a style's engines must sit on its ribbon sheet). Mounts, fittings and everything else are Utopia's (below);
   // the turrets are the crates' turrets, a bit brighter (turret-9 = turret-4 lifted, same cells).
-  P('utopia2', 'Utopia II (continuous panels)', 'utopia-3.webp', R(0, 0, 2000, 250), [R(20, 270, 615, 177), R(675, 270, 431, 192), R(20, 505, 539, 215), R(599, 505, 540, 199)], 0.02),
+  // edge 0.15: the strip's top is stepped panels down to 15 % of its height (rows under 90 % solid) — pushed out past the
+  // outline by that much so the steps ARE the outline (his ask: "a broken, jagged outline"), not hidden over the filler
+  P('utopia2', 'Utopia II (continuous panels)', 'utopia-3.webp', R(0, 0, 2000, 250), [R(20, 270, 615, 177), R(675, 270, 431, 192), R(20, 505, 539, 215), R(599, 505, 540, 199)], 0.15),
   P('greeble1', 'Greeble (grey plating)', 'greeble-1.webp', R(15, 133, 1970, 185), [R(119, 366, 518, 227), R(1382, 365, 545, 243), R(696, 396, 627, 168)], 0.04),
   P('pipes1', 'Pipes (plumbing and vents)', 'pipes-1.webp', R(5, 106, 1990, 202), [R(84, 343, 461, 281), R(1444, 339, 517, 285), R(605, 395, 773, 183)], 0.07),
   P('crate1', 'Crates (boxes and tanks)', 'crate-1.webp', R(20, 102, 1962, 198), [R(74, 361, 561, 243), R(1344, 351, 603, 262), R(691, 381, 599, 199)], 0.07),
