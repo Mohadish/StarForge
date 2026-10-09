@@ -113,10 +113,12 @@ select { background: #04070f; color: var(--fg); border: 1px solid var(--line); b
 </section>
 <section class="card" id="editor" hidden style="margin-top:14px">
   <div id="edTitle"></div>
+  <div class="tiny" style="margin:6px 0 2px">Silhouette — tap one (also while the outline is open); right-click or long-press one of yours to rename or delete it</div>
+  <div id="edHullStrip"></div>
   <canvas id="edPic" width="760" height="340" title="double-tap to reshape the outline"></canvas>
-  <div id="outBar" hidden class="row"><span class="tiny">Outline:</span><input id="outName" type="text" placeholder="name" style="background:#04070f;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:4px 6px;font:12px var(--font)"><select id="outSym"><option value="y">mirror across the spine</option><option value="x">mirror left/right</option><option value="">no symmetry</option></select><button id="outUndo" class="x">undo point</button><button id="outSave" class="go">Save the outline</button><button id="outCancel" class="x">cancel</button><span id="outNote" class="tiny"></span></div>
-  <div class="tiny" style="margin-top:4px">Drag the points; double-tap the line to add one, a point to remove it. The shape is this ship's and travels inside the fleet code.</div>
-  <div class="row"><span class="tiny">Price</span><input id="edCost" type="range" min="150" max="6000" value="600" style="flex:1;min-width:140px;padding:0"><b id="edCostShow"></b><button id="edLock" class="x">🔒 lock / unlock</button><span class="tiny">Silhouette</span><select id="edHull"></select></div>
+  <div id="outBar" hidden class="row"><b id="outWho" class="tiny" style="color:var(--fg)"></b><select id="outSym"><option value="y">mirror across the spine</option><option value="x">mirror left/right</option><option value="">no symmetry</option></select><button id="outUndo" class="x">undo point</button><button id="outSave" class="go">Save…</button><button id="outDelete" class="x" hidden>Delete</button><button id="outCancel" class="x">done</button><span id="outNote" class="tiny"></span></div>
+  <div class="tiny" style="margin-top:4px">Double-tap the picture to open the outline. Drag the points; double-tap the line to add one, a point to remove it. Save… asks: overwrite the one you started from, or keep it as a new silhouette with a name — it goes into your library (the painter's) and travels inside the fleet code.</div>
+  <div class="row"><span class="tiny">Price</span><input id="edCost" type="range" min="150" max="6000" value="600" style="flex:1;min-width:140px;padding:0"><b id="edCostShow"></b><button id="edLock" class="x">🔒 lock / unlock</button></div>
   <h2>Chips</h2>
   <div id="palette"></div>
   <div id="tray"></div>

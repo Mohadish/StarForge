@@ -5,6 +5,7 @@
 // the squares, not the box. Ships, platforms and docks are seen from above (nose to +x, spine on
 // y = 0); structures are seen from the side, standing on the ground (down is +y).
 // Silhouettes are built in (below) or drawn by the player in the editor and kept in a library.
+import { PACK } from './hullpack.js';
 export const HULL_VOLUME = 32;                 // volume per square of silhouette
 export const HULL_CLASSES = { starship: 'Starship', platform: 'Platform', structure: 'Structure', dock: 'Space dock' };
 
@@ -31,12 +32,15 @@ export const TEMPLATES = {
   fork:   { klass: 'dock', name: 'Fork',   poly: [[0.7, -0.5], [-0.3, -0.5], [-0.5, -0.35], [-0.7, -0.35], [-0.7, 0.35], [-0.5, 0.35], [-0.3, 0.5], [0.7, 0.5], [0.7, 0.26], [-0.35, 0.26], [-0.35, -0.26], [0.7, -0.26]] },
 };
 for (const [id, t] of Object.entries(TEMPLATES)) t.id = id;
+// his own silhouettes, shipped as built-ins (hullpack.js) — every copy of the game has them
+for (const h of PACK) if (h && h.poly?.length >= 3 && !TEMPLATES[h.id]) TEMPLATES[h.id] = { ...h, klass: h.klass || 'starship', pack: true };
 
-// silhouettes the player drew ({ id, name, klass, poly, … }) — the app loads and saves them
+// silhouettes the player drew ({ id, name, klass, poly, … }) — the app loads and saves them. One of his with the same
+// id as a pack shape is that shape, edited: it takes the pack copy's place everywhere.
 const USER = new Map();
 export function setUserHulls(list) { USER.clear(); for (const h of list || []) if (h && h.poly?.length >= 3) USER.set(h.id, { ...h, user: true }); }
-export const hullDef = id => TEMPLATES[id] || USER.get(id) || null;
-export const hullsFor = klass => [...Object.values(TEMPLATES), ...USER.values()].filter(h => h.klass === klass);
+export const hullDef = id => USER.get(id) || TEMPLATES[id] || null;
+export const hullsFor = klass => [...Object.values(TEMPLATES).filter(t => !USER.has(t.id)), ...USER.values()].filter(h => h.klass === klass);
 
 export const areaOf = poly => Math.abs(poly.reduce((a, [x, y], i) => { const [x2, y2] = poly[(i + 1) % poly.length]; return a + x * y2 - x2 * y; }, 0)) / 2;
 export const bboxOf = poly => ({ minx: Math.min(...poly.map(p => p[0])), maxx: Math.max(...poly.map(p => p[0])), miny: Math.min(...poly.map(p => p[1])), maxy: Math.max(...poly.map(p => p[1])) });

@@ -11,8 +11,8 @@
 // circling — and the faster ship wins that argument; the field has a hard edge, so a runner is cornered.
 import { designStats, allCapsules, autoFit, KINDS, FAB, DODGE, SHIELD, HULL, PRESETS, TURRET, traverseOf, applyPreset } from './modules.js';
 import { hullsFor } from './hull.js';
-// the silhouettes random ships are drawn from: the player's own starships when there are any (hull.js setUserHulls), else the built-in ones
-export const starshipHulls = () => { const all = hullsFor('starship'), mine = all.filter(h => h.user); return mine.length ? mine : all; };
+// the silhouettes random ships are drawn from: the player's own starships (hull.js setUserHulls) and the shipped pack of his (hullpack.js) when there are any, else the plain built-in ones
+export const starshipHulls = () => { const all = hullsFor('starship'), own = all.filter(h => h.user || h.pack); return own.length ? own : all; };
 
 export const B = { dt: 0.25, start: 3000, maxTime: 600, record: 1, unit: 8, minGap: 60, wing: 90, spread: 110, arena: 2200, strafe: 0.6,   // wing: how close wingmen come to each other; spread: a fleet's starting line
   missile: { speed: 320, spiral: 70, twist: 4.5, hitRadius: 30, life: 14 },

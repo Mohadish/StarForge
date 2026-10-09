@@ -31,31 +31,33 @@ details.fine summary { cursor: pointer; color: var(--muted) }
 .ctl input[type=number] { width: 70px; padding: 5px 7px }
 .ctl input[type=color] { width: 44px; height: 30px; padding: 2px; background: #04070f; border: 1px solid var(--line); border-radius: 8px }
 .ctl .wk { display: flex; gap: 4px; text-transform: none; letter-spacing: 0 }
+#editBar > b { padding: 6px 2px }
 .ctl .wk input[type=number] { width: 56px }
 </style>
 <h1>Forge · Painter<small>draw the outline, the skin paints itself</small></h1>
 <section class="card">
   <div class="ctl">
     <label>Style<select id="style"></select></label>
-    <label>Silhouette<select id="hull"></select></label>
     <label>Size (volume) <b id="volv"></b><input id="vol" type="range" min="100" max="4000" step="25" value="600"></label>
     <span class="sizes"><button id="s400" class="x">≈ price 400</button> <button id="s1000" class="x">1000</button> <button id="s3000" class="x">3000</button> <button id="s6000" class="x">6000</button></span>
     <button id="edEdit" class="x">✎ Edit the outline</button>
     <button id="toLab" class="x" title="open the battle lab — random ships there wear your silhouettes">⚔ To the lab</button>
     <button id="libCode" class="x" title="copy the library as a code, to paste into the lab's Silhouettes box">⧉ Library code</button>
   </div>
+  <div class="tiny" style="margin:2px 0 4px">Silhouette — tap one (also while editing); right-click or long-press one of yours to rename or delete it</div>
+  <div id="hullStrip"></div>
   <div class="stage">
     <canvas id="out" width="960" height="540"></canvas>
     <div id="editHint">double-tap the ship to edit its outline</div>
   </div>
   <div id="editBar" hidden>
-    <label>Name<input id="edName" type="text" placeholder="name it" style="width:160px"></label>
+    <b id="edWho" class="tiny" style="color:var(--fg)"></b>
     <label>Symmetry<select id="edSym"><option value="y">mirror across the spine</option><option value="x">mirror left / right</option><option value="">none</option></select></label>
     <button id="edUndo" class="x">Undo point</button><button id="edClear" class="x">Clear</button>
-    <button id="edSave" class="x go">Save</button><button id="edDelete" class="x" hidden>Delete</button>
+    <button id="edSave" class="x go">Save…</button><button id="edDelete" class="x" hidden>Delete</button>
     <span style="flex:1"></span>
     <button id="edDone" class="x">Done</button>
-    <span class="tiny" style="flex-basis:100%">Drag a point. Double-tap on the line to add a point there, elsewhere to add one at the end, on a point to remove it. Draw above the spine; the other half mirrors; cross the spine to cut a hole. Save keeps the shape under its name (same name = overwrite); it is in the game's library too.</span>
+    <span class="tiny" style="flex-basis:100%">Drag a point. Double-tap on the line to add a point there, elsewhere to add one at the end, on a point to remove it. Draw above the spine; the other half mirrors; cross the spine to cut a hole. Save asks: overwrite the one you started from, or keep it as a new silhouette with a name of its own. <span id="libNote"></span></span>
   </div>
   <div id="info" class="tiny" style="margin-top:6px">loading the sheet…</div>
   <div class="ctl" style="margin-top:10px">

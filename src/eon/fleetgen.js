@@ -10,15 +10,18 @@ import { TEMPLATES, hullDef, setUserHulls, areaOf, bboxOf, HULL_VOLUME } from '.
 import { lookFromColors, styleChoices, spriteOf } from './skins.js';
 import { TACTICS, TACTIC_IDS, composePlan, setCost, buildPlan, shipLabel, wordsToChips, chipsToWords, plansLoad, plansSave, planStrip, planCode, planFromCode, exportAllText } from './fleetplan.js';
 import { createShapeEditor, GW, GH } from './shapeedit.js';
+import { readLocal, loadLibrary, saveLibrary } from './library.js';
+import { renderStrip, createDialog, createMenu, saveFlow } from './hullui.js';
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmt = n => n >= 1000 ? (n / 1000).toFixed(1) + 'k' : Math.round(n).toString();
 const S = { breakthroughs: [] };
-const HULL_KEY = 'forge.eon.hulls.v1';
-let HULLS = []; try { HULLS = JSON.parse(localStorage.getItem(HULL_KEY) || '[]') || []; } catch (e) { HULLS = []; }
+let HULLS = readLocal();                                                        // the painter's library (library.js): the browser's copy at once…
 let PLAN = null, editing = null, lock = null;
 const registerHulls = () => setUserHulls([...HULLS, ...Object.values(PLAN && PLAN.hulls || {})]);
+// …and the page's own store (a published page) a moment later: its list takes over and the hull choices refresh
+loadLibrary().then(r => { if (r.durable) { HULLS = r.list; registerHulls(); if (editing !== null) refreshEditor(); } });
 const look = () => lookFromColors($('style').value, $('colA').value, $('colB').value);
 
 // ---------------- painting a ship into a canvas ----------------
@@ -58,7 +61,7 @@ function shares() {
 const note = (html, where = 'note') => { $(where).innerHTML = html; };
 function compose() {
   const m = mix(); if (!m.length) { note('Tick at least one tactic.', 'note1'); return; }
-  const budget = Math.min(20000, Math.max(150, +$('budget').value || 6000)), n = Math.max(1, Math.min(25, Math.floor(budget / 150), Math.round(+$('n').value || 8)));
+  const budget = Math.min(60000, Math.max(150, +$('budget').value || 6000)), n = Math.max(1, Math.min(25, Math.floor(budget / 150), Math.round(+$('n').value || 8)));
   $('n').value = n;
   PLAN = composePlan({ budget, n, mix: m, seed: Math.floor(Math.random() * 1e6), name: $('name').value.trim() || 'My fleet', style: $('style').value });
   PLAN.colA = $('colA').value; PLAN.colB = $('colB').value; PLAN.hulls = {};
@@ -123,7 +126,30 @@ function dropChip(type, key, onStack) {
   document.addEventListener('pointerup', end); document.addEventListener('pointercancel', end);
   document.addEventListener('click', e => { const u = e.target.closest('[data-unstack]'); if (u) { const s = tray.find(x => x.id === +u.dataset.unstack); if (s) { s.h--; if (s.h <= 0) tray = tray.filter(x => x !== s); } return renderTray(); } const st = e.target.closest('[data-stack]'); if (st) { traySel = +st.dataset.stack; return renderTray(); } });
 }
-const hullChoices = () => [...Object.values(TEMPLATES).filter(t => t.klass === 'starship'), ...HULLS.filter(h => (h.klass || 'starship') === 'starship'), ...Object.values(PLAN && PLAN.hulls || {})];
+// the silhouettes to choose from (the painter's strip, hullui.js): the built-in shapes (the shipped pack among them, unless his
+// library holds that very shape), then his library, then what came with this fleet's code
+const hullItems = () => {
+  const mine = HULLS.filter(h => (h.klass || 'starship') === 'starship'), mineIds = new Set(mine.map(h => h.id));
+  return [...Object.values(TEMPLATES).filter(t => t.klass === 'starship' && !mineIds.has(t.id)).map(h => ({ h, group: 'built' })), ...mine.map(h => ({ h, group: 'mine' })),
+    ...Object.values(PLAN && PLAN.hulls || {}).filter(h => !mineIds.has(h.id)).map(h => ({ h, group: 'fleet' }))];
+};
+const curHull = () => { const s = PLAN.ships[editing]; return s.hull || (s.built ? s.built.design.hull : 'dart'); };
+const hdlg = createDialog(), hmenu = createMenu();
+function renderHullStrip() {
+  const s = PLAN.ships[editing]; if (!s) return;
+  renderStrip($('edHullStrip'), hullItems(), ed.editing ? ed.state().id || curHull() : curHull(), {
+    onPick: h => {                                                              // while the outline is open the editor takes the new shape; otherwise the ship wears it
+      if (ed.editing) { ed.load(h); lock = currentLock(); syncOutBar(); drawOutline(); renderHullStrip(); return; }
+      s.hull = h.id; rebuild(); if (editing != null) renderHullStrip();
+    },
+    onMenu: (x, y, h) => hmenu.open(x, y, [
+      { label: 'Rename…', run: async () => { const name = await hdlg.rename(h); if (!name) return; h.name = name; saveLibrary(HULLS); registerHulls(); renderHullStrip(); if (ed.editing) syncOutBar(); } },
+      { label: 'Delete', run: async () => { if (!(await hdlg.confirmDelete(h))) return; HULLS = HULLS.filter(x => x.id !== h.id); saveLibrary(HULLS); registerHulls(); for (const o of PLAN.ships) if (o.hull === h.id && !(PLAN.hulls && PLAN.hulls[h.id])) o.hull = null; if (ed.editing && ed.state().id === h.id) ed.editing = false; rebuild(); renderHullStrip(); } },
+    ]),
+  });
+}
+const mineOf = id => HULLS.find(h => h.id === id) || null;
+function syncOutBar() { const st = ed.state(), mine = mineOf(st.id); $('outWho').textContent = mine ? `Editing ${mine.name} (yours)` : `From ${(st.name || '').replace(/ II$/, '')} — Save makes a new one`; $('outSym').value = st.sym || ''; $('outDelete').hidden = !mine; }
 function openEditor(i) {
   editing = i; const s = PLAN.ships[i]; if (!s) return;
   tray = (s.chips ? s.chips.map(c => ({ ...c })) : wordsToChips(s.words)).map(c => ({ ...c, id: chipId++ })); traySel = tray.length ? tray[0].id : null;
@@ -135,29 +161,27 @@ function refreshEditor() {
   const b = s.built, p = PLAN, max = p.budget - p.ships.filter((o, j) => j !== editing && o.locked).reduce((a, o) => a + o.cost, 0) - p.ships.filter((o, j) => j !== editing && !o.locked).length * 150;
   $('edTitle').innerHTML = `<b>${b ? esc(b.name) : editing + 1}</b> of ${esc(p.name)} <span class="arch">${esc(shipLabel(s))}</span>`;
   $('edCost').min = 150; $('edCost').max = Math.max(150, Math.round(max)); $('edCost').value = Math.round(s.cost); $('edCost').disabled = !!s.locked; $('edCostShow').textContent = fmt(s.cost) + (s.locked ? ' 🔒' : '');
-  const cur = s.hull || (b ? b.design.hull : 'dart');
-  $('edHull').innerHTML = hullChoices().map(h => `<option value="${esc(h.id)}" ${h.id === cur ? 'selected' : ''}>${esc(h.name)}${h.user || (PLAN.hulls && PLAN.hulls[h.id]) ? ' · yours' : ''}</option>`).join('');
+  renderHullStrip();
   if (!ed.editing) { lock = null; drawShip($('edPic'), b, look()); }
 }
 function previewShip() {                                                          // the chips, built live at the ship's price
   if (editing == null) return; const s = PLAN.ships[editing];
   const d = tray.length ? designFromChips(S, tray.map(c => ({ kind: c.kind, h: c.h, role: c.role })), s.cost, rng32(s.seed)) : null;
   if (!d) { $('trayNote').textContent = tray.length ? 'Add at least one weapon.' : 'The ship as it is. Change the chips and Build it.'; preview = null; return; }
-  const hull = $('edHull').value; if (hull && hullDef(hull)) d.hull = hull;
+  const hull = curHull(); if (hull && hullDef(hull)) d.hull = hull;
   preview = shipFromDesign(S, d); preview.arch = archetype(preview);
   const t = preview.t; $('trayNote').innerHTML = `<b>${esc(chipsToWords(tray))}</b> → cost ${fmt(t.cost)} · hull ${fmt(t.hp)}${t.armor ? ` · armour ${fmt(t.armor)}` : ''} · shield ${fmt(t.shieldRaw)} · ${fmt(t.dps)} dmg/s · speed ${fmt(t.speed)} · turns ${Math.round(t.turn)}°/s · evasion ${Math.round(t.evasion)}%${Math.abs(t.cost - s.cost) / s.cost > 0.08 ? ' <span style="color:var(--warn)">(not quite at the price)</span>' : ''} — <b>Build it</b> puts it in the fleet.`;
   if (!ed.editing) drawShip($('edPic'), preview, look());
 }
 function applyChips() {
   if (editing == null || !tray.length) return; const s = PLAN.ships[editing];
-  s.chips = tray.map(c => ({ kind: c.kind, h: c.h, role: c.role })); s.words = chipsToWords(s.chips); s.custom = true; s.hull = $('edHull').value || s.hull;
+  s.chips = tray.map(c => ({ kind: c.kind, h: c.h, role: c.role })); s.words = chipsToWords(s.chips); s.custom = true;
   rebuild(); $('trayNote').innerHTML = `Built into the fleet at ${fmt(s.cost)}.`;
 }
 $('edApply').onclick = applyChips;
 $('edDone').onclick = () => { closeEditor(); $('fleet').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
 $('edCost').addEventListener('input', () => { $('edCostShow').textContent = fmt(+$('edCost').value); });
 $('edCost').addEventListener('change', () => { setCost(PLAN, editing, +$('edCost').value); rebuild(); });
-$('edHull').addEventListener('change', () => { const s = PLAN.ships[editing]; s.hull = $('edHull').value; rebuild(); });
 $('edLock').onclick = () => { const s = PLAN.ships[editing]; s.locked = !s.locked; renderFleet(); };
 
 // the outline editor on the big picture (the painter's): the ship is held still while its points are dragged
@@ -171,7 +195,7 @@ const ed = createShapeEditor($('edPic'), {
   frame() { const L = lock || currentLock(), cv = $('edPic'); return { toPx: ([gx, gy]) => [cv.width / 2 + (gx - GW / 2 - L.cx) * L.s * L.S, cv.height / 2 + (gy - GH / 2 - L.cy) * L.s * L.S], fromPx: ([px, py]) => [(px - cv.width / 2) / (L.s * L.S) + L.cx + GW / 2, (py - cv.height / 2) / (L.s * L.S) + L.cy + GH / 2] }; },
   changed(what) {
     if (editing == null) return;
-    if (what === 'start') { const s = PLAN.ships[editing], h = (PLAN.hulls && PLAN.hulls[s.hull]) || hullDef(s.hull || (s.built ? s.built.design.hull : 'dart')); if (h) ed.load(h); lock = currentLock(); $('outBar').hidden = false; $('outName').value = ed.state().name || ''; $('outSym').value = ed.state().sym || ''; }
+    if (what === 'start') { const s = PLAN.ships[editing], h = (PLAN.hulls && PLAN.hulls[s.hull]) || hullDef(s.hull || (s.built ? s.built.design.hull : 'dart')); if (h) ed.load(h); lock = currentLock(); $('outBar').hidden = false; syncOutBar(); renderHullStrip(); }
     if (what === 'end') { lock = null; $('outBar').hidden = true; refreshEditor(); return; }
     if (what === 'dragstart') lock = lock || currentLock();
     if (what === 'edit' || what === 'dragend') lock = currentLock();
@@ -184,12 +208,20 @@ function drawOutline() {                                                        
   if (f.length >= 3) { g.beginPath(); f.forEach(([x, y], i) => { const X = cv.width / 2 + (x - L.cx) * L.s * L.S, Y = cv.height / 2 + (y - L.cy) * L.s * L.S; i ? g.lineTo(X, Y) : g.moveTo(X, Y); }); g.closePath(); g.fillStyle = look().washA; g.globalAlpha = 0.35; g.fill('evenodd'); g.globalAlpha = 1; }
   ed.draw(g);
 }
-$('outSave').onclick = () => {
+// SAVE, the painter's way (hullui.js saveFlow): one of yours → overwrite or a new one, named; a built-in's child → named.
+// The shape goes into the LIBRARY (the page's store, shared with the painter) AND into this fleet's code, and the ship wears it.
+$('outSave').onclick = async () => {
   if (!ed.valid()) { $('outNote').textContent = 'Not a shape yet — three points and some area.'; return; }
-  const s = PLAN.ships[editing], name = $('outName').value.trim() || ed.state().name || 'My silhouette', h = ed.build(name); h.name = name; h.klass = 'starship';
-  PLAN.hulls = PLAN.hulls || {}; PLAN.hulls[h.id] = h; s.hull = h.id; ed.state().id = h.id;
-  ed.editing = false; registerHulls(); rebuild(); $('outNote').textContent = `"${name}" is this ship's silhouette now (it travels inside the fleet code).`;
+  const s = PLAN.ships[editing], st = ed.state();
+  const h = await saveFlow(hdlg, { mine: mineOf(st.id), defaultName: st.name || 'My silhouette', taken: n => HULLS.some(x => x.name.toLowerCase() === n.toLowerCase() && x.id !== st.id), commit: (id, name) => {
+    const h = ed.build(name); h.id = id || 'u' + Math.random().toString(36).slice(2, 9); h.name = name; h.klass = 'starship';
+    const i = HULLS.findIndex(x => x.id === h.id); if (i >= 0) HULLS[i] = h; else HULLS.push(h); saveLibrary(HULLS);
+    PLAN.hulls = PLAN.hulls || {}; PLAN.hulls[h.id] = h; s.hull = h.id; st.id = h.id; st.name = h.name; return h;
+  } });
+  if (!h) return;
+  ed.editing = false; registerHulls(); rebuild(); $('outNote').textContent = `“${h.name}” is this ship's silhouette now — kept in your library, and it travels inside the fleet code.`;
 };
+$('outDelete').onclick = async () => { const h = mineOf(ed.state().id); if (!h || !(await hdlg.confirmDelete(h))) return; HULLS = HULLS.filter(x => x.id !== h.id); saveLibrary(HULLS); registerHulls(); for (const o of PLAN.ships) if (o.hull === h.id && !(PLAN.hulls && PLAN.hulls[h.id])) o.hull = null; ed.editing = false; rebuild(); };
 $('outCancel').onclick = () => { ed.editing = false; };
 $('outSym').onchange = () => ed.setSym($('outSym').value);
 $('outUndo').onclick = () => ed.undo();

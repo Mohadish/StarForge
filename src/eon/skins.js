@@ -47,6 +47,21 @@ export function spriteOf(ship, look, onReady) {
   }
   return null;
 }
+// a THUMBNAIL of one ship in a look — for a fleet list: the fleet's biggest ship, large. A square canvas `px` wide with
+// the painted ship fitted into it, nose to the right. Resolves when the sheets are in; null when the style cannot load.
+export function thumbOf(ship, look, px = 160) {
+  return new Promise(res => {
+    let settled = false; const finish = v => { if (!settled) { settled = true; res(v); } };
+    const done = sp => {
+      if (!sp) return finish(null);
+      const c = document.createElement('canvas'); c.width = px; c.height = px; const g = c.getContext('2d'), S = sp.S, hull = ship.ds.hull;
+      const cw = (hull.bw + 1.2) * S, ch = (hull.bh + 1.2) * S, sx = (sp.w - cw) / 2, sy = (sp.h - ch) / 2, k = Math.min(px * 0.95 / cw, px * 0.95 / ch);   // the hull and a little round it, not the whole sprite with its margins
+      g.drawImage(sp.cv, sx, sy, cw, ch, (px - cw * k) / 2, (px - ch * k) / 2, cw * k, ch * k); finish(c);
+    };
+    const sp = spriteOf(ship, look, done); if (sp) done(sp);
+    setTimeout(() => finish(null), 12000);
+  });
+}
 function paint(ship, look, img, deco, tur) {
   const hull = ship.ds.hull, b = hull.box, bw = hull.bw, bh = hull.bh, midx = (b.minx + b.maxx) / 2;
   const S = Math.max(20, Math.min(72, 640 / bw)), m = 1.5 + 0.35 * bh;    // px a square; a margin in squares for engine plumes, greebles over the edge and barrels

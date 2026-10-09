@@ -6,12 +6,17 @@ import { TEMPLATES, hullOf, hullDef, setUserHulls, areaOf, bboxOf, HULL_VOLUME }
 import { STYLES, loadStyle } from './styles.js';
 import { paintHull, RECIPE, autoRibbonPct, autoEngines, pct } from './paint.js';
 import { createShapeEditor, GW, GH } from './shapeedit.js';
+import { readLocal, loadLibrary, saveLibrary, libraryCode as codeOf } from './library.js';
+import { renderStrip, createDialog, createMenu, saveFlow } from './hullui.js';
 
 const $ = id => document.getElementById(id), esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const HULL_KEY = 'forge.eon.hulls.v1';                      // the same library the game uses
-let HULLS = []; try { HULLS = JSON.parse(localStorage.getItem(HULL_KEY) || '[]'); } catch (e) { HULLS = []; }
+// the library (library.js): the browser's copy at once, the page's own database when there is one (a published page) —
+// that one survives republishes and devices, and is what the lab next door reads
+let HULLS = readLocal(), durable = false;
 setUserHulls(HULLS);
-const saveHulls = () => { try { localStorage.setItem(HULL_KEY, JSON.stringify(HULLS)); } catch (e) { /* fine */ } setUserHulls(HULLS); };
+const saveHulls = () => { setUserHulls(HULLS); saveLibrary(HULLS).then(kept => { durable = kept; libNote(); }); };
+const libNote = () => { const el = $('libNote'); if (el) el.textContent = durable ? `${HULLS.length} kept in the page's store — safe across devices and republishes` : `${HULLS.length} kept in this browser only`; };
+loadLibrary().then(r => { durable = r.durable; if (r.durable) { HULLS = r.list; setUserHulls(HULLS); refreshHulls(); syncEditBar(); } libNote(); });
 
 let img = null, decoImg = null, turretImg = null, style = STYLES.greeble1, sel = 'dart', last = null, lock = null;
 // a style's sheets: the plating, and when it has them the decorations and the turrets
@@ -51,29 +56,42 @@ const poly = () => {
   const L = lock || scaleInfo(f, vol());
   return f.map(([x, y]) => [(x - L.cx) * L.s, (y - L.cy) * L.s]);
 };
-function syncEditBar() { const st = ed.state(); $('edName').value = st.name || ''; $('edSym').value = st.sym; $('edDelete').hidden = !HULLS.some(h => h.id === st.id); }
+// the edit bar says WHICH silhouette is being edited (no name box: the name is asked for when a new one is saved)
+const mineOf = id => HULLS.find(h => h.id === id) || null;
+function syncEditBar() { const st = ed.state(), mine = mineOf(st.id); $('edWho').textContent = mine ? `Editing ${mine.name} (yours)` : `From ${(st.name || '').replace(/ II$/, '')} (built in) — Save makes a new one`; $('edSym').value = st.sym; $('edDelete').hidden = !mine; }
 
-// ---------------- the library ----------------
+// ---------------- the library: the strip of thumbnails, the menu, the save dialog (hullui.js — the fleet generator shows the same) ----------------
+const hdlg = createDialog(), hmenu = createMenu();
+// the built-in shapes (the shipped pack among them, unless the library holds that very shape — then it is "yours"), then yours
+const hullItems = () => { const ids = new Set(HULLS.map(h => h.id)); return [...Object.values(TEMPLATES).filter(t => (t.klass === 'starship' || t.klass === 'platform') && !ids.has(t.id)).map(h => ({ h, group: 'built' })), ...HULLS.map(h => ({ h, group: 'mine' }))]; };
 function refreshHulls() {
-  const groups = [['Built in', Object.values(TEMPLATES).filter(t => t.klass === 'starship' || t.klass === 'platform')], ['Yours', HULLS]];
-  $('hull').innerHTML = groups.map(([name, list]) => `<optgroup label="${name}">${list.map(h => `<option value="${h.id}">${esc(h.name)}</option>`).join('')}</optgroup>`).join('');
-  $('hull').value = sel;
+  renderStrip($('hullStrip'), hullItems(), sel, {
+    onPick: h => pickHull(h.id),
+    onMenu: (x, y, h) => hmenu.open(x, y, [
+      { label: 'Rename…', run: async () => { const name = await hdlg.rename(h); if (!name) return; h.name = name; if (ed.state().id === h.id) ed.state().name = name; saveHulls(); refreshHulls(); syncEditBar(); toast(`Renamed to “${name}”`); } },
+      { label: 'Delete', run: () => deleteShape(h) },
+    ]),
+  });
 }
-function pickHull(id) { sel = id; const h = HULLS.find(x => x.id === id) || hullDef(id); if (h) ed.load(h); lock = ed.editing ? currentLock() : null; syncEditBar(); repaint(); }
+// choosing a silhouette — also while editing: the editor takes the new outline at once
+function pickHull(id) { sel = id; const h = mineOf(id) || hullDef(id); if (h) ed.load(h); lock = ed.editing ? currentLock() : null; syncEditBar(); refreshHulls(); repaint(); }
 function toast(msg) { $('toast').textContent = msg; $('toast').classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => $('toast').classList.remove('on'), 2200); }
-// Save: a new shape under this name, or the one that already has this name overwritten. Plain and predictable.
-function saveShape() {
-  if (!ed.valid()) { toast('Not a shape yet — it needs three points and some area.'); return; }
-  const name = $('edName').value.trim() || ed.state().name || 'My silhouette', same = HULLS.find(h => h.name.toLowerCase() === name.toLowerCase());
-  const h = ed.build(name); h.name = name; h.klass = 'starship'; if (same) h.id = same.id;   // whatever it was started from (a platform, a dock), what is painted here is a ship — so the lab uses it
+// SAVE (hullui.js saveFlow): one of yours → overwrite it, or keep it as a new one, named; a built-in's child → a new one, named
+function commitShape(id, name) {
+  const h = ed.build(name); h.id = id || 'u' + Math.random().toString(36).slice(2, 9); h.name = name; h.klass = 'starship';   // id null = a NEW one, never the one it was started from; whatever that was (a platform, a dock), what is painted here is a ship — so the lab uses it
   const i = HULLS.findIndex(x => x.id === h.id); if (i >= 0) HULLS[i] = h; else HULLS.push(h);
-  saveHulls(); ed.state().id = h.id; ed.state().name = h.name; sel = h.id; refreshHulls(); syncEditBar();
-  toast(same ? `Overwrote "${name}"` : `Saved "${name}" — it is in the game's library too`);
+  ed.state().id = h.id; ed.state().name = h.name; sel = h.id; saveHulls(); refreshHulls(); syncEditBar();
+  toast(i >= 0 ? `Overwrote “${name}”` : `Saved “${name}” — it is in the game's library too`); return h;
 }
-function deleteShape() {
-  const st = ed.state(), h = HULLS.find(x => x.id === st.id); if (!h) return;
-  if (!confirm(`Delete "${h.name}"? Designs using it fall back to a built-in one.`)) return;
-  HULLS = HULLS.filter(x => x.id !== h.id); saveHulls(); toast(`Deleted "${h.name}"`); pickHull('dart'); refreshHulls();
+async function saveShape() {
+  if (!ed.valid()) { toast('Not a shape yet — it needs three points and some area.'); return; }
+  const st = ed.state();
+  await saveFlow(hdlg, { mine: mineOf(st.id), defaultName: st.name || 'My silhouette', taken: n => HULLS.some(x => x.name.toLowerCase() === n.toLowerCase() && x.id !== st.id), commit: commitShape });
+}
+// delete: asked in the page's own dialog (a published page swallows the browser's confirm box without a word)
+async function deleteShape(h = mineOf(ed.state().id)) {
+  if (!h || !(await hdlg.confirmDelete(h))) return;
+  HULLS = HULLS.filter(x => x.id !== h.id); saveHulls(); toast(`Deleted “${h.name}”`); if (sel === h.id || ed.state().id === h.id) pickHull('dart'); else refreshHulls();
 }
 
 // ---------------- painting ----------------
@@ -157,7 +175,6 @@ function repaint(overlayOnly = false) {
 // ---------------- wiring ----------------
 $('style').innerHTML = Object.values(STYLES).filter(s => s.ribbon).map(s => `<option value="${s.id}">${esc(s.name)}${s.deco ? '' : ' · no greebles yet'}</option>`).join('');
 $('style').onchange = async e => { style = STYLES[e.target.value]; await loadBoth(style); repaint(); };
-$('hull').onchange = e => pickHull(e.target.value);
 for (const id of ['vol', 'mPlating', 'mFittings', 'seed', 'wash', 'lights', 'washA', 'washB', 'lightColor', 'ribOff', 'engOff', 'coreOff', 'spineOff', 'fatOff', 'greebleOff', 'mountOff', 'turretOff']) $(id).oninput = () => { if (id === 'vol' && ed.editing && !ed.dragging) lock = currentLock(); repaint(); };
 $('seedN').onchange = e => { $('seed').value = Math.max(0, Math.min(999, Math.round(+e.target.value || 0))); repaint(); };
 $('seedNext').onclick = () => { $('seed').value = (+$('seed').value + 1) % 1000; repaint(); };
@@ -174,9 +191,8 @@ $('edEdit').onclick = () => { ed.editing = true; };
 $('edUndo').onclick = () => ed.undo();
 $('edClear').onclick = () => ed.clear();
 $('edSym').onchange = e => ed.setSym(e.target.value);
-$('edName').oninput = e => ed.setName(e.target.value);
 $('edSave').onclick = saveShape;
-$('edDelete').onclick = deleteShape;
+$('edDelete').onclick = () => deleteShape();
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && ed.editing) ed.editing = false; });
 window.addEventListener('resize', () => repaint());
 // ---------------- to the battle lab, with the library ----------------
@@ -184,13 +200,13 @@ window.addEventListener('resize', () => repaint());
 // along in the link as a code (harmless here, and it is what a lab somewhere else would need), and ⧉ copies the code
 // to paste into any lab's Silhouettes box.
 const LAB_URL = 'lab.html';
-const libraryCode = () => btoa(unescape(encodeURIComponent(JSON.stringify(HULLS))));
+const libraryCode = () => codeOf(HULLS);
 $('toLab').onclick = () => { location.href = LAB_URL + (HULLS.length ? '#hulls=' + libraryCode() : ''); };   // the same tab: a published page may not open new ones
 $('libCode').onclick = async () => {
   if (!HULLS.length) { toast('No silhouettes saved yet — draw one and Save it first'); return; }
   const code = libraryCode();
   try { await navigator.clipboard.writeText(code); toast(`Library code copied (${HULLS.length} silhouette${HULLS.length === 1 ? '' : 's'}) — paste it into the lab's Silhouettes box`); }
-  catch (e) { prompt('Copy this library code and paste it into the lab:', code); }
+  catch (e) { hdlg.code(code); }                                                     // no clipboard here: the code shown to copy by hand
 };
 refreshHulls();
 loadBoth(style).then(() => { pickHull(sel); }).catch(e => { $('info').textContent = e.message; });

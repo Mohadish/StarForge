@@ -6,6 +6,7 @@ const breathe = () => new Promise(r => setTimeout(r, 0));   // handed back from 
 import { KINDS, PRESETS, traverseOf } from './modules.js';
 import { drawHull } from './hullview.js';
 import { setUserHulls, hullDef } from './hull.js';
+import { readLocal, loadLibrary, saveLibrary, decodeLibrary, mergeLibrary } from './library.js';
 import { lookOf, spriteOf, lookFromColors } from './skins.js';
 import { buildPlan, planFromCode, planCode, plansLoad, exportAllText } from './fleetplan.js';
 const TCELL = { weapon_energy: 0, weapon_kinetic: 1, weapon_missile: 2 };   // a style's turret cells: beam, gun, missile
@@ -33,7 +34,7 @@ const tellParent = msg => { if (ARENA && window.parent !== window) { try { windo
 let runNote = '';
 const fleetSizes = () => (LAB && LAB.fleetSizes) || [1, 1];
 function run() {
-  const budget = Math.min(20000, Math.max(150, +$('budget').value || 600)), battles = Math.min(400, Math.max(5, +$('n').value || 60)), seed = +$('seed').value || 1, pure = $('pure').checked;
+  const budget = Math.min(60000, Math.max(150, +$('budget').value || 600)), battles = Math.min(400, Math.max(5, +$('n').value || 60)), seed = +$('seed').value || 1, pure = $('pure').checked;
   const maxN = Math.max(1, Math.min(25, Math.floor(budget / 150)));                 // no ship is built under 150
   let nA = Math.max(1, Math.min(25, Math.round(+$('nA').value || 1))), nB = Math.max(1, Math.min(25, Math.round(+$('nB').value || 1)));
   let gens = Math.max(1, Math.min(20, Math.round(+$('gens').value || 1)));
@@ -417,9 +418,10 @@ function draw() {
     if (out === 2) { g.fillStyle = '#ffd26a'; g.beginPath(); g.arc(tx, ty, 3 + 4 * f, 0, 7); g.fill(); }                        // a missile swatted
     if (out === 3) { g.fillStyle = '#fff'; g.beginPath(); g.arc(tx, ty, 2 + 2 * f, 0, 7); g.fill(); }                           // a drone hit
   };
-  const drawShot = (sh, p, n) => {
+  const drawShot = (sh, p, n, paint = true) => {                                   // paint = false: only note which turret fired, and where it points
     const [, kind, out, , , , , si, gi] = sh, [[fx, fy], [tx, ty]] = shotEnds(sh), ang = Math.atan2(ty - fy, tx - fx), jit = ((n * 7919) % 23 - 11) * 0.06, col = COLOR[kind] || '#fff';
     if (si !== undefined && si !== null && p <= 1) { const prev = aim.get(si * 1000 + gi); if (!prev || p < prev.p) aim.set(si * 1000 + gi, { a: ang, p }); }
+    if (!paint) return;
     if (kind === 'm') {                                                              // a missile arriving: on the hull an orange blast, on a shield a purple flash at the shield's edge, a miss fizzles past
       const f = 1 - p / 0.6; if (f <= 0) return; g.globalAlpha = f;
       if (out === 4) { g.fillStyle = 'rgba(207,137,255,.55)'; g.beginPath(); g.arc(tx, ty, 5 + 9 * f, 0, 7); g.fill(); g.strokeStyle = '#cf89ff'; g.lineWidth = 1.5; g.beginPath(); g.arc(tx, ty, 8 + 16 * (1 - f), 0, 7); g.stroke(); }
@@ -448,12 +450,14 @@ function draw() {
       mark(kind, out, tx, ty, f, col);
     }
   };
-  f0.shots.forEach((sh, n) => drawShot(sh, 1 - (sh[9] || 0) + k, n));             // last second's shots: their late phases
-  f1.shots.forEach((sh, n) => { const p = k - (sh[9] || 0); if (p >= 0) drawShot(sh, p, n + 500); });   // this second's shots, as they fire
-  g.globalAlpha = 1;
-  // missiles and drones in flight, eased between frames by id; a missile that arrives this second flies on to where it bursts
+  const eachShot = paint => {
+    f0.shots.forEach((sh, n) => drawShot(sh, 1 - (sh[9] || 0) + k, n, paint));             // last second's shots: their late phases
+    f1.shots.forEach((sh, n) => { const p = k - (sh[9] || 0); if (p >= 0) drawShot(sh, p, n + 500, paint); });   // this second's shots, as they fire
+  };
+  eachShot(false);                                                                   // a dry pass first: the turrets need to know who fired before the ships are drawn; the shots themselves go ON TOP of the hulls, after them
+  // missiles and drones in flight, eased between frames by id; a missile that arrives this second flies on to where it bursts — drawn after the ships too
   const arrivals = new Map(); for (const sh of f1.shots) if (sh[1] === 'm' && sh[12]) arrivals.set(sh[12], sh);
-  for (const e of f0.ents) {
+  const drawEntities = () => { for (const e of f0.ents) {
     const nx = E1.get(e[0]), side = e[1]; let ex, ey, ang;
     const arr = !nx && e[2] === 'm' ? arrivals.get(e[0]) : null;
     if (arr) {                                                                           // its last leg: from where it was to where it burst, arriving at the moment it did
@@ -467,7 +471,7 @@ function draw() {
       g.globalAlpha = 0.45 + 0.55 * (e[5] ?? 100) / 100; g.fillStyle = e[6] ? 'rgba(255,224,138,.25)' : COLOR.d; g.strokeStyle = SIDE[side]; g.lineWidth = 1;
       g.beginPath(); g.moveTo(ex + Math.cos(ang) * 5, ey + Math.sin(ang) * 5); g.lineTo(ex + Math.cos(ang + 2.4) * 4, ey + Math.sin(ang + 2.4) * 4); g.lineTo(ex + Math.cos(ang - 2.4) * 4, ey + Math.sin(ang - 2.4) * 4); g.closePath(); g.fill(); g.stroke(); g.globalAlpha = 1;
     }
-  }
+  } };
   // the ships: up close the hull with its bars; far out a TACTICAL SYMBOL — a shape per size class (the
   // biggest ship in this fight sets the scale), a vessel filled with the hull like fluid, in the side's
   // colour, turning red as it drains, a shield arc round it; in between the two fade into each other
@@ -552,6 +556,8 @@ function draw() {
       g.globalAlpha = 1;
     }
   });
+  // the shots and what flies — ON TOP of the hulls, never under them (his call)
+  eachShot(true); g.globalAlpha = 1; drawEntities();
   // the HUD: the clock, how close the nearest enemies are, and who is still standing
   g.fillStyle = '#9eb3d8'; g.font = '11px system-ui, sans-serif'; g.textAlign = 'left';
   let dNow = Infinity; for (let a = 0; a < nA; a++) for (let b = nA; b < ships.length; b++) if (hpOf(a) > 0 && hpOf(b) > 0) dNow = Math.min(dNow, Math.hypot(Wp[a][0] - Wp[b][0], Wp[a][1] - Wp[b][1]));
@@ -711,23 +717,26 @@ $('toPainter').onclick = () => { location.href = 'paint.html'; };        // the 
 // ---------------- the player's silhouettes: random ships wear them when there are any ----------------
 // The library is the painter's (the same storage when both run from the same place). From elsewhere the painter hands
 // it over as a code — in the link (#hulls=…) or pasted into the box — and it is merged in by id and kept.
-const HULL_KEY = 'forge.eon.hulls.v1';
-let HULLS = [];
+// library.js keeps it: the browser's copy at once, the page's own database when there is one (a published page) — that
+// copy survives republishes, devices and purges, and the painter next door reads and writes the same one
+let HULLS = readLocal(), durable = false;
 function importLibrary(code, quiet = false) {
-  let list; try { list = JSON.parse(decodeURIComponent(escape(atob(String(code).trim())))); } catch (e) { if (!quiet) $('hullsNote').textContent = 'That is not a library code — copy it from the painter with ⧉ Library code.'; return; }
-  if (!Array.isArray(list)) return;
-  let n = 0; for (const h of list) { if (!h || !(h.poly && h.poly.length >= 3)) continue; const i = HULLS.findIndex(x => x.id === h.id); if (i >= 0) HULLS[i] = h; else HULLS.push(h); n++; }
-  try { localStorage.setItem(HULL_KEY, JSON.stringify(HULLS)); } catch (e) { /* fine */ }
-  setUserHulls(HULLS); libraryNote(n);
+  const list = decodeLibrary(code); if (!list) { if (!quiet) $('hullsNote').textContent = 'That is not a library code — copy it from the painter with ⧉ Library code.'; return; }
+  const m = mergeLibrary(HULLS, list); HULLS = m.list; setUserHulls(HULLS); libraryNote(m.n);
+  saveLibrary(HULLS).then(kept => { durable = kept; libraryNote(m.n); });
 }
 function libraryNote(added = 0) {
   const mine = HULLS.filter(h => (h.klass || 'starship') === 'starship').length;
-  $('hullsNote').textContent = (added ? `${added} taken in · ` : '') + (mine ? `${mine} of your silhouettes — random ships wear them (Run for new ships)` : 'none of yours yet, so random ships wear the built-in ones — draw some in the painter and bring them here');
+  $('hullsNote').textContent = (added ? `${added} taken in · ` : '') + (mine ? `${mine} of your silhouettes — random ships wear them (Run for new ships)` : 'none of yours yet, so random ships wear the built-in ones — draw some in the painter and bring them here') + (durable ? " · kept in the page's store" : '');
 }
-try { HULLS = JSON.parse(localStorage.getItem(HULL_KEY) || '[]') || []; } catch (e) { HULLS = []; }
 { const m = /[#&]hulls=([^&]+)/.exec(location.hash); if (m) { importLibrary(m[1], true); try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* fine */ } } }
 setUserHulls(HULLS); libraryNote();
 $('hullsImport').onclick = () => { importLibrary($('hullsIn').value); $('hullsIn').value = ''; };
+// the page's store answers a moment later: its list takes over (plus anything just handed over in the link)
+const libraryReady = Promise.race([loadLibrary(), new Promise(r => setTimeout(() => r(null), 2500))]).then(r => {
+  if (r && r.durable) { durable = true; const m = mergeLibrary(r.list, HULLS); HULLS = m.list; setUserHulls(HULLS); }
+  libraryNote();
+});
 
 
 // ---------------- two fleets by code (from the Fleet Generator) fight each other ----------------
@@ -784,4 +793,4 @@ if (ARENA) {
   window.addEventListener('message', e => { const d = e.data; if (!d || d.type !== 'fight' || e.source !== window.parent) return; $('codeA').value = d.a || ''; $('codeB').value = d.b || ''; fightCodes(); });
   if ($('codeA').value && $('codeB').value) fightCodes();
   tellParent({ type: 'ready' });
-} else run();
+} else libraryReady.then(run);                                                 // the first run waits (briefly) for the page's store, so random ships wear the silhouettes kept there
