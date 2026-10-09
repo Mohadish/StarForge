@@ -8,6 +8,8 @@ import { designFromWords, designFromChips, shipFromDesign, archetype, rng32 } fr
 import { KINDS, PRESETS } from './modules.js';
 import { TEMPLATES, hullDef, setUserHulls, areaOf, bboxOf, HULL_VOLUME } from './hull.js';
 import { lookFromColors, styleChoices, spriteOf, thumbOf } from './skins.js';
+import { STYLES, loadStyle } from './styles.js';
+import { paintHull, recipeFor } from './paint.js';
 import { TACTICS, TACTIC_IDS, composePlan, setCost, buildPlan, shipLabel, wordsToChips, chipsToWords, planStrip, planCode, planFromCode, exportAllText } from './fleetplan.js';
 import { createShapeEditor, GW, GH } from './shapeedit.js';
 import { readLocal, loadLibrary, saveLibrary, readFleets, loadFleets, saveFleets } from './library.js';
@@ -70,7 +72,7 @@ function compose() {
   $('n').value = n;
   PLAN = composePlan({ budget, n, mix: m, seed: Math.floor(Math.random() * 1e6), name: $('name').value.trim() || 'My fleet', style: $('style').value });
   PLAN.colA = $('colA').value; PLAN.colB = $('colB').value; PLAN.hulls = {};
-  closeEditor(); rebuild(); $('fleet').hidden = false; $('fleet').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  closeEditor(); rebuild(); $('fleet').hidden = false; $('codeCard').hidden = false; $('fleet').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 function rebuild() { if (!PLAN) return; registerHulls(); buildPlan(S, PLAN); renderFleet(); }
 
@@ -195,21 +197,46 @@ function currentLock() {
   const { s: sc, cx, cy } = scaleInfo(raw, vol), cv = $('edPic'), b = bboxOf(raw), W = cv.width, H = cv.height, margin = 0.14;
   return { s: sc, cx, cy, S: Math.min(W * (1 - 2 * margin) / ((b.maxx - b.minx) * sc || 1), H * (1 - 2 * margin) / ((b.maxy - b.miny) * sc || 1)) };
 }
+let outDirty = false;                                                             // the outline was changed since it was opened
 const ed = createShapeEditor($('edPic'), {
   frame() { const L = lock || currentLock(), cv = $('edPic'); return { toPx: ([gx, gy]) => [cv.width / 2 + (gx - GW / 2 - L.cx) * L.s * L.S, cv.height / 2 + (gy - GH / 2 - L.cy) * L.s * L.S], fromPx: ([px, py]) => [(px - cv.width / 2) / (L.s * L.S) + L.cx + GW / 2, (py - cv.height / 2) / (L.s * L.S) + L.cy + GH / 2] }; },
   changed(what) {
     if (editing == null) return;
-    if (what === 'start') { const s = PLAN.ships[editing], h = (PLAN.hulls && PLAN.hulls[s.hull]) || hullDef(s.hull || (s.built ? s.built.design.hull : 'dart')); if (h) ed.load(h); lock = currentLock(); $('outBar').hidden = false; syncOutBar(); renderHullStrip(); }
-    if (what === 'end') { lock = null; $('outBar').hidden = true; refreshEditor(); return; }
+    if (what === 'start') { const s = PLAN.ships[editing], h = (PLAN.hulls && PLAN.hulls[s.hull]) || hullDef(s.hull || (s.built ? s.built.design.hull : 'dart')); if (h) ed.load(h); lock = currentLock(); outDirty = false; $('outBar').hidden = false; syncOutBar(); renderHullStrip(); }
+    if (what === 'end') {
+      lock = null; $('outBar').hidden = true;
+      if (outDirty && ed.valid()) {                                                 // Done keeps what was drawn: the ship wears it at once (a copy of this fleet's own; Save… puts it in the library under a name)
+        const s = PLAN.ships[editing], st = ed.state(), local = !!(PLAN.hulls && PLAN.hulls[st.id] && !mineOf(st.id));
+        const h = ed.build(st.name || 'outline'); if (!local) { h.id = 'u' + Math.random().toString(36).slice(2, 9); h.name = (st.name || 'outline').replace(/ II$/, '') + ' (edited)'; } h.klass = 'starship';
+        PLAN.hulls = PLAN.hulls || {}; PLAN.hulls[h.id] = h; s.hull = h.id; st.id = h.id; st.name = h.name; outDirty = false; registerHulls(); rebuild();
+      }
+      refreshEditor(); return;
+    }
     if (what === 'dragstart') lock = lock || currentLock();
-    if (what === 'edit' || what === 'dragend') lock = currentLock();
+    if (what === 'edit' || what === 'dragend') { lock = currentLock(); outDirty = true; }
     drawOutline();
   },
 });
-function drawOutline() {                                                          // the outline over the plate of the shape being drawn
-  const cv = $('edPic'), g = cv.getContext('2d'), L = lock || currentLock(), f = ed.fullPoly();
-  g.fillStyle = '#04070f'; g.fillRect(0, 0, cv.width, cv.height);
-  if (f.length >= 3) { g.beginPath(); f.forEach(([x, y], i) => { const X = cv.width / 2 + (x - L.cx) * L.s * L.S, Y = cv.height / 2 + (y - L.cy) * L.s * L.S; i ? g.lineTo(X, Y) : g.moveTo(X, Y); }); g.closePath(); g.fillStyle = look().washA; g.globalAlpha = 0.35; g.fill('evenodd'); g.globalAlpha = 1; }
+// the sheets of a style, for painting the ship under the outline live (skins.js keeps its own for the sprites)
+const SHEETS = new Map();
+function sheetsFor(styleId, onReady) {
+  const st = STYLES[styleId] && STYLES[styleId].ribbon ? STYLES[styleId] : STYLES.greeble1, k = st.id, had = SHEETS.get(k); if (had) return had === 'loading' ? null : had;
+  SHEETS.set(k, 'loading');
+  Promise.all([loadStyle(st), st.deco ? loadStyle({ sheet: st.deco.sheet }).catch(() => null) : null]).then(([img, deco]) => { SHEETS.set(k, { st, img, deco }); if (onReady) onReady(); }).catch(() => SHEETS.set(k, { st, img: null, deco: null }));
+  return null;
+}
+const gunsOf = ship => { const m = new Map(); for (const g of ship.guns || []) { const k = g.kind + '|' + (g.size || 1), e = m.get(k) || { kind: g.kind, n: 0, size: g.size || 1 }; e.n++; m.set(k, e); } return [...m.values()]; };
+// the ship PAINTED with the outline as it is being drawn, the outline over it — as in the painter (the plate until the sheets are in)
+function drawOutline() {
+  const cv = $('edPic'), g = cv.getContext('2d'), L = lock || currentLock(), f = ed.fullPoly(), s = PLAN.ships[editing], ship = preview || (s && s.built);
+  const ok = f.length >= 3 && ed.valid(), sheets = ship ? sheetsFor($('style').value, () => { if (ed.editing) drawOutline(); }) : null, lk = look();
+  if (ok && sheets && sheets.img) {
+    const poly = f.map(([x, y]) => [(x - L.cx) * L.s, (y - L.cy) * L.s]);
+    paintHull(cv, poly, sheets.img, sheets.st, { ...recipeFor(ship.t.volume), px: L.S, center: [0, 0], guns: gunsOf(ship), wash: 0.6, washA: lk.washA, washB: lk.washB, lights: 0.5, lightColor: lk.lightColor, background: '#04070f' }, sheets.deco);
+  } else {
+    g.fillStyle = '#04070f'; g.fillRect(0, 0, cv.width, cv.height);
+    if (f.length >= 3) { g.beginPath(); f.forEach(([x, y], i) => { const X = cv.width / 2 + (x - L.cx) * L.s * L.S, Y = cv.height / 2 + (y - L.cy) * L.s * L.S; i ? g.lineTo(X, Y) : g.moveTo(X, Y); }); g.closePath(); g.fillStyle = lk.washA; g.globalAlpha = 0.35; g.fill('evenodd'); g.globalAlpha = 1; }
+  }
   ed.draw(g);
 }
 // SAVE, the painter's way (hullui.js saveFlow): one of yours → overwrite or a new one, named; a built-in's child → named.
@@ -232,10 +259,10 @@ $('outUndo').onclick = () => ed.undo();
 
 // ---------------- the code, saving, into the fight ----------------
 $('compose').onclick = compose;
-$('recompose').onclick = () => { $('fleet').hidden = true; closeEditor(); $('step1').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+$('recompose').onclick = () => { $('fleet').hidden = true; $('codeCard').hidden = true; closeEditor(); $('step1').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
 $('copy').onclick = async () => { const c = $('code'); c.select(); try { await navigator.clipboard.writeText(c.value); $('codeNote').textContent = 'Copied — send it to a friend; they paste it into a Fleet box at the top of their generator.'; } catch (e) { document.execCommand && document.execCommand('copy'); $('codeNote').textContent = 'Selected — copy it.'; } };
-const intoFight = k => { if (!PLAN) return; $(k === 'A' ? 'codeA' : 'codeB').value = $('code').value; showSide(k); $('fightNote').innerHTML = `<b>${esc(PLAN.name)}</b> is Fleet ${k === 'A' ? 1 : 2}.`; $('fight').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
-$('asA').onclick = () => intoFight('A'); $('asB').onclick = () => intoFight('B');
+// a fleet overwritten while it sits in the Fleet 1 / Fleet 2 box at the top: the box takes the new version at once
+const syncSlots = rec => { for (const k of ['A', 'B']) { const box = $('code' + k), q = box.value.trim() ? planFromCode(box.value) : null; if (q && q.id === rec.id) { box.value = planCode(rec); showSide(k); } } };
 // SAVE, the silhouette editor's way (hullui.js saveFlow): a fleet opened from the ribbon → overwrite it, or keep this one as a
 // new fleet (named); a fresh composition → a new fleet, named. Kept with the page (library.js) and shown in the ribbon.
 $('save').onclick = async () => {
@@ -247,7 +274,7 @@ $('save').onclick = async () => {
     const list = PLANS.slice(), i = list.findIndex(x => x.id === rec.id); if (i >= 0) list[i] = rec; else list.unshift(rec); savePlans(list); PLAN.savedId = rec.id; return rec;
   } });
   if (!p) return;
-  renderFleet(); renderFleetStrip(); $('codeNote').innerHTML = `Saved <b>${esc(p.name)}</b> — it is in the ribbon above the composer; drag it onto Fleet 1 or Fleet 2 at the top, or click a Fleet box and pick it.`;
+  renderFleet(); renderFleetStrip(); syncSlots(p); $('codeNote').innerHTML = `Saved <b>${esc(p.name)}</b> — it is in the ribbon above; drag it onto Fleet 1 or Fleet 2 at the top, or click a Fleet box and pick it.`;
 };
 const exportAll = () => { const list = PLANS; if (!list.length) { $('fightNote').textContent = 'Nothing saved yet.'; return; } try { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([exportAllText(list)], { type: 'text/plain' })); a.download = 'starforge-fleets.txt'; document.body.appendChild(a); a.click(); a.remove(); $('fightNote').textContent = 'Saved starforge-fleets.txt — every fleet, a line about it and its code.'; } catch (e) { $('codeA').value = exportAllText(list).slice(0, 4000); $('fightNote').textContent = 'Could not save a file here — the text is in the Fleet 1 box; copy it.'; } };
 $('toLabTop').onclick = () => { location.href = 'lab.html'; };
@@ -255,7 +282,7 @@ function loadPlan(p) {
   if (!p) return; PLAN = { ...p, ships: p.ships.map(s => ({ ...s })), hulls: p.hulls || {} }; PLAN.savedId = p.id || null;   // opened from the ribbon: Save… can overwrite it
   $('budget').value = p.budget; $('n').value = p.ships.length; $('name').value = p.name || 'My fleet'; if (p.style) $('style').value = p.style; if (p.colA) $('colA').value = p.colA; if (p.colB) $('colB').value = p.colB;
   for (const id of TACTIC_IDS) { const m = (p.mix || []).find(x => x.id === id); $('tactics').querySelector(`[data-on="${id}"]`).checked = !!m; if (m) $('tactics').querySelector(`[data-share="${id}"]`).value = Math.round(m.share * 100); }
-  shares(); drawSample(); closeEditor(); rebuild(); $('fleet').hidden = false;
+  shares(); drawSample(); closeEditor(); rebuild(); $('fleet').hidden = false; $('codeCard').hidden = false;
 }
 $('codeIn').onclick = () => { const p = planFromCode($('code').value); if (!p) { $('codeNote').textContent = 'That is not a fleet code.'; return; } loadPlan(p); $('codeNote').textContent = 'Taken in.'; };
 
@@ -265,7 +292,8 @@ $('codeIn').onclick = () => { const p = planFromCode($('code').value); if (!p) {
 // Each saved fleet as its biggest ship, painted large, with its name, ships, price and tactics; hover (or a tap) shows the
 // whole story; right-click or a long press: edit / fight as 1 or 2 / copy the code / rename / delete; drag one onto the
 // Fleet 1 or Fleet 2 picture at the top and it is that fleet.
-const thumbs = new Map();                                                          // fleet id + code length → the picture, once painted
+const thumbs = new Map();                                                          // fleet id + its code → the picture, once painted
+const hashOf = s => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36); };
 const fleetInfo = p => { const n = p.ships.length, tac = (p.mix || []).map(m => `${TACTICS[m.id] ? TACTICS[m.id].name : m.id} ${Math.round(m.share * 100)}%`).join(', ') || 'custom'; return { short: `${n} ship${n > 1 ? 's' : ''} · ${fmt(p.budget)}`, tac, long: `${p.name} — ${n} ship${n > 1 ? 's' : ''}, ${fmt(p.budget)} · ${tac} · ${(styleChoices().find(s => s.id === p.style) || {}).name || p.style || 'default style'} · ships: ${p.ships.map(s => s.words).join(' / ')}` }; };
 function renderFleetStrip() {
   const el = $('fleetStrip'); if (!el) return; el.innerHTML = ''; hideTip();
@@ -287,7 +315,7 @@ function renderFleetStrip() {
 // the picture: the fleet's biggest ship, painted in the fleet's coat (its plate until the sheets are in)
 function drawFleetThumb(cv, p) {
   const g = cv.getContext('2d'), W = cv.width, H = cv.height; g.fillStyle = '#04070f'; g.fillRect(0, 0, W, H);
-  const key = p.id + '|' + planCode(p).length, had = thumbs.get(key);
+  const key = p.id + '|' + hashOf(planCode(p)), had = thumbs.get(key);                // the code itself in the key: an overwritten fleet gets a fresh picture at once
   if (had) { g.drawImage(had, 0, (H - W) / 2, W, W); return; }
   const x = fleetOfCode(planCode(p)); if (!x) return;
   const big = x.f.ships.slice().sort((a, b) => b.cost - a.cost)[0], hull = big.ds.hull, k = Math.min((W - 20) / hull.bw, (H - 16) / hull.bh), midx = (hull.box.minx + hull.box.maxx) / 2;

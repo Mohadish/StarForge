@@ -101,6 +101,11 @@ select { background: #04070f; color: var(--fg); border: 1px solid var(--line); b
   <div id="fleetStrip" class="fstrip"></div>
   <div id="fleetTip" class="ftip" hidden></div>
 </section>
+<section class="card" id="codeCard" hidden style="margin-top:10px">
+  <div class="row"><button id="save" class="go">Save…</button><button id="copy">⧉ Copy the code</button><button id="codeIn" class="x">Take a pasted code in</button><span class="tiny">The fleet below, as a code. Save… overwrites the fleet you opened, or keeps this one as a new fleet with a name — it joins the ribbon above.</span></div>
+  <textarea id="code" rows="2" readonly style="margin-top:6px"></textarea>
+  <div id="codeNote" class="tiny" style="margin-top:4px">Saved fleets are kept with the page (and in this browser): pick one from the ribbon above, or click the Fleet 1 / Fleet 2 box at the top. Copy the code to send the fleet to a friend; it carries the coat and any silhouettes you drew.</div>
+</section>
 <h2>Compose a fleet</h2>
 <section class="card" id="step1">
   <div class="ctl">
@@ -121,11 +126,7 @@ select { background: #04070f; color: var(--fg); border: 1px solid var(--line); b
 <section class="card" id="fleet" hidden style="margin-top:14px">
   <div id="note" class="tiny"></div>
   <div id="ships" style="margin-top:6px"></div>
-  <h2>The fleet code</h2>
-  <textarea id="code" rows="3" readonly></textarea>
-  <div class="row"><button id="asA" class="go" title="put this fleet in the Fleet 1 box at the top">↑ Fight it as Fleet 1</button><button id="asB" class="go" title="put this fleet in the Fleet 2 box at the top">↑ as Fleet 2</button><button id="copy">⧉ Copy the code</button><button id="codeIn" class="x">Take a pasted code in</button><button id="recompose" class="x">↑ Back to the setup</button></div>
-  <div class="row"><button id="save" class="go">Save…</button><span class="tiny">Overwrite the fleet you opened, or keep this one as a new fleet with a name of its own — it joins the ribbon above the composer.</span></div>
-  <div id="codeNote" class="tiny" style="margin-top:4px">Saved fleets are kept with the page (and in this browser): pick one from the ribbon above the composer, or click the Fleet 1 / Fleet 2 box at the top. Copy the code to send the fleet to a friend; it carries the coat and any silhouettes you drew.</div>
+  <div class="row"><button id="recompose" class="x">↑ Back to the setup</button><span class="tiny">Save… and the fleet code are up above, under your fleets.</span></div>
 </section>
 <section class="card" id="editor" hidden style="margin-top:14px">
   <div id="edTitle"></div>
