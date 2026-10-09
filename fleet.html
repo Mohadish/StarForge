@@ -55,12 +55,38 @@ button:disabled { opacity: .5 }
 textarea { width: 100%; box-sizing: border-box; background: #04070f; color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 6px; font: 11px monospace }
 select { background: #04070f; color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font: 13px var(--font) }
 .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 8px }
+/* the fight at the top: two codes (click a box → your saved fleets), a picture of each fleet, the arena in a frame */
+.codes { display: flex; gap: 6px; flex-wrap: wrap; align-items: center }
+.codes input { flex: 1; min-width: 150px; background: #04070f; color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: 12px monospace }
+.ctx { position: fixed; z-index: 50; background: #0b1120; border: 1px solid var(--line); border-radius: 10px; padding: 6px; display: flex; flex-direction: column; gap: 4px; min-width: 280px; max-width: min(540px, 94vw); max-height: 70vh; overflow: auto; box-shadow: 0 10px 30px rgba(0,0,0,.55) }
+.frow { display: flex; gap: 6px; align-items: center; padding: 6px 4px; border-bottom: 1px dashed var(--line); font-size: 13px }
+.frow b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.frow small { color: var(--muted); white-space: nowrap }
+.frow button { padding: 2px 8px; font-size: 11px }
+.sides { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px }
+@media (max-width: 640px) { .sides { grid-template-columns: 1fr } }
+.side canvas { display: block; width: 100%; height: 170px; border: 1px solid var(--line); border-radius: 10px; background: #04070f }
+.side.a canvas { border-color: rgba(95,227,208,.45) } .side.b canvas { border-color: rgba(255,138,107,.45) }
+.side .sum { margin-top: 4px; min-height: 32px }
+#arenaWrap { margin-top: 10px; display: flex; flex-direction: column; background: #04070f; border: 1px solid var(--line); border-radius: 10px; overflow: hidden }
+#arenaWrap .abar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: 6px 8px; background: var(--panel2) }
+#arenaWrap .abar .tiny { flex: 1; min-width: 160px }
+#arenaFrame { display: block; width: 100%; height: 540px; border: 0; background: #04070f }
+#arenaWrap.big { position: fixed; inset: 0; z-index: 100; margin: 0; border: 0; border-radius: 0 }
+#arenaWrap.big #arenaFrame { flex: 1; height: auto }
 </style>
 </head>
 <body>
-<header style="display:flex;align-items:baseline;flex-wrap:wrap;gap:8px;margin-bottom:12px"><h1>Forge · Fleet Generator</h1><small style="color:var(--muted)">price, ships, a coat, grand tactics — a fleet as one code</small><button id="toLabTop" class="x" style="margin-left:auto">⚔ Battle Lab</button></header>
+<header style="display:flex;align-items:baseline;flex-wrap:wrap;gap:8px;margin-bottom:12px"><h1>Forge · Fleet Generator</h1><small style="color:var(--muted)">two fleets fight here; compose yours below</small><button id="toLabTop" class="x" style="margin-left:auto" title="the research bench: random ships at one price, the challenger, generations">⚗ Battle Lab</button></header>
+<section class="card" id="fight">
+  <div class="codes"><span class="tiny"><b>Fleet 1</b></span><input id="codeA" placeholder="click: a saved fleet · or paste a fleet code"><span class="tiny"><b>Fleet 2</b></span><input id="codeB" placeholder="click: a saved fleet · or paste a fleet code"><button id="fightCodes" class="go">⚔ Fight</button></div>
+  <div id="fleetPick" class="ctx" hidden></div>
+  <div class="sides"><div class="side a" id="sideA"><canvas width="420" height="170"></canvas><div class="sum tiny"></div></div><div class="side b" id="sideB"><canvas width="420" height="170"></canvas><div class="sum tiny"></div></div></div>
+  <div id="fightNote" class="tiny" style="margin-top:6px"></div>
+  <div id="arenaWrap" hidden><div class="abar"><span id="arenaNote" class="tiny"></span><button id="fightAgain" class="x" title="the same two fleets, fresh dice">⚔ Again</button><button id="arenaBig" class="x">⛶ Full screen</button><button id="arenaLab" class="x" title="this fight in the full Battle Lab">⚗ Open in the lab</button></div><iframe id="arenaFrame" title="the fight" allow="fullscreen"></iframe></div>
+</section>
+<h2>Compose a fleet</h2>
 <section class="card" id="step1">
-  <div class="row" style="margin:0 0 10px"><span class="tiny"><b>Saved fleets</b></span><select id="savedTop"><option value="">pick one…</option></select><button id="loadTop" class="x">Load</button><button id="exportTop" class="x" title="every saved fleet, name and code, as one text file">⤓ Export all</button><span id="noteTop" class="tiny"></span></div>
   <div class="ctl">
     <label>Price of the fleet<input id="budget" type="number" value="6000" min="150" step="50" inputmode="numeric"></label>
     <label>Ships<input id="n" type="number" value="8" min="1" max="25" step="1" inputmode="numeric"></label>
@@ -81,9 +107,9 @@ select { background: #04070f; color: var(--fg); border: 1px solid var(--line); b
   <div id="ships" style="margin-top:6px"></div>
   <h2>The fleet code</h2>
   <textarea id="code" rows="3" readonly></textarea>
-  <div class="row"><button id="copy" class="go">⧉ Copy the code</button><button id="toLab">⚔ Take it to the lab</button><button id="codeIn" class="x">Take a pasted code in</button><button id="recompose" class="x">↑ Back to the setup</button></div>
-  <div class="row"><span class="tiny"><b>Save as</b></span><input id="saveName" type="text" placeholder="fleet name" style="background:#04070f;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font:13px var(--font);width:180px"><button id="save" class="go">Save</button><select id="saved"><option value="">saved fleets…</option></select><button id="load" class="x">Load</button><button id="exportAll" class="x">⤓ Export all</button></div>
-  <div id="codeNote" class="tiny" style="margin-top:4px">Saved fleets live in this browser; the Battle Lab lists them under ▤ Saved fleets, so you never paste a code by hand on the same device. Copy or export the code to send it anywhere else; it carries the coat and any silhouettes you drew.</div>
+  <div class="row"><button id="asA" class="go" title="put this fleet in the Fleet 1 box at the top">↑ Fight it as Fleet 1</button><button id="asB" class="go" title="put this fleet in the Fleet 2 box at the top">↑ as Fleet 2</button><button id="copy">⧉ Copy the code</button><button id="codeIn" class="x">Take a pasted code in</button><button id="recompose" class="x">↑ Back to the setup</button></div>
+  <div class="row"><span class="tiny"><b>Save as</b></span><input id="saveName" type="text" placeholder="fleet name" style="background:#04070f;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font:13px var(--font);width:180px"><button id="save" class="go">Save</button></div>
+  <div id="codeNote" class="tiny" style="margin-top:4px">Saved fleets live in this browser: click the Fleet 1 or Fleet 2 box at the top and pick one. Copy the code to send the fleet to a friend; it carries the coat and any silhouettes you drew.</div>
 </section>
 <section class="card" id="editor" hidden style="margin-top:14px">
   <div id="edTitle"></div>

@@ -1,7 +1,9 @@
-// THE FLEET GENERATOR — a page of its own (fleet.html). Price, ships, a plating style and two picked colours
-// (a sample ship wears them live), then grand tactics with shares → Compose → every ship with its price slider,
-// lock, words and its painted picture; Edit opens a ship: chips, its silhouette (double-tap the picture to
-// reshape the outline — the painter's editor), its price. Everything is one FLEET2 code to copy into the lab.
+// THE FLEET GENERATOR — a page of its own (fleet.html). At the top, the fight: Fleet 1 and Fleet 2 as codes (click a
+// box for your saved fleets, or paste), a picture of each fleet, ⚔ Fight — and the battle plays right there, in a
+// frame of the lab in arena mode (lab.html#arena). Below it the composer: price, ships, a plating style and two
+// picked colours (a sample ship wears them live), grand tactics with shares → Compose → every ship with its price
+// slider, lock, words and its painted picture; Edit opens a ship: chips, its silhouette (double-tap the picture to
+// reshape the outline — the painter's editor), its price. Everything is one FLEET2 code.
 import { designFromWords, designFromChips, shipFromDesign, archetype, rng32 } from './battle.js';
 import { KINDS, PRESETS } from './modules.js';
 import { TEMPLATES, hullDef, setUserHulls, areaOf, bboxOf, HULL_VOLUME } from './hull.js';
@@ -46,7 +48,7 @@ function init() {
   for (const id of ['style', 'colA', 'colB']) $(id).addEventListener('input', () => { drawSample(); if (PLAN) { PLAN.style = $('style').value; PLAN.colA = $('colA').value; PLAN.colB = $('colB').value; renderFleet(); } });
   $('tactics').addEventListener('change', e => { if (e.target.matches('[data-on]') && mix().length > 3) { e.target.checked = false; note('Three tactics at most — untick one first.'); } shares(); });
   $('tactics').addEventListener('input', e => { if (e.target.matches('[data-share]')) shares(); });
-  refreshSaved(); shares(); drawSample();
+  shares(); drawSample(); showSide('A'); showSide('B');
 }
 const mix = () => TACTIC_IDS.filter(id => $('tactics').querySelector(`[data-on="${id}"]`).checked).map(id => ({ id, share: +$('tactics').querySelector(`[data-share="${id}"]`).value }));
 function shares() {
@@ -192,21 +194,19 @@ $('outCancel').onclick = () => { ed.editing = false; };
 $('outSym').onchange = () => ed.setSym($('outSym').value);
 $('outUndo').onclick = () => ed.undo();
 
-// ---------------- the code, the lab, saving ----------------
+// ---------------- the code, saving, into the fight ----------------
 $('compose').onclick = compose;
-$('recompose').onclick = () => { $('fleet').hidden = true; closeEditor(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
-$('copy').onclick = async () => { const c = $('code'); c.select(); try { await navigator.clipboard.writeText(c.value); $('codeNote').textContent = 'Copied — paste it into the lab as Fleet 1 or Fleet 2.'; } catch (e) { document.execCommand && document.execCommand('copy'); $('codeNote').textContent = 'Selected — copy it.'; } };
-$('toLab').onclick = () => { if (!PLAN) return; location.href = 'lab.html#fleetA=' + encodeURIComponent($('code').value); };
-function refreshSaved() { const list = plansLoad(), opts = list.map((p, i) => `<option value="${i}">${esc(p.name)} · ${p.ships.length} ships · ${fmt(p.budget)}</option>`).join(''); $('saved').innerHTML = '<option value="">saved fleets…</option>' + opts; $('savedTop').innerHTML = '<option value="">pick one…</option>' + opts; $('noteTop').textContent = list.length ? `${list.length} saved` : 'none yet'; }
+$('recompose').onclick = () => { $('fleet').hidden = true; closeEditor(); $('step1').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+$('copy').onclick = async () => { const c = $('code'); c.select(); try { await navigator.clipboard.writeText(c.value); $('codeNote').textContent = 'Copied — send it to a friend; they paste it into a Fleet box at the top of their generator.'; } catch (e) { document.execCommand && document.execCommand('copy'); $('codeNote').textContent = 'Selected — copy it.'; } };
+const intoFight = k => { if (!PLAN) return; $(k === 'A' ? 'codeA' : 'codeB').value = $('code').value; showSide(k); $('fightNote').innerHTML = `<b>${esc(PLAN.name)}</b> is Fleet ${k === 'A' ? 1 : 2}.`; $('fight').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+$('asA').onclick = () => intoFight('A'); $('asB').onclick = () => intoFight('B');
 $('save').onclick = () => {
   if (!PLAN) return; const name = $('saveName').value.trim() || PLAN.name || 'My fleet'; PLAN.name = name; $('name').value = name;
-  const list = plansLoad().filter(p => p.name !== name); list.unshift(planStrip({ ...PLAN, name, style: $('style').value, colA: $('colA').value, colB: $('colB').value })); plansSave(list); refreshSaved(); $('saved').value = '0'; renderFleet();
-  $('codeNote').innerHTML = `Saved <b>${esc(name)}</b> in this browser — the Battle Lab's ▤ Saved fleets has it now.`;
+  const list = plansLoad().filter(p => p.name !== name); list.unshift(planStrip({ ...PLAN, name, style: $('style').value, colA: $('colA').value, colB: $('colB').value })); plansSave(list); renderFleet();
+  $('codeNote').innerHTML = `Saved <b>${esc(name)}</b> in this browser — click a Fleet box at the top to pick it.`;
 };
 $('saveName').addEventListener('input', () => { if (PLAN) { PLAN.name = $('saveName').value.trim() || PLAN.name; } });
-$('loadTop').onclick = () => { const i = $('savedTop').value; if (i !== '') loadPlan(plansLoad()[+i]); };
-const exportAll = () => { const list = plansLoad(); if (!list.length) { $('noteTop').textContent = 'nothing saved yet'; return; } try { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([exportAllText(list)], { type: 'text/plain' })); a.download = 'starforge-fleets.txt'; document.body.appendChild(a); a.click(); a.remove(); $('noteTop').textContent = 'saved starforge-fleets.txt'; } catch (e) { $('code').value = exportAllText(list); $('codeNote').textContent = 'Could not save a file here — all the codes are in the box above; copy them.'; } };
-$('exportTop').onclick = exportAll; $('exportAll').onclick = exportAll;
+const exportAll = () => { const list = plansLoad(); if (!list.length) { $('fightNote').textContent = 'Nothing saved yet.'; return; } try { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([exportAllText(list)], { type: 'text/plain' })); a.download = 'starforge-fleets.txt'; document.body.appendChild(a); a.click(); a.remove(); $('fightNote').textContent = 'Saved starforge-fleets.txt — every fleet, a line about it and its code.'; } catch (e) { $('codeA').value = exportAllText(list).slice(0, 4000); $('fightNote').textContent = 'Could not save a file here — the text is in the Fleet 1 box; copy it.'; } };
 $('toLabTop').onclick = () => { location.href = 'lab.html'; };
 function loadPlan(p) {
   if (!p) return; PLAN = { ...p, ships: p.ships.map(s => ({ ...s })), hulls: p.hulls || {} };
@@ -214,6 +214,96 @@ function loadPlan(p) {
   for (const id of TACTIC_IDS) { const m = (p.mix || []).find(x => x.id === id); $('tactics').querySelector(`[data-on="${id}"]`).checked = !!m; if (m) $('tactics').querySelector(`[data-share="${id}"]`).value = Math.round(m.share * 100); }
   shares(); drawSample(); closeEditor(); rebuild(); $('fleet').hidden = false;
 }
-$('load').onclick = () => { const i = $('saved').value; if (i !== '') loadPlan(plansLoad()[+i]); };
 $('codeIn').onclick = () => { const p = planFromCode($('code').value); if (!p) { $('codeNote').textContent = 'That is not a fleet code.'; return; } loadPlan(p); $('codeNote').textContent = 'Taken in.'; };
+
+// ---------------- the fight at the top ----------------
+// a code box: click it → your saved fleets (→ 1, → 2, ✎ open to edit, ⧉ copy, ⤓ export all); paste or type → the picture under it redraws
+function showFleetPick(anchor) {
+  const box = $('fleetPick'), list = plansLoad(), r = anchor.getBoundingClientRect();
+  box.innerHTML = (list.length ? list.map((p, i) => `<div class="frow"><b title="${esc(p.name)}">${esc(p.name)}</b><small>${p.ships.length} ships · ${fmt(p.budget)}</small><button data-fpk="A:${i}" title="into Fleet 1">→ 1</button><button data-fpk="B:${i}" title="into Fleet 2">→ 2</button><button data-fpk="E:${i}" title="open it below, to edit">✎</button><button data-fpk="C:${i}" title="copy its code">⧉</button></div>`).join('')
+    : '<div class="tiny" style="padding:6px">No saved fleets yet — compose one below and press Save.</div>')
+    + `<div class="frow" style="border:0"><button data-fpk="X" class="x" title="every saved fleet, a line about it and its code, as one text file">⤓ Export all as text</button><span class="tiny" style="margin-left:auto">${list.length} saved</span></div>`;
+  box.hidden = false; box._list = list;
+  box.style.left = Math.max(4, Math.min(r.left, innerWidth - 300)) + 'px'; box.style.top = Math.min(r.bottom + 4, innerHeight - 120) + 'px';
+}
+document.addEventListener('click', e => {
+  const k = e.target.closest('[data-fpk]');
+  if (k) {
+    const [what, i] = k.dataset.fpk.split(':'), list = $('fleetPick')._list || [];
+    $('fleetPick').hidden = true;
+    if (what === 'X') return exportAll();
+    const p = list[+i]; if (!p) return; const code = planCode(p);
+    if (what === 'A' || what === 'B') { $(what === 'A' ? 'codeA' : 'codeB').value = code; showSide(what); $('fightNote').innerHTML = `<b>${esc(p.name)}</b> is Fleet ${what === 'A' ? 1 : 2}.`; }
+    else if (what === 'E') { loadPlan(p); $('fleet').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+    else (navigator.clipboard ? navigator.clipboard.writeText(code) : Promise.reject()).then(() => { $('fightNote').innerHTML = `Copied the code of <b>${esc(p.name)}</b>.`; }).catch(() => { $('codeA').value = code; $('codeA').select(); showSide('A'); $('fightNote').textContent = 'Put in Fleet 1 and selected — copy it from there.'; });
+    return;
+  }
+  if (!e.target.closest('#fleetPick') && !e.target.closest('#codeA') && !e.target.closest('#codeB')) $('fleetPick').hidden = true;
+});
+for (const k of ['A', 'B']) { const box = $('code' + k); box.addEventListener('focus', () => { if (plansLoad().length) showFleetPick(box); }); box.addEventListener('input', () => showSide(k)); }
+// the fleet a code box holds, built: its plan, its ships (as the lab builds them) and its coat
+function fleetOfCode(code) {
+  const p = planFromCode(code); if (!p) return null;
+  setUserHulls([...HULLS, ...Object.values(PLAN && PLAN.hulls || {}), ...Object.values(p.hulls || {})]);
+  const f = buildPlan(S, p); return f.ships.length ? { p, f, lk: lookFromColors(p.style, p.colA, p.colB) } : null;
+}
+// under each box: a line about the fleet and the fleet itself, drawn in a wedge
+function showSide(k) {
+  const box = $('side' + k), cv = box.querySelector('canvas'), sum = box.querySelector('.sum'), code = $('code' + k).value.trim(), tok = cv._tok = {};
+  const g = cv.getContext('2d'); g.fillStyle = '#04070f'; g.fillRect(0, 0, cv.width, cv.height);
+  if (!code) { sum.innerHTML = `<b>Fleet ${k === 'A' ? 1 : 2}</b>: click the box and pick a saved fleet, or paste a code.`; return; }
+  const x = fleetOfCode(code); if (!x) { sum.innerHTML = '<span style="color:var(--bad)">That is not a fleet code.</span>'; return; }
+  const { p, f, lk } = x, style = (styleChoices().find(s => s.id === p.style) || {}).name || p.style || 'default';
+  sum.innerHTML = `<b>${esc(p.name || 'Fleet')}</b> · ${f.n} ship${f.n > 1 ? 's' : ''} · ${fmt(f.cost)} · ${(p.mix || []).map(m => `${TACTICS[m.id] ? TACTICS[m.id].name : m.id} ${Math.round(m.share * 100)}%`).join(', ') || 'custom'}<br>${esc(f.arch.label)} · ${esc(style)} <span style="color:${esc(p.colA || '#7fb3ff')}">●</span><span style="color:${esc(p.colB || '#ffb347')}">●</span>`;
+  drawFormation(cv, f.ships, lk, tok);
+}
+// the fleet in a wedge: the biggest ship at the point, the rest fanning back in pairs, all to one scale; the painted
+// sprites arrive as their sheets load (each one redraws the picture), the plain plate stands in until then
+function drawFormation(cv, ships, lk, tok) {
+  if (cv._tok !== tok || !ships.length) return;
+  const g = cv.getContext('2d'), W = cv.width, H = cv.height; g.fillStyle = '#04070f'; g.fillRect(0, 0, W, H);
+  const list = ships.slice().sort((a, b) => b.cost - a.cost), gx = Math.max(...list.map(s => s.ds.hull.bw)) * 1.15 + 1, gy = list[0].ds.hull.bh * 0.55 + 1;
+  const pos = list.map((s, i) => { const row = Math.ceil(i / 2), side = i % 2 ? -1 : 1; return [side * row * gx, row * gy]; });
+  const xs = pos.flatMap(([x], i) => [x - list[i].ds.hull.bw / 2, x + list[i].ds.hull.bw / 2]), ys = pos.flatMap(([, y], i) => [y - list[i].ds.hull.bh / 2, y + list[i].ds.hull.bh / 2]);
+  const minx = Math.min(...xs), maxx = Math.max(...xs), miny = Math.min(...ys), maxy = Math.max(...ys);
+  const q = Math.min((W - 24) / Math.max(1, maxx - minx), (H - 24) / Math.max(1, maxy - miny), 16), ox = W / 2 - (minx + maxx) / 2 * q, oy = H / 2 - (miny + maxy) / 2 * q;
+  list.forEach((s, i) => {
+    const [x, y] = pos[i], cx = ox + x * q, cy = oy + y * q, sp = spriteOf(s, lk, () => { if (cv.isConnected) drawFormation(cv, ships, lk, tok); });
+    if (sp) { const k = q / sp.S; g.drawImage(sp.cv, cx - sp.w * k / 2, cy - sp.h * k / 2, sp.w * k, sp.h * k); }
+    else {
+      const hull = s.ds.hull, midx = (hull.box.minx + hull.box.maxx) / 2, midy = (hull.box.miny + hull.box.maxy) / 2;
+      g.beginPath(); hull.poly.forEach(([px, py], j) => { const X = cx + (px - midx) * q, Y = cy + (py - midy) * q; j ? g.lineTo(X, Y) : g.moveTo(X, Y); }); g.closePath();
+      g.fillStyle = lk.washA; g.globalAlpha = 0.55; g.fill(); g.globalAlpha = 1; g.strokeStyle = '#e8f0ff'; g.lineWidth = 1; g.stroke();
+    }
+  });
+}
+// ⚔ Fight: the two codes go to the lab in arena mode, framed right here; it answers with the result line
+let frameReady = false, pending = null, lastFight = null, frameTimer = 0;
+function sendFight() {
+  const a = $('codeA').value.trim(), b = $('codeB').value.trim(), pa = planFromCode(a), pb = planFromCode(b);
+  if (!pa || !pb) { $('fightNote').textContent = `${pa ? 'Fleet 2' : 'Fleet 1'} is not a fleet code — click the box and pick a saved fleet, or paste a code.`; return; }
+  lastFight = { type: 'fight', a, b }; $('fightNote').textContent = ''; $('arenaWrap').hidden = false; $('arenaNote').textContent = `${pa.name || 'Fleet 1'} vs ${pb.name || 'Fleet 2'} — fighting…`;
+  const fr = $('arenaFrame'); if (!fr.getAttribute('src')) fr.src = 'lab.html#arena';
+  if (frameReady) fr.contentWindow.postMessage(lastFight, '*'); else pending = lastFight;
+  $('arenaWrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  clearTimeout(frameTimer); frameTimer = setTimeout(() => { if (!frameReady) $('arenaNote').innerHTML = `The arena did not load here — <a href="${labLink()}" style="color:var(--accent)">open the fight in the Battle Lab</a>.`; }, 8000);
+}
+const labLink = () => lastFight ? `lab.html#fleetA=${encodeURIComponent(lastFight.a)}&fleetB=${encodeURIComponent(lastFight.b)}` : 'lab.html';
+window.addEventListener('message', e => {
+  const d = e.data, fr = $('arenaFrame'); if (!d || !fr.contentWindow || e.source !== fr.contentWindow) return;
+  if (d.type === 'ready') { frameReady = true; if (pending) { e.source.postMessage(pending, '*'); pending = null; } }
+  else if (d.type === 'result') $('arenaNote').innerHTML = d.html + ' <span style="color:var(--muted)">Tap a ship to ride it; ⚑ Command this fight to give Fleet 1 its orders.</span>';
+  else if (d.type === 'error') $('arenaNote').textContent = d.text;
+});
+$('fightCodes').onclick = sendFight; $('fightAgain').onclick = sendFight;
+$('arenaLab').onclick = () => { location.href = labLink(); };
+// full screen: the frame fills the screen, the lab's own bar (play, speed, orders) stays at its bottom
+const wrap = $('arenaWrap');
+function setBig(on) { wrap.classList.toggle('big', on); $('arenaBig').textContent = on ? '✕ Leave full screen' : '⛶ Full screen'; document.body.style.overflow = on ? 'hidden' : ''; }
+$('arenaBig').onclick = () => {
+  const on = !wrap.classList.contains('big'); setBig(on);
+  try { if (on && wrap.requestFullscreen) wrap.requestFullscreen().catch(() => { /* the fixed layout alone, then */ }); else if (!on && document.fullscreenElement) document.exitFullscreen(); } catch (e) { /* same */ }
+};
+document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && wrap.classList.contains('big')) setBig(false); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && wrap.classList.contains('big') && !document.fullscreenElement) setBig(false); });
 init();

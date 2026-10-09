@@ -25,6 +25,11 @@ let liveAcc = 0, armed = null;                     // command mode: sim time owe
 let camUser = null, suppressTap = false, retreatArm = 0;   // the viewer's own camera {cx, cy, sc}; a drag just ended (not a tap); when Retreat was first pressed
 try { arenaH = +localStorage.getItem('lab.arenaH') || 360; order = localStorage.getItem('lab.order') || 'number'; } catch (e) { /* fine */ }
 
+// ARENA mode (lab.html#arena): the replay card alone, filling the page, no random pool — the Fleet Generator shows a
+// fight inside a frame this way (it posts {type:'fight', a, b}; the lab answers {type:'ready'} and {type:'result'})
+const ARENA = /(^#|[#&])arena(?=&|$)/.test(location.hash) || /[?&]arena(?=&|$)/.test(location.search);
+if (ARENA) document.body.classList.add('arena');
+const tellParent = msg => { if (ARENA && window.parent !== window) { try { window.parent.postMessage(msg, '*'); } catch (e) { /* no parent to tell */ } } };
 let runNote = '';
 const fleetSizes = () => (LAB && LAB.fleetSizes) || [1, 1];
 function run() {
@@ -352,7 +357,7 @@ function focusShip(j) {
   $('camFit').hidden = false; $('camFit').textContent = '⌖ Whole fight'; draw();
 }
 function draw() {
-  const cv = $('arena'); cv.style.height = arenaH + 'px';
+  const cv = $('arena'); if (!ARENA) cv.style.height = arenaH + 'px';            // in arena mode the canvas fills the page instead
   const W = cv.clientWidth || 360, H = cv.clientHeight || arenaH;
   if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
   const g = cv.getContext('2d'), F = cur.frames; if (!F.length) return;
@@ -699,7 +704,7 @@ $('chRun').onclick = runChallenge;
   grip.addEventListener('pointermove', e => { if (!drag) return; arenaH = Math.max(200, Math.min(1000, drag.h + (e.clientY - drag.y))); $('arena').style.height = arenaH + 'px'; if (cur) draw(); });
   const up = () => { if (!drag) return; drag = null; try { localStorage.setItem('lab.arenaH', arenaH); } catch (x) { /* fine */ } };
   grip.addEventListener('pointerup', up); grip.addEventListener('pointercancel', up);
-  $('arena').style.height = arenaH + 'px';
+  if (!ARENA) $('arena').style.height = arenaH + 'px';
 }
 $('skins').onchange = () => { if (cur) draw(); };
 $('toPainter').onclick = () => { location.href = 'paint.html'; };        // the same tab: a published page may not open new ones
@@ -729,15 +734,16 @@ $('hullsImport').onclick = () => { importLibrary($('hullsIn').value); $('hullsIn
 function fightCodes() {
   if (!LAB) return;
   const pa = planFromCode($('codeA').value), pb = planFromCode($('codeB').value);
-  if (!pa || !pb) { $('codesNote').textContent = (pa ? 'Fleet 2' : 'Fleet 1') + ' is not a fleet code — copy it from the Fleet Generator (⚙).'; return; }
+  if (!pa || !pb) { $('codesNote').textContent = (pa ? 'Fleet 2' : 'Fleet 1') + ' is not a fleet code — copy it from the Fleet Generator (⚙).'; tellParent({ type: 'error', text: $('codesNote').textContent }); return; }
   setUserHulls([...HULLS, ...Object.values(pa.hulls || {}), ...Object.values(pb.hulls || {})]);          // their own silhouettes travel inside the code
   const mk = p => { const id = LAB.fleets.length, f = buildPlan(S, p, undefined, (id + 1) + ''); if (!f.ships.length) return null; f.name = p.name || `Fleet ${id + 1}`; f.look = lookFromColors(p.style, p.colA, p.colB); Object.assign(f, { id, w: 0, l: 0, d: 0 }); LAB.fleets.push(f); return f; };
-  const A = mk(pa), Bf = mk(pb); if (!A || !Bf) { $('codesNote').textContent = 'One of the fleets could not be built.'; return; }
+  const A = mk(pa), Bf = mk(pb); if (!A || !Bf) { $('codesNote').textContent = 'One of the fleets could not be built.'; tellParent({ type: 'error', text: $('codesNote').textContent }); return; }
   const r = simulate(A.ships, Bf.ships, rng32(Math.floor(Math.random() * 1e9)));
   LAB.fights.unshift({ a: A.id, b: Bf.id, A, B: Bf, ...r, custom: true });
   picked = [A.id, Bf.id]; renderShips(); renderFights(); watch(0);
-  $('codesNote').innerHTML = `<b>${esc(A.name)}</b> (${A.n} ships, ${fmt(A.cost)}) vs <b>${esc(Bf.name)}</b> (${Bf.n} ships, ${fmt(Bf.cost)}): ${r.winner === null ? 'a draw' : `<b style="color:${SIDE[r.winner]}">${esc(r.winner === 0 ? A.name : Bf.name)} wins</b>`} in ${r.time}s. Both are in the pool — press Fight again for fresh dice, or Command this fight.`;
-  $('replay').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  $('codesNote').innerHTML = `<b>${esc(A.name)}</b> (${A.n} ships, ${fmt(A.cost)}) vs <b>${esc(Bf.name)}</b> (${Bf.n} ships, ${fmt(Bf.cost)}): ${r.winner === null ? 'a draw' : `<b style="color:${SIDE[r.winner]}">${esc(r.winner === 0 ? A.name : Bf.name)} wins</b>`} in ${r.time}s.${ARENA ? '' : ' Both are in the pool — press Fight again for fresh dice, or Command this fight.'}`;
+  if (ARENA) tellParent({ type: 'result', html: $('codesNote').innerHTML, winner: r.winner, time: r.time, a: A.name, b: Bf.name });
+  else $('replay').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 $('fightCodes').onclick = fightCodes;
 $('toGen').onclick = () => { location.href = 'fleet.html'; };
@@ -772,4 +778,10 @@ function downloadText(name, text) {
 }
 { const m = /[#&]fleetA=([^&]+)/.exec(location.hash), m2 = /[#&]fleetB=([^&]+)/.exec(location.hash); if (m) $('codeA').value = decodeURIComponent(m[1]); if (m2) $('codeB').value = decodeURIComponent(m2[1]); if (m || m2) { try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* fine */ } } }
 if (!$('seed').value) $('seed').value = Math.floor(Math.random() * 1e6);
-run();
+if (ARENA) {
+  // a window for one fight: an empty pool, the codes come by message from the page around us (or in the link as #arena&fleetA=…&fleetB=…)
+  LAB = { fleets: [], fights: [], budget: 6000, fleetSizes: [1, 1], table: {}, rate: {} };
+  window.addEventListener('message', e => { const d = e.data; if (!d || d.type !== 'fight' || e.source !== window.parent) return; $('codeA').value = d.a || ''; $('codeB').value = d.b || ''; fightCodes(); });
+  if ($('codeA').value && $('codeB').value) fightCodes();
+  tellParent({ type: 'ready' });
+} else run();
