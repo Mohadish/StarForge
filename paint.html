@@ -101,7 +101,8 @@ details.fine summary { cursor: pointer; color: var(--muted) }
     <label>Greeble size · offset (%)<input id="greebleOff" type="range" min="-30" max="30" step="1" value="0"><small id="greebleV" class="tiny"></small></label>
     <label>Hard point size · offset (%)<input id="mountOff" type="range" min="-30" max="30" step="1" value="0"><small id="mountV" class="tiny"></small></label>
     <label>Turret art size · offset (%)<input id="turretOff" type="range" min="-40" max="40" step="1" value="0"><small id="turretV" class="tiny"></small></label>
-    <label>Under the plating<select id="base"><option value="ribbon">more plating, shifted</option><option value="none">nothing — holes cut through</option><option value="tone">the hull's own tone</option></select></label>
+    <label>Under the plating<select id="base"><option value="ribbon">more plating, shifted, over the hull's tone</option><option value="none">nothing — holes cut through</option><option value="tone">the hull's own tone</option></select></label>
+    <label class="chk"><input id="voids" type="checkbox"> show voids (magenta where every layer has a hole)</label>
     <label class="chk"><input id="inner" type="checkbox" checked> inner rings on top</label>
     <label class="chk"><input id="spine" type="checkbox" checked> spine ribbon</label>
     <label class="chk"><input id="engines" type="checkbox" checked> engines</label>
