@@ -41,7 +41,7 @@ export function spriteOf(ship, look, onReady) {
   const key = ship.design.id + '|' + look.key, had = sprites.get(key); if (had !== undefined) return had || null;
   if (!loading.has(key)) {
     const st = look.style;
-    loading.set(key, Promise.all([loadStyle(st), st.deco ? loadStyle({ sheet: st.deco.sheet }).catch(() => null) : null, st.turrets ? loadStyle({ sheet: st.turrets.sheet }).catch(() => null) : null])
+    loading.set(key, Promise.all([loadStyle(st), st.deco ? Promise.all(st.deco.sheets.map(s => loadStyle({ sheet: s }).catch(() => null))) : null, st.turrets ? loadStyle({ sheet: st.turrets.sheet }).catch(() => null) : null])
       .then(([img, deco, tur]) => { const sp = paint(ship, look, img, deco, tur); sprites.set(key, sp); loading.delete(key); if (onReady) onReady(sp); })
       .catch(e => { console.warn('skin failed', e); sprites.set(key, false); loading.delete(key); }));
   }

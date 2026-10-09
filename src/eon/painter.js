@@ -20,7 +20,7 @@ loadLibrary().then(r => { durable = r.durable; if (r.durable) { HULLS = r.list; 
 
 let img = null, decoImg = null, turretImg = null, style = STYLES.greeble1, sel = 'dart', last = null, lock = null;
 // a style's sheets: the plating, and when it has them the decorations and the turrets
-const loadBoth = async st => { const [a, b, c] = await Promise.all([loadStyle(st), st.deco ? loadStyle({ sheet: st.deco.sheet }).catch(() => null) : null, st.turrets ? loadStyle({ sheet: st.turrets.sheet }).catch(() => null) : null]); img = a; decoImg = b; turretImg = c; };
+const loadBoth = async st => { const [a, b, c] = await Promise.all([loadStyle(st), st.deco ? Promise.all(st.deco.sheets.map(s => loadStyle({ sheet: s }).catch(() => null))) : null, st.turrets ? loadStyle({ sheet: st.turrets.sheet }).catch(() => null) : null]); img = a; decoImg = b; turretImg = c; };   // decoImg: every decoration sheet of the style, in order
 // a raw outline (hull units) scaled so its area matches the volume, about its own centre — what hullOf does for a saved one
 const scaleInfo = (poly, volume) => { const a0 = areaOf(poly) || 1, b = bboxOf(poly); return { s: Math.sqrt(Math.max(volume / HULL_VOLUME, 0.5) / a0), cx: (b.minx + b.maxx) / 2, cy: (b.miny + b.maxy) / 2 }; };
 const vol = () => +$('vol').value;

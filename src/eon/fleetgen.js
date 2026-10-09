@@ -222,7 +222,7 @@ const SHEETS = new Map();
 function sheetsFor(styleId, onReady) {
   const st = STYLES[styleId] && STYLES[styleId].ribbon ? STYLES[styleId] : STYLES.greeble1, k = st.id, had = SHEETS.get(k); if (had) return had === 'loading' ? null : had;
   SHEETS.set(k, 'loading');
-  Promise.all([loadStyle(st), st.deco ? loadStyle({ sheet: st.deco.sheet }).catch(() => null) : null]).then(([img, deco]) => { SHEETS.set(k, { st, img, deco }); if (onReady) onReady(); }).catch(() => SHEETS.set(k, { st, img: null, deco: null }));
+  Promise.all([loadStyle(st), st.deco ? Promise.all(st.deco.sheets.map(s => loadStyle({ sheet: s }).catch(() => null))) : null]).then(([img, deco]) => { SHEETS.set(k, { st, img, deco }); if (onReady) onReady(); }).catch(() => SHEETS.set(k, { st, img: null, deco: null }));
   return null;
 }
 const gunsOf = ship => { const m = new Map(); for (const g of ship.guns || []) { const k = g.kind + '|' + (g.size || 1), e = m.get(k) || { kind: g.kind, n: 0, size: g.size || 1 }; e.n++; m.set(k, e); } return [...m.values()]; };

@@ -156,7 +156,8 @@ function lightsSheet(img, color) {
 }
 
 // paint one hull. `poly` in hull squares (nose = +x, the spine is y = 0); the canvas is filled.
-// `decoImg` (optional) is the style's decoration sheet, already loaded. Returns what it did.
+// `decoImg` (optional) is the style's decoration sheet, already loaded — or the list of its sheets (`style.deco.sheets`
+// order; a missing one is null and its greebles are skipped). Returns what it did.
 export function paintHull(cv, poly, img, style, opt = {}, decoImg = null) {
   const o = { ...PAINT, ...opt }, g0 = cv.getContext('2d'), W = cv.width, H = cv.height;
   g0.clearRect(0, 0, W, H); if (o.background) { g0.fillStyle = o.background; g0.fillRect(0, 0, W, H); }
@@ -283,8 +284,9 @@ export function paintHull(cv, poly, img, style, opt = {}, decoImg = null) {
     // NOT tied to the outline's exact coordinates: the draws are relative to the shape, so nudging a point in the
     // editor (and the re-scale when it is let go) keeps the layout instead of reshuffling it. Never on the tip of a
     // pointy nose: a greeble sitting on the point is a pimple, not a fitting.
-    const deco = style.deco;
-    if (o.greebles && decoSheet && deco?.greebles?.length) {
+    const deco = style.deco, dsheets = Array.isArray(decoSheet) ? decoSheet : [decoSheet], dOf = i => dsheets[i || 0] || dsheets[0];   // the decoration sheets: cell[4] says which
+    const pool = deco && deco.greebles ? deco.greebles.filter(c => dsheets[c[4] || 0]) : [];                                             // only the greebles whose sheet is in
+    if (o.greebles && dsheets[0] && pool.length) {
       const rng = die(hashOf(style.id + '|' + poly.length + '#' + (o.greebleN || 0) + '#' + (o.seed || 0)));
       const want = o.greebleN || Math.max(2, Math.min(16, Math.round(2 + area / 12))), pOut = Math.max(0.15, Math.min(0.65, 1 - area / 25));
       const size = engineH * o.greebleSize * (area > 60 ? 0.8 : 1), perim = sample(P, 2, true), placed = [];
@@ -298,7 +300,7 @@ export function paintHull(cv, poly, img, style, opt = {}, decoImg = null) {
           if (symY && y > oy - sz * 0.15 && Math.abs(y - oy) > sz * 0.15) continue;
           if (placed.some(q => Math.hypot(q.x - x, q.y - y) < (q.sz + sz) * 0.55)) continue;
           if (hps.some(h => Math.hypot(h.x - x, h.y - y) < h.r + sz * 0.5)) continue;        // the hard points are spoken for
-          return { x, y, sz, i: Math.floor(rng() * deco.greebles.length) };
+          return { x, y, sz, i: Math.floor(rng() * pool.length) };
         }
         return null;
       };
@@ -308,13 +310,13 @@ export function paintHull(cv, poly, img, style, opt = {}, decoImg = null) {
         if (symY && Math.abs(p.y - oy) > p.sz * 0.15) { if (spots.length + 2 > want) continue; spots.push(p, { ...p, y: 2 * oy - p.y, flip: true }); placed.push(p); }
         else { spots.push(p); placed.push(p); }
       }
-      for (const s of spots) { const sp = deco.greebles[s.i], h = s.sz, w = h * sp[2] / sp[3]; g.save(); g.translate(s.x, s.y); g.scale(1, s.flip ? -1 : 1); g.drawImage(decoSheet, sp[0], sp[1], sp[2], sp[3], -w / 2, -h / 2, w, h); g.restore(); }
+      for (const s of spots) { const sp = pool[s.i], h = s.sz, w = h * sp[2] / sp[3]; g.save(); g.translate(s.x, s.y); g.scale(1, s.flip ? -1 : 1); g.drawImage(dOf(sp[4]), sp[0], sp[1], sp[2], sp[3], -w / 2, -h / 2, w, h); g.restore(); }
       if (first) { greebles = spots.length; greebleSpots = spots.map(s => ({ x: s.x, y: s.y, sz: s.sz })); }
     }
     // the turret MOUNTS, one under every hard point (the turret itself is the page's, drawn on top)
-    if (decoSheet && deco?.mounts?.length) for (const h of hps) {
+    if (dsheets[0] && deco?.mounts?.length) for (const h of hps) {
       const sp = deco.mounts[h.mount % deco.mounts.length], hh = h.r * 2, w = hh * sp[2] / sp[3];
-      g.drawImage(decoSheet, sp[0], sp[1], sp[2], sp[3], h.x - w / 2, h.y - hh / 2, w, hh);
+      g.drawImage(dsheets[0], sp[0], sp[1], sp[2], sp[3], h.x - w / 2, h.y - hh / 2, w, hh);
     }
     // the ENGINES, from the plan
     if (E) for (const s of E.spots) {
@@ -339,7 +341,7 @@ export function paintHull(cv, poly, img, style, opt = {}, decoImg = null) {
   // ---- the LIGHTS: the plating's brightest specks painted again, in colour, and bloomed ----
   if (o.lights > 0) {
     const lc = new OffscreenCanvas(W, H), lg = lc.getContext('2d');
-    pass(lg, lightsSheet(img, o.lightColor), decoImg ? lightsSheet(decoImg, o.lightColor) : null, false);
+    pass(lg, lightsSheet(img, o.lightColor), (Array.isArray(decoImg) ? decoImg : [decoImg]).map(d => d ? lightsSheet(d, o.lightColor) : null), false);
     g0.save(); g0.globalCompositeOperation = 'lighter';
     g0.globalAlpha = 0.55 * o.lights; g0.filter = `blur(${Math.max(2, S * 0.08).toFixed(1)}px)`; g0.drawImage(lc, 0, 0);   // the bloom
     g0.filter = 'none'; g0.globalAlpha = 0.5 * o.lights; g0.drawImage(lc, 0, 0);                                            // the specks themselves
