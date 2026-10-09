@@ -106,10 +106,23 @@ function sample(pts, step, closed) {
   out.total = u;
   return out;
 }
-// a closed loop re-rooted at its nose (the frontmost point) and cut into its two sides, each running nose → tail
-function halves(loop) {
-  let ni = 0; for (let i = 1; i < loop.length; i++) if (loop[i][0] > loop[ni][0]) ni = i;
-  const rooted = [...loop.slice(ni), ...loop.slice(0, ni)], S = sample(rooted, 1, true), half = S.total / 2;
+// a closed loop re-rooted at its nose and cut into its two sides, each running nose → tail. The nose is where the loop
+// crosses the spine line at the front (so a blunt or flat nose roots ON the axis and the two sides read the strip as
+// mirror images — found 2026-10-10: a corner of a flat nose was taken, and the sides came out out of phase); a loop
+// that never crosses the spine (a nacelle off to one side) roots at its frontmost point
+function halves(loop, axisY) {
+  // the frontmost vertex; on a flat front (many share the x) the one nearest the spine, so a loop and its mirror image
+  // (the two nacelles of an H) root at mirrored points and not at opposite corners of their fronts
+  let ni = 0; for (let i = 1; i < loop.length; i++) { const dx = loop[i][0] - loop[ni][0]; if (dx > 0.5 || (axisY !== undefined && dx > -0.5 && Math.abs(loop[i][1] - axisY) < Math.abs(loop[ni][1] - axisY))) ni = i; }
+  let root = null;
+  if (axisY !== undefined) {
+    let best = -Infinity;
+    // the frontmost crossing, even when it lies behind the front (an H hull: the bar between the nacelles) — it is the
+    // one point of the loop that mirrors onto itself, so both sides read the strip from it
+    for (let i = 0; i < loop.length; i++) { const p = loop[i], q = loop[(i + 1) % loop.length], dp = p[1] - axisY, dq = q[1] - axisY; if (dp * dq > 0 || (dp === 0 && dq === 0)) continue; const t = dq === dp ? 0 : dp / (dp - dq), x = p[0] + (q[0] - p[0]) * t; if (x > best) { best = x; root = { i, pt: [x, axisY] }; } }
+  }
+  const rooted = root ? [root.pt, ...loop.slice(root.i + 1), ...loop.slice(0, root.i + 1)] : [...loop.slice(ni), ...loop.slice(0, ni)];
+  const S = sample(rooted, 1, true), half = S.total / 2;
   const a = S.filter(p => p.s <= half).map(p => [p.x, p.y]);                        // nose → tail, one way round
   const b = S.filter(p => p.s >= half).map(p => [p.x, p.y]).reverse();              // the rest, read backwards: nose → tail the other way round
   b.unshift([S[0].x, S[0].y]);
@@ -203,8 +216,10 @@ export function paintHull(cv, poly, img, style, opt = {}, decoImg = null) {
   const md = mg.getImageData(0, 0, Wg, Hg).data, mask = new Uint8Array(Wg * Hg); let maxD = 0;
   for (let i = 0; i < Wg * Hg; i++) mask[i] = md[i * 4 + 3] > 127 ? 1 : 0;
   const dist = edt(mask, Wg, Hg); for (let i = 0; i < dist.length; i++) if (dist[i] > maxD) maxD = dist[i];
-  const dAt = (x, y) => { const cx = Math.round(x / G) + 1, cy = Math.round(y / G) + 1; return cx < 0 || cy < 0 || cx >= Wg || cy >= Hg ? 0 : dist[cy * Wg + cx]; };
-  const toPx = p => [(p[0] - 1) * G, (p[1] - 1) * G];
+  // a cell (cx, cy) covers canvas [(cx − 1)·G, cx·G): its CENTRE is at (cx − 0.5)·G — both ways round, or the whole
+  // plating sits half a cell up and left of the hull and a mirrored hull is not mirrored to the pixel (found 2026-10-10)
+  const dAt = (x, y) => { const cx = Math.floor(x / G) + 1, cy = Math.floor(y / G) + 1; return cx < 0 || cy < 0 || cx >= Wg || cy >= Hg ? 0 : dist[cy * Wg + cx]; };
+  const toPx = p => [(p[0] - 0.5) * G, (p[1] - 0.5) * G];
   const outward = (x, y, tx, ty) => { const nx = -ty, ny = tx, far = dAt(x + nx * G * 2, y + ny * G * 2), near = dAt(x - nx * G * 2, y - ny * G * 2); return far < near ? [nx, ny] : [-nx, -ny]; };
   // the ring widths: thin at the outline, swelling toward the core
   const deep = maxD * G, wEdge = o.ribbon * S, wCore = Math.max(wEdge, o.centre * deep), wSpine = Math.max(wEdge, o.spineW * deep);
@@ -294,23 +309,34 @@ export function paintHull(cv, poly, img, style, opt = {}, decoImg = null) {
       });
     };
     const clipped = fn => { g.save(); g.clip(path, 'evenodd'); fn(); g.restore(); };
+    // on a hull mirrored across the spine, draw the upper half and MIRROR it below (his ask, 2026-10-09: the filler and
+    // the spine ribbon were the one thing not symmetric — holes on one side and not the other); elsewhere just draw
+    const mirrored = fn => {
+      if (!symY) return fn();
+      g.save(); g.beginPath(); g.rect(-1e5, -1e5, 2e5, 1e5 + oy); g.clip(); fn(); g.restore();
+      g.save(); g.beginPath(); g.rect(-1e5, oy, 2e5, 1e5); g.clip(); g.translate(0, 2 * oy); g.scale(1, -1); fn(); g.restore();
+    };
     // (test) a colour under EVERYTHING: whatever shows of it is a hole through every layer
     if (o.voidColor && first) clipped(() => { g.fillStyle = o.voidColor; g.fill(path, 'evenodd'); });
     // what lies UNDER the plating, where it has holes: nothing (true alpha), more plating (straight courses of the
     // strip, each read from somewhere else), or the hull's own tone
     if (o.base === 'tone' && first) clipped(() => { g.fillStyle = toneOf(style, img); g.fill(path, 'evenodd'); });
-    else if (o.base === 'ribbon') clipped(() => {
-      const hh = Math.max(wEdge, Math.min(wCore, wEdge * 2));
-      for (let k = 0, y = y0 + hh * 0.4; y < y1 + hh; y += hh * 0.85, k++) lay([[x1 + hh, y], [x0 - hh, y]], (rings.length + 2 + k) * o.shift * R.w, hh, [0, -1], RS[(k + 1) % RS.length]);
-    });
+    else if (o.base === 'ribbon') clipped(() => mirrored(() => {
+      // straight courses from the spine outward, stepping by the strip's SOLID share so a ragged strip still tiles
+      // without gaps (his ask: a filler with no grey in it); on a symmetric hull the upper half is drawn and mirrored
+      const hh = Math.max(wEdge, Math.min(wCore, wEdge * 2)), rag = ragOf(style, img), dy = hh * Math.max(0.45, Math.min(0.85, 1 - rag.top - rag.bot - 0.05));
+      const course = (y, k) => lay([[x1 + hh, y], [x0 - hh, y]], (rings.length + 2 + k) * o.shift * R.w, hh, [0, -1], RS[(k + 1) % RS.length]);
+      for (let k = 0; oy - k * dy > y0 - hh; k++) course(oy - k * dy, k);
+      if (!symY) for (let k = 1; oy + k * dy < y1 + hh; k++) course(oy + k * dy, k + 40);
+    }));
     // the rings. The OUTER one is not clipped: the strip's own ragged edge IS the ship's outline; the inner ones are
     const order = [...rings.keys()]; if (!o.innerOnTop) order.reverse();
-    const ring = (k, dShift = 0) => { const r = rings[k]; for (const loop of contours(dist, Wg, Hg, r.level)) for (const side of halves(loop.map(toPx))) lay(side, r.shift + dShift, r.draw, null, RS[k % RS.length]); };
+    const ring = (k, dShift = 0) => { const r = rings[k]; for (const loop of contours(dist, Wg, Hg, r.level)) for (const side of halves(loop.map(toPx), symY ? oy : undefined)) lay(side, r.shift + dShift, r.draw, null, RS[k % RS.length]); };
     // a SECOND COAT of the rings under the first (his idea, 2026-10-09): the same rings again, read from the other half
     // of the strip, so the holes of one coat land on the plating of the other; clipped, so the outline stays the top coat's
     if (o.underlay) clipped(() => { for (const k of order) ring(k, 0.5 * R.w); });
     for (const k of order) { if (k === 0) ring(0); else clipped(() => ring(k)); }
-    if (o.spine) clipped(() => lay([[x1, oy], [x0, oy]], rings.length * o.shift * R.w, wSpine, [0, -1]));   // the spine ribbon, nose to tail, on top
+    if (o.spine) clipped(() => mirrored(() => lay([[x1, oy], [x0, oy]], rings.length * o.shift * R.w, wSpine, [0, -1])));   // the spine ribbon, nose to tail, on top; on a symmetric hull its ragged top faces out both ways
     // GREEBLES: the style's own decorations, scattered over the plating; sized like the engines (a little smaller on
     // a big hull); a share straddle the outline to break it — more of them the smaller the hull. Mirrored in pairs
     // on a symmetric hull. Same style, same seed, same scatter (so the lights pass lands on the same spots) — and
