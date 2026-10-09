@@ -80,12 +80,13 @@ const DECO = { greeble1: ['deco-1', 0], pipes1: ['deco-1', 6], crystal1: ['deco-
 // the serpent strip has spear tips at both ends: the ribbon rectangle leaves them out so the fold never shows a point
 STYLES.serpent1 = P('serpent1', 'Serpent (scales and plates)', 'serpent-1.webp', R(67, 237, 1414, 163), [R(37, 562, 449, 292), R(1061, 571, 469, 278), R(506, 592, 532, 235)], 0.12);
 // a style's decorations: `sheets` (the first holds the mounts), `mounts` [x, y, w, h] on sheet 0, `greebles` [x, y, w, h, sheet index, (scale)]
-// Utopia's live on its own sheet: three mounts, ten panel fittings, three long slabs (drawn a little smaller) and nine
-// small ones (smaller still) — every piece its own island on the sheet, found by connected components
+// Utopia's live on its own sheet: three mounts and HIS PICK of the fittings (2026-10-09: of the 21 pieces on the sheet,
+// #1 #2 #6 #8 of the panels at full size, #14 #17 #19 #21 of the small bits at ×0.65; #21's box had the tip of its
+// neighbour in it — erased on the sheet). Every piece is its own island on the sheet, found by connected components.
 { const U = 'assets/parts/utopia-1.webp', c = (b, k = 1) => [...b, 0, k];
   STYLES.utopia1.deco = { sheet: U, sheets: [U], mounts: [[25, 906, 339, 228], [396, 905, 363, 225], [786, 928, 340, 203]],
-    greebles: [[294,1486,205,93],[25,1492,257,78],[502,1492,224,80],[747,1492,175,87],[938,1492,185,87],[25,1592,186,105],[933,1599,190,101],[723,1600,189,100],[234,1605,274,85],[502,1605,204,90]].map(b => c(b))
-      .concat([[12,1731,417,121],[693,1758,430,87],[400,1766,408,87]].map(b => c(b, 0.8)), [[9,1857,138,81],[151,1861,93,77],[263,1864,78,78],[460,1866,132,93],[851,1866,276,84],[355,1884,103,60],[589,1885,130,63],[713,1888,129,62]].map(b => c(b, 0.65))) };
+    greebles: [[294,1486,205,93],[25,1492,257,78],[25,1592,186,105],[723,1600,189,100]].map(b => c(b))
+      .concat([[9,1857,138,81],[460,1866,132,93],[355,1884,103,60],[713,1888,129,62]].map(b => c(b, 0.65))) };
   STYLES.utopia1.turrets = { sheet: U, cells: [[46,1166,318,223,119,111,223],[388,1167,376,221,133,110,221],[786,1163,332,227,123,113,227]] }; }
 for (const [id, [sheet, at]] of Object.entries(DECO)) if (STYLES[id]) STYLES[id].deco = { sheet: 'assets/parts/' + sheet + '.webp', sheets: ['assets/parts/' + sheet + '.webp'], mounts: CELLS[sheet].slice(at, at + 3), greebles: CELLS[sheet].slice(at + 3, at + 6).map(c => [...c, 0]) };
 for (const [id, list] of Object.entries(EXTRA)) {
