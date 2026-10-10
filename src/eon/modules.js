@@ -85,6 +85,10 @@ export const KINDS = {
 };
 export const GANTRY = { w: 4, h: 2, maxW: 12, maxH: 8 };      // the standard gantry, and how far one can be stretched
 export const DRONE_CONTROL = 1;                                // mounts of the weapons computer one flying drone takes up (2 starved pure carriers to death — back to 1, 2026-10-07)
+// how many of the drones carried the auto-fit makes room for in the air: a quarter, six at least (his call, 2026-10-10 —
+// a 2300-drone juggernaut was fitted for six in the air and "did not launch one"; a generated ship must work as built)
+export const AIR_SHARE = 0.25;
+export const airWanted = drones => Math.min(drones, Math.max(6, Math.ceil(drones * AIR_SHARE)));
 // ARMOUR is the shell outside the hull, a separate layer with its own points. Layers stack like onion
 // rings: every layer out is bigger — the k-th costs (1 + 0.4(k−1)) of the first in volume, so four
 // layers are 6.4× the bulk of one for 4× the points. Hull damage degrades the ship; fabricators patch it.
@@ -268,7 +272,7 @@ export function fitModule(S, design, modId, caps = allCapsules(S)) {
     for (let i = 0; i < 40; i++) { if (!designStats(S, design, caps).t.underDriven) break; if (mod.k < sc.max - 1e-9) mod.k = clamp(mod.k + sc.step, sc.min, sc.max); else if (mod.n < 8) mod.n++; else break; }
   } else {
     const ds = designStats(S, design, caps), me = ds.mods.find(m => m.mod.id === modId), stat = sc.stats[0];
-    const total = mod.kind === 'reactor' ? ds.t.powerUse : ds.t.mountsUsed + Math.min(ds.t.drones, 6) * DRONE_CONTROL;   // room for six drones in the air
+    const total = mod.kind === 'reactor' ? ds.t.powerUse : ds.t.mountsUsed + airWanted(ds.t.drones) * DRONE_CONTROL;   // room for a share of the drones in the air
     const other = ds.mods.filter(m => m.mod.id !== modId && m.kind === mod.kind).reduce((a, m) => a + m.v[stat] * m.n, 0);
     const perK = me.v[stat] / me.k, need = Math.max(0, total - other);
     mod.n = Math.max(1, Math.ceil(need / (perK * sc.max) - 1e-9));

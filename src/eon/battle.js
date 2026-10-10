@@ -20,8 +20,9 @@ export const B = { dt: 0.25, start: 3000, maxTime: 600, record: 1, unit: 8, minG
   // enough to get home — so the farther the carrier stands off, the fewer volleys a drone delivers
   // (battery 100, 0.1 per unit flown, 10 per volley: ~7 volleys from 150 u, ~1 from 450 u, none from 500).
   // Home, a fabricator with stock refurbishes it; otherwise it is done. `sortie` caps the time out.
-  drone: { hp: 70, speed: 240, dmg: 30, rate: 0.4, range: 120, acc: 65, evade: 0.55, launchEvery: 2.5, sortie: 90, dock: 40, battery: 100, travelCost: 0.1, shotCost: 10, idleCost: 0.5, reach: 220 } };   // a VOLLEY, not a pea-shooter: 12 dps either way, but 12-a-shot left 1 after a shield's hardness (8) and armour's shrug-off (3); 30 leaves 19
-export const volleysFrom = dist => Math.max(0, Math.floor((B.drone.battery - 2 * dist * B.drone.travelCost) / B.drone.shotCost));   // what a drone can deliver from a stand-off distance
+  drone: { hp: 70, speed: 240, dmg: 30, rate: 0.4, range: 120, acc: 65, evade: 0.55, launchEvery: 2.5, sortie: 90, dock: 40, battery: 100, travelCost: 0.1, shotCost: 10, idleCost: 0.5, reach: 220, waveWait: 6 } };   // waveWait: a forming wave goes after this many seconds even if short   // a VOLLEY, not a pea-shooter: 12 dps either way, but 12-a-shot left 1 after a shield's hardness (8) and armour's shrug-off (3); 30 leaves 19
+export const volleysFrom = dist => Math.max(0, Math.floor((B.drone.battery - 2 * dist * B.drone.travelCost) / B.drone.shotCost));   // what a drone can deliver from a stand-off distance and still get back
+export const volleysOneWay = dist => Math.max(0, Math.floor((B.drone.battery - dist * B.drone.travelCost) / B.drone.shotCost));    // ... when it is not coming back (a carrier with a fabricator throws drones one way and builds more)
 // the rock-paper-scissors levers (tuned in the lab; see tune_rps):
 //   point-defence guns reach out to swat missiles and drones → a ship with PD beats missiles and drones
 //   kinetic shells punch part of their damage straight through a shield → guns beat beam ships, which lean on shields
@@ -167,9 +168,18 @@ export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {})
       else if (A && A.kind === 'attack' && Math.hypot(o.x - A.x, o.y - A.y) > A.r + 60) go(s, A.x, A.y, 0, 60, 0);                       // nobody in the area yet: go there
       else if (A && A.kind === 'protect' && Math.hypot(s.x - A.x, s.y - A.y) > A.r) go(s, A.x, A.y, A.r * 0.5, 60, 0);                    // get back inside
       else go(s, o.x, o.y, s.pref * 0.8, Math.max(B.minGap / 2, s.pref * 0.12), s.spin);                                                  // the nose follows the way it moves; the turrets do the aiming
-      // launch only as many as the computer can run, and only if a drone could deliver at least one volley from here and get back
-      const far = dist(s, o), worth = volleysFrom(Math.max(0, far - B.drone.range)) >= 1;
-      for (const b of s.bays) { b.cd -= B.dt; if (b.cd <= 0 && b.left > 0 && worth && drones.filter(d => d.owner === s.idx).length < s.airCap) { b.left--; b.cd = B.drone.launchEvery / b.n; const D = B.drone, sz = b.size; drones.push({ id: nextId++, side: s.side, owner: s.idx, bay: b, x: s.x, y: s.y, age: 0, home: false, bat: D.battery, hpMax: D.hp * sz, hp: D.hp * sz, speed: D.speed / Math.pow(sz, 0.3), dmg: D.dmg * sz, rate: D.rate, range: D.range, acc: D.acc, evade: D.evade, cd: rng() * 1, spin: rng() < 0.5 ? 1 : -1 }); } }
+      // launch only as many as the computer can run, and only if a drone could deliver at least one volley from here — and get
+      // back, unless a fabricator aboard can build more: then the drones go ONE WAY from much farther out (his juggernaut with
+      // 44 fabricators crawled 70 s under fire before the old round-trip gate let it launch at all, 2026-10-10)
+      const far = dist(s, o), worth = (s.dfab > 0 ? volleysOneWay : volleysFrom)(Math.max(0, far - B.drone.range)) >= 1;
+      // WAVES (his ask, 2026-10-10: "500 drones — I expect a quarter launched at a time"): launched drones FORM UP round the
+      // carrier and go together once the wave is the air cap (or nothing more can join, or it has waited long enough); the
+      // next wave starts forming only when the last has mostly gone — one by one they were swatted one by one
+      const mine = drones.filter(d => d.owner === s.idx), forming = mine.filter(d => d.form), striking = mine.length - forming.length, left = s.bays.reduce((a, b) => a + b.left, 0);
+      const mayLaunch = worth && mine.length < s.airCap && (forming.length > 0 || striking <= s.airCap * 0.1);
+      // as many launches a tick as the bay's cadence allows (one a tick capped a 144-hangar bay at 4 a second instead of 57)
+      for (const b of s.bays) { b.cd -= B.dt; let n = drones.filter(d => d.owner === s.idx).length; while (b.cd <= 0 && b.left > 0 && mayLaunch && n < s.airCap) { b.left--; n++; b.cd += B.drone.launchEvery / b.n; const D = B.drone, sz = b.size; drones.push({ id: nextId++, side: s.side, owner: s.idx, bay: b, x: s.x, y: s.y, age: 0, home: false, form: true, bat: D.battery, hpMax: D.hp * sz, hp: D.hp * sz, speed: D.speed / Math.pow(sz, 0.3), dmg: D.dmg * sz, rate: D.rate, range: D.range, acc: D.acc, evade: D.evade, cd: rng() * 1, spin: rng() < 0.5 ? 1 : -1 }); } }
+      if (forming.length && (mine.length >= s.airCap || left === 0 || forming[0].age >= B.drone.waveWait)) for (const d of forming) d.form = false;   // the wave goes
     }
     // nobody sits on top of anybody: enemies keep B.minGap apart, wingmen B.wing
     for (let i = 0; i < ships.length; i++) for (let j = i + 1; j < ships.length; j++) {
@@ -182,9 +192,11 @@ export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {})
     for (const d of drones) {
       const D = B.drone, c = ships[d.owner], x0 = d.x, y0 = d.y, o = c.tgt && !c.tgt.dead ? c.tgt : nearestFoe(d.x, d.y, d.side);
       d.age += B.dt;
-      const homeCost = dist(c, d) * D.travelCost;                                   // what getting back will drain
-      if (!d.home && (!o || d.age > D.sortie || d.bat - D.shotCost < homeCost + 2)) d.home = true;   // nobody left, or no battery for another volley and the way back: go home
+      if (d.form) { if (c.dead) d.form = false; else { steer(d, c.x, c.y, 40, 20, d.spin); d.bat -= D.idleCost * B.dt; continue; } }   // forming up round the carrier until the wave goes
+      const homeCost = dist(c, d) * D.travelCost, canHome = d.bat >= homeCost + 2;   // what getting back will drain, and whether it still can
+      if (!d.home && (!o || d.age > D.sortie || (d.bat - D.shotCost < homeCost + 2 && canHome))) d.home = true;   // nobody left, or no battery for another volley AND the way back while it can still make it: go home
       if (d.home) { const dc = steer(d, c.x, c.y, 0, 30, 0); d.bat -= Math.hypot(d.x - x0, d.y - y0) * D.travelCost; if (dc <= D.dock || d.bat <= 0) { d.dead = true; d.bay.spent++; } continue; }   // docked (or dead in space): spent until a fabricator refurbishes it
+      if (d.bat < D.shotCost) { d.dead = true; d.bay.spent++; continue; }        // launched one way and spent: gone (a fabricator aboard builds another)
       const dd = steer(d, o.x, o.y, d.range * 0.8, Math.max(20, d.range * 0.2), d.spin); d.cd -= B.dt;
       d.bat -= (dd > d.range ? Math.hypot(d.x - x0, d.y - y0) * D.travelCost : 0) + D.idleCost * B.dt;   // the leg OUT drains by distance (and the leg home, above); circling the target is hovering, idleCost only
       if (d.cd <= 0 && dd <= d.range) { d.cd = 1 / d.rate; d.bat -= D.shotCost; const hit = rng() < d.acc / 100 * (1 - o.evade); if (hit) { const r = strike(o, d.dmg, 'weapon_energy', rng); hits[d.side]++; dealt[d.side] += r.h; log(d.side, 'd', r.where === 'shield' ? 4 : 1, d.x, d.y, ...impact(o, d.x, d.y, r.where), undefined, undefined, o, d.id); } else log(d.side, 'd', 0, d.x, d.y, o.x, o.y, undefined, undefined, o, d.id); } }
@@ -219,7 +231,7 @@ export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {})
         // between shots a turret keeps slewing onto the ship's target — a light mount fast, a heavy one slowly
         if (g.trav && g.cd > 0 && s.tgt && !s.tgt.dead) { const [gx0, gy0] = gunAt(s, g); slew(g, Math.atan2(s.tgt.y - gy0, s.tgt.x - gx0)); }
         if (g.cd > 0 || g.ammo < 1) continue;
-        const near = list => list.filter(e => e.side !== s.side).map(e => [e, dist(e, s)]).filter(([, d]) => d <= Math.max(g.range, PD.reach)).sort((a, b) => a[1] - b[1])[0];
+        const near = list => list.filter(e => e.side !== s.side && !e.dead && !e.done).map(e => [e, dist(e, s)]).filter(([, d]) => d <= Math.max(g.range, PD.reach)).sort((a, b) => a[1] - b[1])[0];
         const missile = g.kind === 'weapon_missile', beam = g.kind === 'weapon_energy';
         const inReach = o => { const d = dist(s, o); return d <= g.range && !(missile && d < PD.missileMin); };
         let o = s.tgt && !s.tgt.dead && inReach(s.tgt) ? s.tgt : null;
@@ -244,7 +256,7 @@ export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {})
         } else if (tgt.bat === undefined) {                                  // a missile (a drone carries a battery; both carry an age — telling them apart by age had let every drone off the hook)
           const hit = rng() < g.acc / 100 * PD.vsMissile * pdk; log(s.side, kch, hit ? 2 : 0, gx, gy, tgt.x, tgt.y, s.idx, gi, tgt); if (hit) { tgt.done = true; shot[s.side]++; }
         } else {                                                              // a drone; shot down = one more for the fabricator to build back
-          const hit = rng() < g.acc / 100 * (1 - tgt.evade) * PD.vsDrone * pdk; log(s.side, kch, hit ? 3 : 0, gx, gy, tgt.x, tgt.y, s.idx, gi, tgt); if (hit) { tgt.hp -= g.dmg * (beam ? PD.beamVsDrone : 1); if (tgt.hp <= 0) { shot[s.side]++; tgt.bay.spent++; } }
+          const hit = rng() < g.acc / 100 * (1 - tgt.evade) * PD.vsDrone * pdk; log(s.side, kch, hit ? 3 : 0, gx, gy, tgt.x, tgt.y, s.idx, gi, tgt); if (hit) { tgt.hp -= g.dmg * (beam ? PD.beamVsDrone : 1); if (tgt.hp <= 0 && !tgt.dead) { tgt.dead = true; shot[s.side]++; tgt.bay.spent++; } }   // counted ONCE: every further gun that tick used to count another kill and hand the fabricator a phantom to rebuild
         }
       }
     }
