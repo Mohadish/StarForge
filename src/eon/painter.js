@@ -174,6 +174,7 @@ function repaint(overlayOnly = false) {
 
 // ---------------- wiring ----------------
 $('style').innerHTML = Object.values(STYLES).filter(s => s.ribbon).map(s => `<option value="${s.id}">${esc(s.name)}${s.deco ? '' : ' · no greebles yet'}</option>`).join('');
+$('style').value = style.id;   // the select shows the style actually painted (it showed the first option while greeble was painted, 2026-10-10)
 $('style').onchange = async e => { style = STYLES[e.target.value]; await loadBoth(style); repaint(); };
 for (const id of ['vol', 'mPlating', 'mFittings', 'seed', 'wash', 'lights', 'washA', 'washB', 'lightColor', 'ribOff', 'engOff', 'coreOff', 'spineOff', 'fatOff', 'greebleOff', 'mountOff', 'turretOff']) $(id).oninput = () => { if (id === 'vol' && ed.editing && !ed.dragging) lock = currentLock(); repaint(); };
 $('seedN').onchange = e => { $('seed').value = Math.max(0, Math.min(999, Math.round(+e.target.value || 0))); repaint(); };

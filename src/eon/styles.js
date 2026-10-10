@@ -11,7 +11,9 @@
 const P = (id, name, file, ribbon, engines, edge, extra = {}) => ({ id, name, sheet: 'assets/parts/' + file, ribbon, engines, edge, pitch: Math.max(0.55, Math.min(0.75, 0.75 - 0.6 * edge)), ...extra });
 const R = (x, y, w, h) => ({ x, y, w, h });
 export const STYLES = Object.fromEntries([
-  // machines
+  // machines — GREEBLE STAYS FIRST (his call, 2026-10-10: the first style is the default everywhere)
+  P('greeble1', 'Greeble (grey plating)', 'greeble-1.webp', R(15, 133, 1970, 185), [R(119, 366, 518, 227), R(1382, 365, 545, 243), R(696, 396, 627, 168)], 0.04),
+  P('pipes1', 'Pipes (plumbing and vents)', 'pipes-1.webp', R(5, 106, 1990, 202), [R(84, 343, 461, 281), R(1444, 339, 517, 285), R(605, 395, 773, 183)], 0.07),
   // UTOPIA (2026-10-09): one sheet carries everything — TWO strips (ring k wears strip k % 2: the first leads), four
   // engines, three mounts, three turrets and 22 fittings (see below). His first clean sci-fi style.
   // the strip rectangles are the SOLID body of each strip: the pointed prow on the left, the stepped end on the right
@@ -23,8 +25,6 @@ export const STYLES = Object.fromEntries([
   // edge 0.15: the strip's top is stepped panels down to 15 % of its height (rows under 90 % solid) — pushed out past the
   // outline by that much so the steps ARE the outline (his ask: "a broken, jagged outline"), not hidden over the filler
   P('utopia2', 'Utopia II (continuous panels)', 'utopia-3.webp', R(0, 0, 2000, 250), [R(20, 270, 615, 177), R(675, 270, 431, 192), R(20, 505, 539, 215), R(599, 505, 540, 199)], 0.15),
-  P('greeble1', 'Greeble (grey plating)', 'greeble-1.webp', R(15, 133, 1970, 185), [R(119, 366, 518, 227), R(1382, 365, 545, 243), R(696, 396, 627, 168)], 0.04),
-  P('pipes1', 'Pipes (plumbing and vents)', 'pipes-1.webp', R(5, 106, 1990, 202), [R(84, 343, 461, 281), R(1444, 339, 517, 285), R(605, 395, 773, 183)], 0.07),
   P('crate1', 'Crates (boxes and tanks)', 'crate-1.webp', R(20, 102, 1962, 198), [R(74, 361, 561, 243), R(1344, 351, 603, 262), R(691, 381, 599, 199)], 0.07),
   P('cable1', 'Cables (braided lines)', 'cable-1.webp', R(14, 127, 1972, 181), [R(97, 332, 554, 265), R(1381, 336, 550, 285), R(695, 372, 633, 201)], 0.04),
   P('tank1', 'Tanks (glass vessels)', 'tank-1.webp', R(9, 39, 1982, 232), [R(35, 324, 583, 302), R(1383, 324, 580, 293), R(658, 318, 685, 308)], 0.08),
@@ -39,6 +39,10 @@ export const STYLES = Object.fromEntries([
   P('leaf2', 'Leaf II (broad leaves)', 'leaf-2.webp', R(7, 15, 1986, 290), [R(20, 315, 603, 325), R(1372, 315, 613, 329), R(652, 318, 655, 319)], 0.2, { flipEngines: true }),
   P('wing1', 'Wings (veined membranes)', 'wing-1.webp', R(19, 13, 1963, 347), [R(68, 360, 533, 278), R(693, 394, 659, 212), R(1402, 360, 576, 286)], 0.22),
   P('coral1', 'Coral (porous growth)', 'coral-1.webp', R(13, 68, 1975, 251), [R(67, 331, 560, 280), R(1382, 335, 574, 295), R(684, 358, 626, 236)], 0.17),
+  // MUSHROOM (2026-10-10): mushroom-1.webp = his strip + the two funnel engines composed on one sheet; mounts, turrets and
+  // nine fittings on mushroom-2.webp (the collection: turrets / mounts / 3+3 fittings / engines / 3 fittings). Caps and
+  // pods stick out 15 % of the strip's height on both edges.
+  P('mushroom1', 'Mushroom (caps and pods)', 'mushroom-1.webp', R(0, 0, 1974, 254), [R(20, 274, 666, 374), R(726, 274, 693, 296)], 0.15),
   // flesh and bone
   P('bone1', 'Bone (biomechanical)', 'bone-1.webp', R(11, 146, 1978, 160), [R(65, 349, 658, 266), R(1516, 350, 419, 269), R(756, 363, 735, 221)], 0.03),
   P('carapace1', 'Carapace (ribbed shell)', 'carapace-1.webp', R(18, 57, 1965, 213), [R(58, 306, 585, 313), R(1440, 293, 525, 334), R(688, 341, 693, 236)], 0.07),
@@ -94,6 +98,10 @@ STYLES.serpent1 = P('serpent1', 'Serpent (scales and plates)', 'serpent-1.webp',
   STYLES.utopia1.deco = { sheet: U, sheets: [U, U2], mounts: [[25, 906, 339, 228], [396, 905, 363, 225], [786, 928, 340, 203]],
     greebles: [[18,167,620,189],[660,182,576,189],[25,425,597,201],[644,467,594,163],[24,687,586,211],[643,700,583,199],[41,944,570,190],[643,962,583,176]].map(b => [...b, 1]) };
   STYLES.utopia2.deco = STYLES.utopia1.deco;                                          // Utopia II wears Utopia's mounts and fittings
+  const M = 'assets/parts/mushroom-2.webp';
+  STYLES.mushroom1.deco = { sheet: M, sheets: [M], mounts: [[46, 451, 437, 389], [492, 443, 458, 407], [957, 447, 437, 403]],
+    greebles: [[48,882,454,208],[523,884,412,216],[968,878,420,219],[48,1117,493,197],[558,1122,381,196],[979,1111,409,206],[14,1736,446,242],[481,1736,487,254],[989,1739,435,243]].map(b => [...b, 0]) };
+  STYLES.mushroom1.turrets = { sheet: M, cells: [[47,66,441,340,191,170,340],[517,74,435,337,135,172,330],[970,68,417,350,174,174,350]] };
   STYLES.utopia1.turrets = { sheet: U, cells: [[46,1166,318,223,119,111,223],[388,1167,376,221,133,110,221],[786,1163,332,227,123,113,227]] }; }
 for (const [id, [sheet, at]] of Object.entries(DECO)) if (STYLES[id]) STYLES[id].deco = { sheet: 'assets/parts/' + sheet + '.webp', sheets: ['assets/parts/' + sheet + '.webp'], mounts: CELLS[sheet].slice(at, at + 3), greebles: CELLS[sheet].slice(at + 3, at + 6).map(c => [...c, 0]) };
 for (const [id, list] of Object.entries(EXTRA)) {
