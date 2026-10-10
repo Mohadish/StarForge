@@ -36,8 +36,8 @@ const ed = createShapeEditor($('out'), {
     return { toPx, fromPx };
   },
   changed(what) {
-    if (what === 'start') { lock = currentLock(); $('editBar').hidden = false; $('editHint').hidden = true; syncEditBar(); }
-    if (what === 'end') { lock = null; $('editBar').hidden = true; $('editHint').hidden = false; }
+    if (what === 'start') { lock = currentLock(); $('editBar').classList.add('editing'); $('editHint').hidden = true; syncEditBar(); }
+    if (what === 'end') { lock = null; $('editBar').classList.remove('editing'); $('editHint').hidden = false; syncEditBar(); }   // the save line stays after Done: what is painted can always be saved
     if (what === 'dragstart') lock = lock || currentLock();
     if (what === 'edit' || what === 'dragend') lock = currentLock();
     if (what !== 'hover') repaint(); else repaint(true);
@@ -58,7 +58,7 @@ const poly = () => {
 };
 // the edit bar says WHICH silhouette is being edited (no name box: the name is asked for when a new one is saved)
 const mineOf = id => HULLS.find(h => h.id === id) || null;
-function syncEditBar() { const st = ed.state(), mine = mineOf(st.id); $('edWho').textContent = mine ? `Editing ${mine.name} (yours)` : `From ${(st.name || '').replace(/ II$/, '')} (built in) — Save makes a new one`; $('edSym').value = st.sym; $('edDelete').hidden = !mine; }
+function syncEditBar() { const st = ed.state(), mine = mineOf(st.id); $('edWho').textContent = mine ? `${ed.editing ? 'Editing ' : ''}${mine.name} (yours)` : `From ${(st.name || '').replace(/ II$/, '')} (built in) — Save makes a new one`; $('edSym').value = st.sym; $('edDelete').hidden = !mine; }
 
 // ---------------- the library: the strip of thumbnails, the menu, the save dialog (hullui.js — the fleet generator shows the same) ----------------
 const hdlg = createDialog(), hmenu = createMenu();

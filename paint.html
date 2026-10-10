@@ -27,6 +27,8 @@ button.x { padding: 3px 8px; font-size: 12px }
 #editHint { position: absolute; left: 10px; bottom: 8px; font-size: 11px; color: var(--muted); background: rgba(7,10,18,.7); padding: 3px 8px; border-radius: 6px; pointer-events: none }
 #editBar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; padding: 8px 10px; border: 1px solid var(--good); border-radius: 10px; background: rgba(126,243,176,.06) }
 #editBar[hidden], #editHint[hidden] { display: none }
+#editBar:not(.editing) .edonly { display: none }   /* the save line stays; the editing tools show only while editing (his ask, 2026-10-10) */
+#editBar:not(.editing) { border-color: var(--line); background: transparent }
 #editBar label { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em }
 #editBar input, #editBar select { background: #04070f; color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: 13px var(--font) }
 #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(20px); background: #121a2c; border: 1px solid var(--good); color: var(--fg); padding: 8px 14px; border-radius: 10px; font-size: 13px; opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none }
@@ -58,14 +60,14 @@ details.fine summary { cursor: pointer; color: var(--muted) }
     <canvas id="out" width="960" height="540"></canvas>
     <div id="editHint">double-tap the ship to edit its outline</div>
   </div>
-  <div id="editBar" hidden>
+  <div id="editBar">
     <b id="edWho" class="tiny" style="color:var(--fg)"></b>
-    <label>Symmetry<select id="edSym"><option value="y">mirror across the spine</option><option value="x">mirror left / right</option><option value="">none</option></select></label>
-    <button id="edUndo" class="x">Undo point</button><button id="edClear" class="x">Clear</button>
+    <label class="edonly">Symmetry<select id="edSym"><option value="y">mirror across the spine</option><option value="x">mirror left / right</option><option value="">none</option></select></label>
+    <button id="edUndo" class="x edonly">Undo point</button><button id="edClear" class="x edonly">Clear</button>
     <button id="edSave" class="x go">Save…</button><button id="edDelete" class="x" hidden>Delete</button>
     <span style="flex:1"></span>
-    <button id="edDone" class="x">Done</button>
-    <span class="tiny" style="flex-basis:100%">Drag a point. Double-tap on the line to add a point there, elsewhere to add one at the end, on a point to remove it. Draw above the spine; the other half mirrors; cross the spine to cut a hole. Save asks: overwrite the one you started from, or keep it as a new silhouette with a name of its own. <span id="libNote"></span></span>
+    <button id="edDone" class="x edonly">Done</button>
+    <span class="tiny edonly" style="flex-basis:100%">Drag a point. Double-tap on the line to add a point there, elsewhere to add one at the end, on a point to remove it. Draw above the spine; the other half mirrors; cross the spine to cut a hole. Save asks: overwrite the one you started from, or keep it as a new silhouette with a name of its own. <span id="libNote"></span></span>
   </div>
   <div id="info" class="tiny" style="margin-top:6px">loading the sheet…</div>
   <div class="ctl" style="margin-top:10px">
