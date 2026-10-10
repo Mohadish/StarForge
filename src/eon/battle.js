@@ -20,7 +20,22 @@ export const B = { dt: 0.25, start: 3000, maxTime: 600, record: 1, unit: 8, minG
   // enough to get home — so the farther the carrier stands off, the fewer volleys a drone delivers
   // (battery 100, 0.1 per unit flown, 10 per volley: ~7 volleys from 150 u, ~1 from 450 u, none from 500).
   // Home, a fabricator with stock refurbishes it; otherwise it is done. `sortie` caps the time out.
-  drone: { hp: 70, speed: 240, dmg: 30, rate: 0.4, range: 120, acc: 65, evade: 0.55, launchEvery: 2.5, sortie: 90, dock: 40, battery: 100, travelCost: 0.1, shotCost: 10, idleCost: 0.5, reach: 220, waveWait: 6 } };   // waveWait: a forming wave goes after this many seconds even if short   // a VOLLEY, not a pea-shooter: 12 dps either way, but 12-a-shot left 1 after a shield's hardness (8) and armour's shrug-off (3); 30 leaves 19
+  // travelCost 0.1 → 0.04 and reach 220 → 800 (his ask, 2026-10-10: "the distance they can travel is minuscule — they don't
+  // behave as attack drones"): a drone now flies 2500 u on a full battery (was 1000), the carrier stands off at 800 instead of
+  // closing to 220; launchEvery is per launch TUBE (one per four drones carried), not per hangar module
+  drone: { hp: 70, speed: 240, dmg: 30, rate: 0.4, range: 120, acc: 65, evade: 0.55, launchEvery: 2.5, sortie: 90, dock: 40, battery: 100, travelCost: 0.04, shotCost: 10, idleCost: 0.5, reach: 800, waveWait: 6 } };   // waveWait: a forming wave goes after this many seconds even if short
+// what a ROLE does to a drone (his ask, 2026-10-10: "sniper drones should be long-range snipers" — a role chip on drones did
+// nothing): multipliers on B.drone; `hold` = where it sits from its target, × its range; `shot` = battery per volley, ×;
+// ESCORT drones (point defence) stay with the carrier and shoot down incoming missiles and drones
+export const DRONE_ROLE = {
+  ship:       { dmg: 1,   rate: 1,   range: 1, hold: 0.8, shot: 1 },
+  sniper:     { dmg: 1.5, rate: 0.5, range: 5, hold: 0.9, shot: 1 },                 // 600 u: it holds at 540, outside the 500 u point-defence envelope
+  capital:    { dmg: 4,   rate: 0.5, range: 1, hold: 0.8, shot: 1.5, hp: 1.5, speed: 0.75 },
+  antiarmor:  { dmg: 3,   rate: 0.5, range: 1, hold: 0.8, shot: 1.2 },
+  antishield: { dmg: 1,   rate: 2,   range: 1, hold: 0.8, shot: 0.5 },
+  pd:         { dmg: 0.6, rate: 3,   range: 2, hold: 0.8, shot: 0.3, escort: true },
+};
+export const droneRole = id => DRONE_ROLE[id === 'standard' ? 'ship' : id] || DRONE_ROLE.ship;   // a VOLLEY, not a pea-shooter: 12 dps either way, but 12-a-shot left 1 after a shield's hardness (8) and armour's shrug-off (3); 30 leaves 19
 export const volleysFrom = dist => Math.max(0, Math.floor((B.drone.battery - 2 * dist * B.drone.travelCost) / B.drone.shotCost));   // what a drone can deliver from a stand-off distance and still get back
 export const volleysOneWay = dist => Math.max(0, Math.floor((B.drone.battery - dist * B.drone.travelCost) / B.drone.shotCost));    // ... when it is not coming back (a carrier with a fabricator throws drones one way and builds more)
 // the rock-paper-scissors levers (tuned in the lab; see tune_rps):
@@ -39,7 +54,7 @@ export function rng32(seed) {
 export function shipFromDesign(S, design, caps = allCapsules(S)) {
   const ds = designStats(S, design, caps), t = ds.t, guns = [], hangars = [], midx = (ds.hull.box.minx + ds.hull.box.maxx) / 2;
   for (const m of ds.mods) {
-    if (m.K.hangar) { hangars.push({ craft: Math.round(m.v.craft) * m.n, size: m.v.size, n: m.n }); continue; }
+    if (m.K.hangar) { const craft = Math.round(m.v.craft) * m.n; hangars.push({ craft, size: m.v.size, n: m.n, tubes: Math.max(1, craft / 4), role: m.mod.preset || 'standard' }); continue; }   // a launch tube per four drones carried
     if (m.K.mount && !m.K.orbital) {
       const mine = ds.mounts.filter(mt => mt.modId === m.mod.id);           // where each gun of this module sits on the hull (hull squares, nose = +x)
       for (let i = 0; i < m.n; i++) guns.push({ kind: m.kind, role: m.mod.role || 'ship', dmg: m.v.damage * t.powerFactor * t.fireFactor, rate: m.v.rate, range: m.v.range, acc: Math.min(98, m.v.accuracy + t.bonus), cd: 0, ammo: m.K.charges ? Math.round(m.v.charges) : Infinity, mag: m.K.charges ? Math.round(m.v.charges) : Infinity,
@@ -52,7 +67,9 @@ export function shipFromDesign(S, design, caps = allCapsules(S)) {
   const byRange = pool.slice().sort((a, b) => b.range - a.range), total = pool.reduce((a, g) => a + g.dmg * g.rate, 0);
   let acc = 0, pref = hangars.length && !pool.length ? B.drone.reach : 300;
   for (const g of byRange) { acc += g.dmg * g.rate; if (acc >= total * 0.6) { pref = g.range; break; } }
-  if (hangars.length && pool.length) pref = Math.min(pref, B.drone.reach);   // a carrier must come close enough for its drones' batteries
+  // a carrier stands off where its drones still strike and come back; when the drones are where the money went, the guns
+  // aboard are its escort and do not drag it in to their own short range
+  if (hangars.length && pool.length) { const money = k => ds.mods.filter(m => k(m)).reduce((a, m) => a + m.cost * m.n, 0), dr = money(m => m.K.hangar), gn = money(m => m.K.mount && !m.K.hangar && !m.K.orbital); pref = dr >= gn ? B.drone.reach : Math.min(pref, B.drone.reach); }
   return { name: design.name, design, ds, t, guns, hangars, pref, hp: t.hp, hpMax: t.hp, ar: t.armor, arMax: t.armor, sh: t.shieldRaw, shMax: t.shieldRaw, cover: t.cover, rec: t.shieldRec, deflect: t.deflect, repair: t.repair, hullRepair: t.hullRepair, speed: t.speed, turn: t.turn, evade: t.evasion / 100, dps: t.dps, cost: t.cost,
     hullR: Math.max(12, 0.45 * ds.hull.bw * B.unit), shieldR: Math.max(16, 0.62 * ds.hull.bw * B.unit),   // where a missile meets the hull, and where the shield's edge is (as the replay draws them)
     missiles: t.missiles, drones: t.drones, airCap: t.airCap, fab: t.industry * FAB.missilesPerIndustry, dfab: t.industry * FAB.dronesPerIndustry, pd: guns.filter(g => g.role === 'pd').length,
@@ -171,14 +188,23 @@ export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {})
       // launch only as many as the computer can run, and only if a drone could deliver at least one volley from here — and get
       // back, unless a fabricator aboard can build more: then the drones go ONE WAY from much farther out (his juggernaut with
       // 44 fabricators crawled 70 s under fire before the old round-trip gate let it launch at all, 2026-10-10)
-      const far = dist(s, o), worth = (s.dfab > 0 ? volleysOneWay : volleysFrom)(Math.max(0, far - B.drone.range)) >= 1;
-      // WAVES (his ask, 2026-10-10: "500 drones — I expect a quarter launched at a time"): launched drones FORM UP round the
-      // carrier and go together once the wave is the air cap (or nothing more can join, or it has waited long enough); the
-      // next wave starts forming only when the last has mostly gone — one by one they were swatted one by one
-      const mine = drones.filter(d => d.owner === s.idx), forming = mine.filter(d => d.form), striking = mine.length - forming.length, left = s.bays.reduce((a, b) => a + b.left, 0);
-      const mayLaunch = worth && mine.length < s.airCap && (forming.length > 0 || striking <= s.airCap * 0.1);
-      // as many launches a tick as the bay's cadence allows (one a tick capped a 144-hangar bay at 4 a second instead of 57)
-      for (const b of s.bays) { b.cd -= B.dt; let n = drones.filter(d => d.owner === s.idx).length; while (b.cd <= 0 && b.left > 0 && mayLaunch && n < s.airCap) { b.left--; n++; b.cd += B.drone.launchEvery / b.n; const D = B.drone, sz = b.size; drones.push({ id: nextId++, side: s.side, owner: s.idx, bay: b, x: s.x, y: s.y, age: 0, home: false, form: true, bat: D.battery, hpMax: D.hp * sz, hp: D.hp * sz, speed: D.speed / Math.pow(sz, 0.3), dmg: D.dmg * sz, rate: D.rate, range: D.range, acc: D.acc, evade: D.evade, cd: rng() * 1, spin: rng() < 0.5 ? 1 : -1 }); } }
+      // (a carrier with a fabricator throws them one way, and launches once a drone would still arrive with three volleys)
+      const far = dist(s, o), worthAt = reach => s.dfab > 0 ? volleysOneWay(Math.max(0, far - reach)) >= 3 : volleysFrom(Math.max(0, far - reach)) >= 1;
+      // WAVES (his ask, 2026-10-10: "a third launched at a time"): launched drones FORM UP round the carrier and go together
+      // once the wave is the air cap (or nothing more can join, or it has waited long enough); the next wave starts forming
+      // only when the last has mostly gone — one by one they were swatted one by one. Escorts are not part of a wave.
+      const mine = drones.filter(d => d.owner === s.idx), forming = mine.filter(d => d.form), striking = mine.filter(d => !d.form && !d.escort).length, left = s.bays.reduce((a, b) => a + b.left, 0);
+      const waveOpen = forming.length > 0 || striking <= s.airCap * 0.1;
+      // as many launches a tick as the bay's tubes allow (one a tick capped a 144-hangar bay at 4 a second instead of 57)
+      for (const b of s.bays) {
+        b.cd -= B.dt; const R = droneRole(b.role), D = B.drone, sz = b.size; let n = drones.filter(d => d.owner === s.idx).length;
+        const ok = R.escort ? worthAt(PD.reach) : worthAt(D.range * R.range) && waveOpen;
+        while (b.cd <= 0 && b.left > 0 && ok && n < s.airCap) {
+          b.left--; n++; b.cd += D.launchEvery / b.tubes;
+          drones.push({ id: nextId++, side: s.side, owner: s.idx, bay: b, x: s.x, y: s.y, age: 0, home: false, form: !R.escort, escort: !!R.escort, bat: D.battery, hpMax: D.hp * sz * (R.hp || 1), hp: D.hp * sz * (R.hp || 1), speed: D.speed / Math.pow(sz, 0.3) * (R.speed || 1),
+            dmg: D.dmg * sz * R.dmg, rate: D.rate * R.rate, range: D.range * R.range, hold: R.hold, shot: D.shotCost * R.shot, acc: D.acc, evade: D.evade, cd: rng() * 1, spin: rng() < 0.5 ? 1 : -1 });
+        }
+      }
       if (forming.length && (mine.length >= s.airCap || left === 0 || forming[0].age >= B.drone.waveWait)) for (const d of forming) d.form = false;   // the wave goes
     }
     // nobody sits on top of anybody: enemies keep B.minGap apart, wingmen B.wing
@@ -190,16 +216,29 @@ export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {})
     // area orders hold after everything else has moved a ship: a protected circle keeps its ships in, an avoided one keeps them out
     for (const s of ships) { if (s.dead) continue; const A = orders[s.side].area; if (A && A.kind === 'protect') toRim(s, A, true); else if (A && A.kind === 'avoid') toRim(s, A, false); }
     for (const d of drones) {
+      if (d.dead || d.hp <= 0) continue;                                            // shot down earlier this tick
       const D = B.drone, c = ships[d.owner], x0 = d.x, y0 = d.y, o = c.tgt && !c.tgt.dead ? c.tgt : nearestFoe(d.x, d.y, d.side);
       d.age += B.dt;
       if (d.form) { if (c.dead) d.form = false; else { steer(d, c.x, c.y, 40, 20, d.spin); d.bat -= D.idleCost * B.dt; continue; } }   // forming up round the carrier until the wave goes
+      if (d.escort) {                                                               // ESCORT: circles its carrier, shoots down what comes in
+        if (c.dead || d.bat < d.shot || d.age > D.sortie * 2) { d.dead = true; d.bay.spent++; continue; }   // landed (or lost with the carrier): spent until refurbished
+        steer(d, c.x, c.y, 70, 25, d.spin); d.bat -= D.idleCost * B.dt; d.cd -= B.dt; if (d.cd > 0) continue;
+        let tg = null, bd = d.range * 1.5;
+        for (const e of missiles) if (e.side !== d.side && !e.done) { const q = dist(d, e); if (q < bd) { bd = q; tg = e; } }
+        for (const e of drones) if (e.side !== d.side && !e.dead && e.hp > 0) { const q = dist(d, e); if (q < bd) { bd = q; tg = e; } }
+        if (!tg) continue;
+        d.cd = 1 / d.rate; d.bat -= d.shot;
+        if (tg.bat === undefined) { const hit = rng() < d.acc / 100 * PD.vsMissile; log(d.side, 'd', hit ? 2 : 0, d.x, d.y, tg.x, tg.y, undefined, undefined, tg, d.id); if (hit) { tg.done = true; shot[d.side]++; } }
+        else { const hit = rng() < d.acc / 100 * (1 - tg.evade); log(d.side, 'd', hit ? 3 : 0, d.x, d.y, tg.x, tg.y, undefined, undefined, tg, d.id); if (hit) { tg.hp -= d.dmg; if (tg.hp <= 0 && !tg.dead) { tg.dead = true; shot[d.side]++; tg.bay.spent++; } } }
+        continue;
+      }
       const homeCost = dist(c, d) * D.travelCost, canHome = d.bat >= homeCost + 2;   // what getting back will drain, and whether it still can
-      if (!d.home && (!o || d.age > D.sortie || (d.bat - D.shotCost < homeCost + 2 && canHome))) d.home = true;   // nobody left, or no battery for another volley AND the way back while it can still make it: go home
+      if (!d.home && (!o || d.age > D.sortie || (d.bat - d.shot < homeCost + 2 && canHome))) d.home = true;   // nobody left, or no battery for another volley AND the way back while it can still make it: go home
       if (d.home) { const dc = steer(d, c.x, c.y, 0, 30, 0); d.bat -= Math.hypot(d.x - x0, d.y - y0) * D.travelCost; if (dc <= D.dock || d.bat <= 0) { d.dead = true; d.bay.spent++; } continue; }   // docked (or dead in space): spent until a fabricator refurbishes it
-      if (d.bat < D.shotCost) { d.dead = true; d.bay.spent++; continue; }        // launched one way and spent: gone (a fabricator aboard builds another)
-      const dd = steer(d, o.x, o.y, d.range * 0.8, Math.max(20, d.range * 0.2), d.spin); d.cd -= B.dt;
+      if (d.bat < d.shot) { d.dead = true; d.bay.spent++; continue; }              // launched one way and spent: gone (a fabricator aboard builds another)
+      const dd = steer(d, o.x, o.y, d.range * d.hold, Math.max(20, d.range * 0.2), d.spin); d.cd -= B.dt;
       d.bat -= (dd > d.range ? Math.hypot(d.x - x0, d.y - y0) * D.travelCost : 0) + D.idleCost * B.dt;   // the leg OUT drains by distance (and the leg home, above); circling the target is hovering, idleCost only
-      if (d.cd <= 0 && dd <= d.range) { d.cd = 1 / d.rate; d.bat -= D.shotCost; const hit = rng() < d.acc / 100 * (1 - o.evade); if (hit) { const r = strike(o, d.dmg, 'weapon_energy', rng); hits[d.side]++; dealt[d.side] += r.h; log(d.side, 'd', r.where === 'shield' ? 4 : 1, d.x, d.y, ...impact(o, d.x, d.y, r.where), undefined, undefined, o, d.id); } else log(d.side, 'd', 0, d.x, d.y, o.x, o.y, undefined, undefined, o, d.id); } }
+      if (d.cd <= 0 && dd <= d.range) { d.cd = 1 / d.rate; d.bat -= d.shot; const hit = rng() < d.acc / 100 * (1 - o.evade); if (hit) { const r = strike(o, d.dmg, 'weapon_energy', rng); hits[d.side]++; dealt[d.side] += r.h; log(d.side, 'd', r.where === 'shield' ? 4 : 1, d.x, d.y, ...impact(o, d.x, d.y, r.where), undefined, undefined, o, d.id); } else log(d.side, 'd', 0, d.x, d.y, o.x, o.y, undefined, undefined, o, d.id); } }
     for (let k = drones.length - 1; k >= 0; k--) if (drones[k].dead) drones.splice(k, 1);
     for (const m of missiles) {
       if (!m.tgt || m.tgt.dead) m.tgt = nearestFoe(m.x, m.y, m.side);               // its ship is gone: the next one
@@ -346,7 +385,7 @@ export function trimToBudget(S, d, budget, rng, caps = allCapsules(S), grow = tr
       }
       else if (!armorFull) { if (armor) armor.n = Math.min(maxArmor, armor.n + layers); else d.modules.push({ id: uid(), kind: 'armor', caps: [], n: Math.min(maxArmor, layers) }); }
       else if (grow && w.some(canDial)) { const x = pick(w.filter(canDial)), k = pick(['dmg', 'rof', 'rng'].filter(k => (x[k] ?? 1) < 4)); x[k] = DIALS[DIALS.indexOf(x[k] ?? 1) + 1] || 4; delete x.preset; }   // guns and armour full: bigger guns
-      else { const sh = d.modules.find(x => x.kind === 'shield'); if (sh) sh.n += Math.max(1, Math.min(4, Math.floor(short / 150))); else d.modules.push({ id: uid(), kind: 'shield', caps: [], n: 1 }); }   // the rest goes on shields
+      else { const sh = d.modules.find(x => x.kind === 'shield'); if (sh) sh.n += Math.max(1, Math.min(40, Math.floor(short / 150))); else d.modules.push({ id: uid(), kind: 'shield', caps: [], n: 1 }); }   // the rest goes on shields — in steps that scale with the shortfall (4 at a time left his 30 000 carrier at 19 000 when the rounds ran out)
     }
     else if (armor && armor.n > 1) armor.n -= Math.max(1, Math.min(armor.n - 1, Math.ceil(armor.n * Math.min(0.8, off))));
     else if (armor) d.modules.splice(d.modules.indexOf(armor), 1);
@@ -363,6 +402,15 @@ export function trimToBudget(S, d, budget, rng, caps = allCapsules(S), grow = tr
   return null;
 }
 
+// hangar modules for COUNT drones: a module carries at most 16 (its craft dial tops out at ×4 of four), so a big count is
+// several modules — "284 drones" used to make ONE module, dial ×4, 16 drones (his 30 000 carrier, 2026-10-10). `role` is a
+// drone role (DRONE_ROLE: sniper, capital, pd, …) kept as the module's preset.
+function hangarFor(count, sz = 1, role = null) {
+  const n = Math.max(1, Math.ceil(count / 16)), cnt = Math.max(0.5, Math.min(4, Math.round(count / (4 * n) * 2) / 2));
+  const m = { id: uid(), kind: 'hangar', caps: [], n, cnt, sz };
+  if (role && role !== 'standard' && DRONE_ROLE[role]) m.preset = role;
+  return m;
+}
 // A ship from CHIPS, the builder's tray: weapon stacks ({ kind, h, role }) — one chip is two guns, a
 // drone chip is four drones, stacking (h) is emphasis — and trait stacks (armour, shield, fast, fab).
 export function designFromChips(S, stacks, budget, rng = rng32(1), caps = allCapsules(S)) {
@@ -372,7 +420,7 @@ export function designFromChips(S, stacks, budget, rng = rng32(1), caps = allCap
   const names = [];
   for (const s of stacks) {
     const h = Math.max(1, s.h || 1);
-    if (s.kind === 'hangar') { d.modules.push({ id: uid(), kind: 'hangar', caps: [], n: 1, cnt: Math.min(4, h), sz: 1 }); names.push(`Drones${h > 1 ? ' ×' + h : ''}`); }
+    if (s.kind === 'hangar') { d.modules.push(hangarFor(4 * h, 1, s.role)); names.push(`Drones${h > 1 ? ' ×' + h : ''}${s.role && s.role !== 'standard' ? ' ' + PRESETS[s.role].name.toLowerCase() : ''}`); }
     else if (KINDS[s.kind]?.mount) { const m = { id: uid(), kind: s.kind, caps: [], n: 2 * h }; applyPreset(m, s.role && PRESETS[s.role] ? s.role : 'standard'); d.modules.push(m); names.push(`${NAMES[s.kind]}${h > 1 ? ' ×' + h : ''}${s.role && s.role !== 'standard' ? ' ' + PRESETS[s.role].name.toLowerCase() : ''}`); }
     else if (s.kind === 'armor') { d.modules.push({ id: uid(), kind: 'armor', caps: [], n: 4 * h }); names.push(`armour${h > 1 ? ' ×' + h : ''}`); }
     else if (s.kind === 'shield') { d.modules.push({ id: uid(), kind: 'shield', caps: [], n: 2 * h }); names.push(`shields${h > 1 ? ' ×' + h : ''}`); }
@@ -400,7 +448,7 @@ export function designFromWords(S, text, budget, rng = rng32(1), caps = allCapsu
   const traits = [];
   for (const part of text.toLowerCase().split(/[+,;/]| and | with /).map(s => s.trim()).filter(Boolean)) {
     const words = part.split(/\s+/), kind = WORDS[words.find(w => WORDS[w])], count = +(words.find(w => /^\d+$/.test(w)) || 0), preset = PRESET_WORDS[words.find(w => PRESET_WORDS[w])] || (words.includes('anti') && words.includes('shield') ? 'antishield' : words.includes('anti') && words.includes('armour') ? 'antiarmor' : null);
-    if (kind === 'hangar') { d.modules.push({ id: uid(), kind, caps: [], n: 1, cnt: count ? Math.min(4, Math.max(0.5, count / 4)) : 1, sz: words.some(w => /big|heavy|large/.test(w)) ? 2 : words.some(w => /small|light/.test(w)) ? 0.5 : 1 }); continue; }
+    if (kind === 'hangar') { d.modules.push(hangarFor(count || 4, words.some(w => /big|heavy|large/.test(w)) ? 2 : words.some(w => /small|light/.test(w)) ? 0.5 : 1, preset)); continue; }
     if (kind) { const m = { id: uid(), kind, caps: [], n: count || 2 }; applyPreset(m, preset || 'standard'); d.modules.push(m); continue; }
     traits.push(part);
   }
@@ -414,6 +462,18 @@ export function designFromWords(S, text, budget, rng = rng32(1), caps = allCapsu
   return trimToBudget(S, d, budget, rng, caps, false) || d;
 }
 
+// what a ship carries, in one line (his ask, 2026-10-10: "the generator doesn't show the computer power — how many engines,
+// how many computers"): the systems, how the weapons computer is shared between guns and drones in the air, and stock
+export function systemsOf(ship) {
+  const t = ship.t, n = kind => ship.design.modules.filter(m => m.kind === kind).reduce((a, m) => a + (m.n || 1), 0), r = x => Math.round(x);
+  const drv = n('stardrive'), thr = n('thruster'), rea = n('reactor'), cpu = n('weapon_system'), fab = n('works'), arm = n('armor'), shd = n('shield');
+  const parts = [`drive ×${drv}${thr ? ` + ${thr} thrusters` : ''}`, `reactor ×${rea}${t.powerFactor < 0.999 ? ` (short: ${r(t.powerFactor * 100)} % power)` : ''}`,
+    `computer ×${cpu}: ${r(t.mounts)} mounts — guns ${r(t.mountsUsed)}${t.drones ? `, drones in the air ${t.airCap} of ${t.drones}` : ''}${t.fireFactor < 0.999 ? ` (short: guns at ${r(t.fireFactor * 100)} %)` : ''}`];
+  if (fab) parts.push(`fabricator ×${fab} (stock ${r(t.fabStock)})`);
+  if (t.missiles) parts.push(`${t.missiles} missiles`);
+  if (arm) parts.push(`${arm} armour`); if (shd) parts.push(`${shd} shields`);
+  return parts.join(' · ');
+}
 // what kind of ship it is, in words
 export const MAINS = ['Beam', 'Gun', 'Missile', 'Drone'];
 const NAMES = { weapon_energy: 'Beam', weapon_kinetic: 'Gun', weapon_missile: 'Missile', hangar: 'Drone' };

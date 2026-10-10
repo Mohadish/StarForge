@@ -85,9 +85,10 @@ export const KINDS = {
 };
 export const GANTRY = { w: 4, h: 2, maxW: 12, maxH: 8 };      // the standard gantry, and how far one can be stretched
 export const DRONE_CONTROL = 1;                                // mounts of the weapons computer one flying drone takes up (2 starved pure carriers to death — back to 1, 2026-10-07)
-// how many of the drones carried the auto-fit makes room for in the air: a quarter, six at least (his call, 2026-10-10 —
-// a 2300-drone juggernaut was fitted for six in the air and "did not launch one"; a generated ship must work as built)
-export const AIR_SHARE = 0.25;
+// how many of the drones carried the auto-fit makes room for in the air: a third, six at least (his call, 2026-10-10 —
+// a 2300-drone juggernaut was fitted for six in the air and "did not launch one"; a generated ship must work as built;
+// first a quarter, then "at least a third of these drones at any given time")
+export const AIR_SHARE = 1 / 3;
 export const airWanted = drones => Math.min(drones, Math.max(6, Math.ceil(drones * AIR_SHARE)));
 // ARMOUR is the shell outside the hull, a separate layer with its own points. Layers stack like onion
 // rings: every layer out is bigger — the k-th costs (1 + 0.4(k−1)) of the first in volume, so four

@@ -4,7 +4,7 @@
 // picked colours (a sample ship wears them live), grand tactics with shares → Compose → every ship with its price
 // slider, lock, words and its painted picture; Edit opens a ship: chips, its silhouette (double-tap the picture to
 // reshape the outline — the painter's editor), its price. Everything is one FLEET2 code.
-import { designFromWords, designFromChips, shipFromDesign, archetype, rng32 } from './battle.js';
+import { designFromWords, designFromChips, shipFromDesign, archetype, rng32, systemsOf } from './battle.js';
 import { KINDS, PRESETS } from './modules.js';
 import { TEMPLATES, hullDef, setUserHulls, areaOf, bboxOf, HULL_VOLUME } from './hull.js';
 import { lookFromColors, styleChoices, spriteOf, thumbOf } from './skins.js';
@@ -85,7 +85,7 @@ function renderFleet() {
     return `<div class="ship"><div class="left"><div class="n"><button class="x" data-lock="${i}" title="${s.locked ? 'locked: its price stays put' : 'lock its price'}">${s.locked ? '🔒' : '🔓'}</button><b>${b ? esc(b.name) : i + 1}</b><span class="arch">${esc(shipLabel(s))}${b ? ' · ' + esc(b.arch.label) : ''}</span><button class="x" data-edit="${i}">Edit</button><span class="rec"><span data-show="${i}">${fmt(s.cost)}</span>${b && Math.abs(b.cost - s.cost) / s.cost > 0.08 ? ` <small>built ${fmt(b.cost)}</small>` : ''}</span></div>
       <input type="range" data-cost="${i}" min="150" max="${Math.max(150, Math.round(max))}" value="${Math.round(s.cost)}" ${s.locked ? 'disabled' : ''}>
       <input type="text" data-words="${i}" value="${esc(s.words)}" title="the ship in words — edit and press Enter">
-      <div class="tiny">${b ? `${esc((hullDef(b.design.hull) || {}).name || b.design.hull)} · hull ${fmt(b.hpMax)}${b.arMax ? ` · armour ${fmt(b.arMax)}` : ''} · shield ${fmt(b.shMax)} · ${fmt(b.dps)} dmg/s · reach ${b.pref} · speed ${fmt(b.speed)} · turns ${Math.round(b.turn || 0)}°/s · evasion ${Math.round(b.evade * 100)}%` : '<span style="color:var(--bad)">could not build this one at this price</span>'}</div></div>
+      <div class="tiny">${b ? `${esc((hullDef(b.design.hull) || {}).name || b.design.hull)} · hull ${fmt(b.hpMax)}${b.arMax ? ` · armour ${fmt(b.arMax)}` : ''} · shield ${fmt(b.shMax)} · ${fmt(b.dps)} dmg/s · reach ${b.pref} · speed ${fmt(b.speed)} · turns ${Math.round(b.turn || 0)}°/s · evasion ${Math.round(b.evade * 100)}%<br>${esc(systemsOf(b))}` : '<span style="color:var(--bad)">could not build this one at this price</span>'}</div></div>
       <canvas class="pic" data-pic="${i}" width="220" height="124" title="Edit to open it"></canvas></div>`; }).join('');
   for (const cv of $('ships').querySelectorAll('[data-pic]')) { const s = p.ships[+cv.dataset.pic]; drawShip(cv, s.built, lk); }
   $('code').value = planCode({ ...p, style: $('style').value, colA: $('colA').value, colB: $('colB').value });
@@ -176,7 +176,7 @@ function previewShip() {                                                        
   if (!d) { $('trayNote').textContent = tray.length ? 'Add at least one weapon.' : 'The ship as it is. Change the chips and Build it.'; preview = null; return; }
   const hull = curHull(); if (hull && hullDef(hull)) d.hull = hull;
   preview = shipFromDesign(S, d); preview.arch = archetype(preview);
-  const t = preview.t; $('trayNote').innerHTML = `<b>${esc(chipsToWords(tray))}</b> → cost ${fmt(t.cost)} · hull ${fmt(t.hp)}${t.armor ? ` · armour ${fmt(t.armor)}` : ''} · shield ${fmt(t.shieldRaw)} · ${fmt(t.dps)} dmg/s · speed ${fmt(t.speed)} · turns ${Math.round(t.turn)}°/s · evasion ${Math.round(t.evasion)}%${Math.abs(t.cost - s.cost) / s.cost > 0.08 ? ' <span style="color:var(--warn)">(not quite at the price)</span>' : ''} — <b>Build it</b> puts it in the fleet.`;
+  const t = preview.t; $('trayNote').innerHTML = `<b>${esc(chipsToWords(tray))}</b> → cost ${fmt(t.cost)} · hull ${fmt(t.hp)}${t.armor ? ` · armour ${fmt(t.armor)}` : ''} · shield ${fmt(t.shieldRaw)} · ${fmt(t.dps)} dmg/s · speed ${fmt(t.speed)} · turns ${Math.round(t.turn)}°/s · evasion ${Math.round(t.evasion)}%${Math.abs(t.cost - s.cost) / s.cost > 0.08 ? ' <span style="color:var(--warn)">(not quite at the price)</span>' : ''} — <b>Build it</b> puts it in the fleet.<br><span class="tiny">${esc(systemsOf(preview))}</span>`;
   if (!ed.editing) drawShip($('edPic'), preview, look());
 }
 function applyChips() {

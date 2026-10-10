@@ -82,7 +82,7 @@ export function wordsToChips(text) {
   const out = []; let id = 1;
   for (const part of String(text).toLowerCase().split(/[+,;/]| and | with /).map(s => s.trim()).filter(Boolean)) {
     const words = part.split(/\s+/), kind = WORD_KIND[words.find(w => WORD_KIND[w])], count = +(words.find(w => /^\d+$/.test(w)) || 0), role = WORD_ROLE[words.find(w => WORD_ROLE[w])] || null;
-    if (kind === 'hangar') out.push({ id: id++, type: 'weapon', kind, h: Math.max(1, Math.round((count || 4) / 4)), role: null });
+    if (kind === 'hangar') out.push({ id: id++, type: 'weapon', kind, h: Math.max(1, Math.round((count || 4) / 4)), role });   // drones keep their role too (sniper drones, escorts …)
     else if (kind) out.push({ id: id++, type: 'weapon', kind, h: Math.max(1, Math.round((count || 2) / 2)), role });
     else if (/armou?r/.test(part)) out.push({ id: id++, type: 'trait', kind: 'armor', h: Math.max(1, Math.round((count || (/heav|thick/.test(part) ? 8 : 4)) / 4)), role: null });
     else if (/shield/.test(part)) out.push({ id: id++, type: 'trait', kind: 'shield', h: Math.max(1, Math.round((count || (/heav|double|strong/.test(part) ? 4 : 2)) / 2)), role: null });
