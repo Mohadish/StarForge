@@ -516,7 +516,7 @@ function draw() {
           g.globalAlpha = 1 - symA;
           const T = sp && sp.turrets ? sp.turrets.cells[TCELL[gun.kind]] : null, rr = sp ? (sp.r[gi] || 0) * scale / sp.S : 0;
           if (T && rr >= 2) {                                                       // the style's own turret on its mount: beams and guns swung onto the target, a launcher fixed forward, a flash at the muzzle
-            const [sx, sy, sw, sh, px, py, body] = T, kq = 2 * rr / body, a2 = kch === 'm' ? ang : a;
+            const [sx, sy, sw, sh, px, py, body] = T, kq = 2 * rr * (sp.turretK || 1) / body, a2 = kch === 'm' ? ang : a;   // the turret's body is a share of the mount (paint.js RECIPE.turret) — the mount shows round it
             g.save(); g.translate(tx, ty); g.rotate(a2); g.drawImage(sp.turrets.img, sx, sy, sw, sh, -px * kq, -py * kq, sw * kq, sh * kq); g.restore();
             if (fl > 0) { const bl = (sw - px) * kq; flash(tx + Math.cos(a2) * bl, ty + Math.sin(a2) * bl, rr * 0.5 + 2 * fl); }
             return;

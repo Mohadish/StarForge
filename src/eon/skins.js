@@ -4,7 +4,7 @@
 // mounts under the battle's own hard points, engines, wash, lights) and drawn rotated on the field; the turrets
 // are the field's, live, on top of the mounts. No DOM.
 import { STYLES, loadStyle } from './styles.js';
-import { paintHull, recipeFor } from './paint.js';
+import { paintHull, recipeFor, RECIPE } from './paint.js';
 import { B } from './battle.js';
 
 const STYLE_LIST = Object.values(STYLES).filter(s => s.ribbon);
@@ -69,5 +69,5 @@ function paint(ship, look, img, deco, tur) {
   const guns = ship.guns.map(g => ({ kind: g.kind, x: g.mx / B.unit + midx, y: g.my / B.unit, size: g.size || 1 }));          // the battle's own hard points, back in hull squares
   const bays = (ship.ds.mounts || []).filter(mt => mt.kind === 'hangar').map(mt => ({ kind: 'hangar', x: mt.x, y: mt.y, size: mt.size || 1 }));
   const r = paintHull(cv, hull.poly, img, look.style, { ...recipeFor(ship.ds.t.volume), px: S, center: [midx, 0], hardpoints: [...guns, ...bays], wash: 0.6, washA: look.washA, washB: look.washB, lights: 0.5, lightColor: look.lightColor }, deco);
-  return { cv, S, w: cv.width, h: cv.height, r: r.hardpoints.map(h => h.r), turrets: tur && look.style.turrets ? { img: tur, cells: look.style.turrets.cells } : null };   // r: the mount radius per gun, in sprite px, in the guns' order
+  return { cv, S, w: cv.width, h: cv.height, r: r.hardpoints.map(h => h.r), turretK: RECIPE.turret, turrets: tur && look.style.turrets ? { img: tur, cells: look.style.turrets.cells } : null };   // r: the mount radius per gun, in sprite px, in the guns' order; turretK: the turret's body across, × the mount's
 }

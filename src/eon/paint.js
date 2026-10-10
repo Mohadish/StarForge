@@ -29,7 +29,9 @@ const MOUNT_OF = { weapon_energy: 0, weapon_kinetic: 1, weapon_missile: 2, hanga
 // exactly under its turrets; when given, `guns` is ignored and nothing is moved (only the width cap applies)
 
 // THE LOCKED RECIPE (his settings, 2026-10-07): the painter page and the battle both dress a hull from these, by its volume
-export const RECIPE = { ribPct: 47, ribRange: [0.4, 1.6], engine: 1.32, centre: 0.67, spine: 0.61, fat: 1.75, greeble: 1.6, mount: 1, turret: 1 };
+// mount 1.5 / turret 0.5 (his call, 2026-10-10): the mount half as big again and the turret half the mount across — so the
+// mount shows as a dark ring round the gun instead of vanishing under it (the turret ends up ¾ of what it was)
+export const RECIPE = { ribPct: 47, ribRange: [0.4, 1.6], engine: 1.32, centre: 0.67, spine: 0.61, fat: 1.75, greeble: 1.6, mount: 1.5, turret: 0.5, mountShade: 0.62 };
 export const autoRibbonPct = v => Math.max(0, RECIPE.ribPct - 3 * Math.max(0, v - 100) / 500);   // the outer ribbon: 47 % of its range on the smallest hull, 3 % less per 500 of volume
 export const autoEngines = v => Math.max(1, Math.round(v / 280));                                   // one engine per ~280 of volume
 export const pct = (p, [lo, hi]) => lo + Math.max(0, Math.min(100, p)) / 100 * (hi - lo);
@@ -190,6 +192,16 @@ function backingOf(style, img, R) {
   const rag = ragOf(style, img), y0 = Math.round(R.h * Math.min(0.45, rag.top + 0.05)), y1 = Math.round(R.h * Math.max(0.55, 1 - rag.bot - 0.05));
   const c = new OffscreenCanvas(R.w, R.h), g = c.getContext('2d'); g.drawImage(img, R.x, R.y + y0, R.w, Math.max(1, y1 - y0), 0, 0, R.w, R.h);
   const b = { sheet: c, rect: { x: 0, y: 0, w: R.w, h: R.h } }; style._backing.set(R, b); return b;
+}
+// a sheet with its colours scaled by `k` (alpha kept): the mounts are drawn from a darkened copy. Cached per sheet and k.
+const shadeCache = new WeakMap();
+function shadedSheet(img, k) {
+  let m = shadeCache.get(img); if (!m) { m = new Map(); shadeCache.set(img, m); }
+  if (m.has(k)) return m.get(k);
+  const W = img.naturalWidth || img.width, H = img.naturalHeight || img.height, c = new OffscreenCanvas(W, H), g = c.getContext('2d');
+  g.drawImage(img, 0, 0); const id = g.getImageData(0, 0, W, H), d = id.data;
+  for (let i = 0; i < d.length; i += 4) { d[i] = d[i] * k; d[i + 1] = d[i + 1] * k; d[i + 2] = d[i + 2] * k; }
+  g.putImageData(id, 0, 0); m.set(k, c); return c;
 }
 // the hull's own TONE: the strip's mean colour, darkened — what shows through where the plating is lace
 function toneOf(style, img) {
@@ -375,11 +387,12 @@ export function paintHull(cv, poly, img, style, opt = {}, decoImg = null) {
       for (const s of spots) { const sp = pool[s.i], h = s.sz * (sp[5] || 1) /* cell[5]: a small fitting stays small */, w = h * sp[2] / sp[3]; g.save(); g.translate(s.x, s.y); g.scale(1, s.flip ? -1 : 1); g.drawImage(dOf(sp[4]), sp[0], sp[1], sp[2], sp[3], -w / 2, -h / 2, w, h); g.restore(); }
       if (first) { greebles = spots.length; greebleSpots = spots.map(s => ({ x: s.x, y: s.y, sz: s.sz })); }
     }
-    // the turret MOUNTS, one under every hard point (the turret itself is the page's, drawn on top)
-    if (dsheets[0] && deco?.mounts?.length) for (const h of hps) {
+    // the turret MOUNTS, one under every hard point (the turret itself is the page's, drawn on top) — drawn DARKER than
+    // the plating (his ask, 2026-10-10): a dark silhouette under the gun, so the gun reads even where it matches the skin
+    if (dsheets[0] && deco?.mounts?.length) { const ms = first ? shadedSheet(dsheets[0], RECIPE.mountShade) : dsheets[0]; for (const h of hps) {
       const sp = deco.mounts[h.mount % deco.mounts.length], hh = h.r * 2, w = hh * sp[2] / sp[3];
-      g.drawImage(dsheets[0], sp[0], sp[1], sp[2], sp[3], h.x - w / 2, h.y - hh / 2, w, hh);
-    }
+      g.drawImage(ms, sp[0], sp[1], sp[2], sp[3], h.x - w / 2, h.y - hh / 2, w, hh);
+    } }
     // the ENGINES, from the plan
     if (E) for (const s of E.spots) {
       g.save(); g.translate(s.x, s.y); g.scale(style.flipEngines ? -1 : 1, s.flip ? -1 : 1); g.drawImage(sheet, s.sp.x, s.sp.y, s.sp.w, s.sp.h, -s.w / 2, -E.eh / 2, s.w, E.eh); g.restore();
