@@ -62,7 +62,7 @@ export const KINDS = {
     stats: [st('capacity', 'Capacity', 'HP', ['shield_capacity']), st('recovery', 'Recovery', 'HP/s', ['shield_recovery'], { dec: 1 }),
             st('radius', 'Field reach', 'squares', ['shield_reach'], { dec: 1 }), st('power', 'Power use', 'MW', ['power_efficiency'], { less: true })] },
   armor: { group: 'Defence', name: 'Armor', short: 'ARM', color: '#c9d4e8', cost: 25, volume: 20, base: { hp: 300, deflect: 3, repair: 0.5 },
-    stats: [st('hp', 'Hit points', 'HP', ['armor_integrity', 'hull_integrity']), st('deflect', 'Shrugs off per hit', 'HP', ['armor_deflection'], { dec: 1 }), st('repair', 'Self-repair', 'HP/s', ['hull_regeneration'], { dec: 1 })] },
+    stats: [st('hp', 'Hit points', 'HP', ['armor_integrity', 'hull_integrity']), st('deflect', 'Shrugs off per hit', 'HP', ['armor_deflection'], { dec: 1 }), st('repair', 'Repair rate (paid from a fabricator\'s stock)', 'HP/s', ['hull_regeneration'], { dec: 1 })] },
   thruster: { group: 'Engines', name: 'Thrusters', short: 'THR', color: '#7ef3b0', engine: 'thruster', cost: 30, volume: 15, base: { thrust: 100, evasion: 10, power: 20 },
     stats: [st('thrust', 'Battle thrust', '', ['thrust']), st('evasion', 'Evasion', '', ['agility', 'evasion']), st('power', 'Power use', 'MW', ['drive_efficiency'], { less: true })] },
   // the star drive is dialled to the hull: a ship needs enough drive for its bulk to leave the system at all
@@ -94,7 +94,7 @@ export const airWanted = drones => Math.min(drones, Math.max(6, Math.ceil(drones
 // rings: every layer out is bigger — the k-th costs (1 + 0.4(k−1)) of the first in volume, so four
 // layers are 6.4× the bulk of one for 4× the points. Hull damage degrades the ship; fabricators patch it.
 export const ARMOR = { ring: 0.4 };
-export const HULL = { degradeFloor: 0.5, fabRepairPerIndustry: 0.05, fabRepairCap: 0.5 };
+export const HULL = { degradeFloor: 0.5, fabRepairPerIndustry: 0.05, fabRepairCap: 0.5 };   // fabRepairCap is no longer used: the fabricator's stock is the limit (2026-10-10)
 // mass vs agility (2026-10-08, his ask: "a massive ship should move slowly and turn on its axis slowly; a small one should dodge")
 // ref = a corvette's volume; a drive-only 51-square ship turns ~7°/s (180° in ~26 s), a corvette ~70°/s; evasion ≈ 27% tiny, 12% corvette, 3–4% massive
 export const MASS = { ref: 160, speedPow: 0.3, turnBase: 1750, turnMin: 3, turnMax: 180, evadeK: 3, evadePow: 0.6 };
@@ -119,7 +119,13 @@ export const GUN = { min: 0.5, max: 4, step: 0.5, power: [1.1, 1.0, 0.5], cost: 
 // A FABRICATOR carries a STOCK of material (so much per unit of its volume) and spends it: a missile
 // costs its share of the launcher's volume, a drone sortie its share of the hangar's. When the stock
 // is gone, nothing more is built. Speed is separate: so many missiles / drones a second per industry.
-export const FAB = { missilesPerIndustry: 0.02, dronesPerIndustry: 0.008, stockPerVolume: 4 };
+// THE BANK (his call, 2026-10-10): the stock is the ship's MATERIAL, and everything rebuilt is paid from it — missiles,
+// drone sorties, and now REPAIRS too: a unit mends 10 hull points or 4 armour points (armour is the dearer, slower job,
+// and it knits only while nothing else waits to be rebuilt). No fabricator, no material: nothing is mended.
+// Breakthrough hooks (both neutral until research says otherwise): `synth` — synthesis efficiency, more made from less
+// (passive channel 'synthesis', % → every cost ÷); `massGen` — spare reactor power turned into material, units a second
+// per spare MW (passive channel 'mass_generation', % of 0.01).
+export const FAB = { missilesPerIndustry: 0.02, dronesPerIndustry: 0.008, stockPerVolume: 4, hullPerStock: 10, armorPerStock: 4, synth: 1, massGen: 0 };
 export const SHIELD = { hard: 8 };                         // a shield shrugs off this much of every hit before it dents: small fast shots barely scratch it
 export const DODGE = { weapon_missile: 2.5 };               // an agile ship shakes off missiles far more than beams or shells
 export function gunTune(mod, K = KINDS[mod.kind]) {
@@ -244,7 +250,9 @@ export function designStats(S, design, caps = allCapsules(S)) {
   t.industry *= t.powerFactor; t.research *= t.powerFactor; t.social *= t.powerFactor;
   t.reload = t.missiles ? t.industry * FAB.missilesPerIndustry * 60 : 0;        // missiles a fabricator aboard builds per minute
   // what the stock buys: a missile costs its share of the magazine's volume, a drone sortie its share of the hangar's
-  t.missileCost = t.missiles ? t.missileVol / t.missiles : 0; t.droneCost = t.drones ? t.droneVol / t.drones : 0;
+  t.synth = FAB.synth * (1 + (passive.synthesis || 0) / 100); t.massGen = FAB.massGen + (passive.mass_generation || 0) / 100 * 0.01;   // the breakthrough hooks (see FAB)
+  t.missileCost = t.missiles ? t.missileVol / t.missiles / t.synth : 0; t.droneCost = t.drones ? t.droneVol / t.drones / t.synth : 0;
+  t.hullPerStock = FAB.hullPerStock * t.synth; t.armorPerStock = FAB.armorPerStock * t.synth;                                          // repairs, paid from the same stock
   t.maxReloads = t.missileCost ? Math.floor(t.fabStock / t.missileCost) : 0;      // if the whole stock went on missiles
   t.maxSorties = t.droneCost ? Math.floor(t.fabStock / t.droneCost) : 0;          // if the whole stock went on drones
   t.upkeep = t.klass === 'structure' ? t.cost * 0.02 / (1 + (passive.maintenance || 0) / 100) : 0;

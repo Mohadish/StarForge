@@ -76,7 +76,8 @@ export function shipFromDesign(S, design, caps = allCapsules(S)) {
   return { name: design.name, design, ds, t, guns, hangars, pref, hp: t.hp, hpMax: t.hp, ar: t.armor, arMax: t.armor, sh: t.shieldRaw, shMax: t.shieldRaw, cover: t.cover, rec: t.shieldRec, deflect: t.deflect, repair: t.repair, hullRepair: t.hullRepair, speed: t.speed, turn: t.turn, evade: t.evasion / 100, dps: t.dps, cost: t.cost,
     hullR: Math.max(12, 0.45 * ds.hull.bw * B.unit), shieldR: Math.max(16, 0.62 * ds.hull.bw * B.unit),   // where a missile meets the hull, and where the shield's edge is (as the replay draws them)
     missiles: t.missiles, drones: t.drones, airCap: t.airCap, fab: t.industry * FAB.missilesPerIndustry, dfab: t.industry * FAB.dronesPerIndustry, pd: guns.filter(g => g.role === 'pd').length,
-    stock: t.fabStock, missileCost: t.missileCost, droneCost: t.droneCost, maxReloads: t.maxReloads, maxSorties: t.maxSorties };
+    stock: t.fabStock, stockMax: t.fabStock, missileCost: t.missileCost, droneCost: t.droneCost, maxReloads: t.maxReloads, maxSorties: t.maxSorties,
+    hullPerStock: t.hullPerStock, armorPerStock: t.armorPerStock, massGen: t.massGen, spare: Math.max(0, t.powerOut - t.powerUse) };
 }
 const missilesLeft = s => s.guns.reduce((a, g) => a + (Number.isFinite(g.ammo) ? g.ammo : 0), 0);
 // what a mover wants to do this tick to hold `want` from (tx,ty) — close / back off / circle — as a displacement
@@ -305,12 +306,16 @@ export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {})
     for (let k = missiles.length - 1; k >= 0; k--) if (missiles[k].done) missiles.splice(k, 1);
     for (let k = drones.length - 1; k >= 0; k--) if (drones[k].hp <= 0) drones.splice(k, 1);
     for (const s of ships) if (!s.dead && s.hp <= 0) { s.dead = true; s.hp = 0; }
-    // shields recover; armour knits itself (hull regeneration tech); a fabricator patches the hull, up to a point
+    // shields recover (free: they are fields, not material); REPAIRS COST THE BANK (his call, 2026-10-10): the fabricator
+    // patches the hull and knits the armour only out of its stock — the hull first, the armour last and dearer (only while
+    // no missile or drone is waiting to be rebuilt). Armour used to knit itself for free, forever: it out-healed drones.
     for (const s of ships) {
       if (s.dead) continue;
       s.sh = Math.min(s.shMax, s.sh + s.rec * B.dt);
-      if (s.arMax) s.ar = Math.min(s.arMax, s.ar + s.repair * B.dt);
-      if (s.hp > 0 && s.hp < s.hpMax && s.hullRepair > 0 && s.repaired < s.hpMax * HULL.fabRepairCap) { const r = Math.min(s.hullRepair * B.dt, s.hpMax - s.hp, s.hpMax * HULL.fabRepairCap - s.repaired); s.hp += r; s.repaired += r; }
+      if (s.massGen > 0 && s.spare > 0) s.stock = Math.min(s.stockMax, s.stock + s.massGen * s.spare * B.dt);   // (breakthrough) spare power made into material
+      if (s.hp > 0 && s.hp < s.hpMax && s.hullRepair > 0 && s.stock > 0) { const r = Math.min(s.hullRepair * B.dt, s.hpMax - s.hp, s.stock * s.hullPerStock); s.hp += r; s.repaired += r; s.stock -= r / s.hullPerStock; }
+      const waiting = (s.stock >= s.missileCost && s.missileCost > 0 && s.guns.some(g => Number.isFinite(g.ammo) && g.ammo < g.mag)) || (s.stock >= s.droneCost && s.droneCost > 0 && s.bays.some(b => b.spent > 0));
+      if (s.arMax && s.ar < s.arMax && s.repair > 0 && s.stock > 0 && !waiting) { const r = Math.min(s.repair * B.dt, s.arMax - s.ar, s.stock * s.armorPerStock); s.ar += r; s.stock -= r / s.armorPerStock; }
     }
     time += B.dt;
     if (time >= nextRec - 1e-9) { frame(); shots = []; nextRec += record; }
