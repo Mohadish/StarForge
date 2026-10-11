@@ -9,14 +9,17 @@ import { hullDef } from './hull.js';
 
 const k = (cost, per, min = 1) => Math.max(min, Math.round(cost / per));
 export const TACTICS = {
-  brute:  { name: 'Brute force',   what: 'few big hulls, capital guns, thick armour — hold the line and hit what holds it', weight: 0.5,
-    recipe: c => `${k(c, 650)} guns capital + armoured${c >= 1100 ? ` + ${k(c, 1100)} beams pd` : ''}${c >= 2000 ? ' + shielded' : ''}` },
+  // THE CYCLE (his diagram, 2026-10-11) — strong: brute > screen > hit&run > range > replen > brute; marginal: brute > range >
+  // screen > replen > hit&run > brute. Tuned at 3000 (see the session notes): brute carries point defence against raiders
+  // (one per 500, was per 1100) and its all-in crews hold longer (resolve 1.3); carriers bring four drones per 150 (was 420)
+  brute:  { name: 'Brute force',   what: 'few big hulls, capital guns, thick armour — hold the line and hit what holds it', weight: 0.5, resolve: 1.3,
+    recipe: c => `${k(c, 650)} guns capital + armoured${c >= 500 ? ` + ${k(c, 500)} beams pd` : ''}${c >= 2000 ? ' + shielded' : ''}` },
   hitrun: { name: 'Hit & run',     what: 'many small fast ships: close, sting, slip away — too quick for heavy turrets', weight: 2,
     recipe: c => `${k(c, 160, 2)} beams + ${k(c, 120, 3)} fast` },
   range:  { name: 'Long range',    what: 'snipers and missiles that reach out and stay out', weight: 1,
     recipe: c => `${k(c, 320)} guns sniper + ${k(c, 700)} missiles${c >= 900 ? ' + armoured' : ''}` },
   replen: { name: 'Replenishable', what: 'drones and missiles with the fabricators to keep them coming', weight: 1,
-    recipe: c => `${4 * k(c, 420)} drones + ${k(c, 800)} missiles + ${k(c, 1400)} fabricator` },
+    recipe: c => `${4 * k(c, 150)} drones + ${k(c, 800)} missiles + ${k(c, 1400)} fabricator` },
   screen: { name: 'Screen',        what: 'point defence and shields: swat missiles and drones, cover the others', weight: 1.3,
     recipe: c => `${k(c, 210, 2)} beams pd + shielded${c < 500 ? ' + fast' : ''}` },
 };
@@ -101,7 +104,9 @@ export function buildPlan(S, plan, letter = 'abcdefghijklmnopqrstuvwxy', num = '
     const rng = rng32(p.seed), d = p.chips ? designFromChips(S, p.chips.map(c => ({ kind: c.kind, h: c.h, role: c.role })), p.cost, rng) : designFromWords(S, p.words, p.cost, rng);
     if (!d) return null;
     if (p.hull && hullDef(p.hull)) d.hull = p.hull;                                // the silhouette the designer gave it (a custom one travels in plan.hulls and must be registered first)
-    const s = shipFromDesign(S, d); s.arch = archetype(s); s.name = `${num}${letter[i] || i + 1}`; s.plan = p; p.built = s; return s;
+    const s = shipFromDesign(S, d); s.arch = archetype(s); s.name = `${num}${letter[i] || i + 1}`; s.plan = p; p.built = s;
+    s.resolve = (p.blend || []).reduce((a, b) => a + (TACTICS[b.id]?.resolve ?? 1) * b.share, 0) || 1;   // the doctrine's RESOLVE: how long its crews hold (battle.js ENDURE)
+    return s;
   }).filter(Boolean);
   const f = fleetOf(ships, plan.name, 'planned'); f.plan = plan; return f;
 }

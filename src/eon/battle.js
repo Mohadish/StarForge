@@ -26,7 +26,7 @@ export const B = { dt: 0.25, start: 3000, maxTime: 600, record: 1, unit: 8, minG
   // dmg 30 → 70 (his call, 2026-10-10, "increase drone damage per volley"): at 30 a carrier lost every duel at its price —
   // its drones' volleys went into armour that knit back. Swept 30/45/60/70/80/100: at 70 a 900 carrier beats a 900 gun ship
   // 12/0 (7/5 without a fabricator), a 3000 one still loses 2/10 to guns, and beams stay the counter (0/12; 100 starts to flip them)
-  drone: { hp: 70, speed: 240, dmg: 70, rate: 0.4, range: 120, acc: 65, evade: 0.55, launchEvery: 2.5, sortie: 90, dock: 40, battery: 100, travelCost: 0.04, shotCost: 10, idleCost: 0.5, reach: 800, waveWait: 6 } };   // waveWait: a forming wave goes after this many seconds even if short
+  drone: { hp: 70, speed: 240, dmg: 70, rate: 0.4, range: 120, acc: 65, evade: 0.55, launchEvery: 2.5, sortie: 90, dock: 40, battery: 100, travelCost: 0.04, shotCost: 10, idleCost: 0.5, reach: 800, waveWait: 6, guard: 900 } };   // guard: an enemy this close to a carrier and it scrambles everything (the cycle, 2026-10-11)   // waveWait: a forming wave goes after this many seconds even if short
 // what a ROLE does to a drone (his ask, 2026-10-10: "sniper drones should be long-range snipers" — a role chip on drones did
 // nothing): multipliers on B.drone; `hold` = where it sits from its target, × its range; `shot` = battery per volley, ×;
 // ESCORT drones (point defence) stay with the carrier and shoot down incoming missiles and drones
@@ -45,7 +45,8 @@ export const volleysOneWay = dist => Math.max(0, Math.floor((B.drone.battery - d
 //   point-defence guns reach out to swat missiles and drones → a ship with PD beats missiles and drones
 //   kinetic shells punch part of their damage straight through a shield → guns beat beam ships, which lean on shields
 //   missiles outrange and outrun slow gun ships → missiles beat guns; drones ignore range altogether
-export const PD = { reach: 500, vsMissile: 0.8, vsDrone: 1.0, beamVsDrone: 2, missileMin: 250, beamIdle: 0.85, gunIdle: 0.4 };   // PD envelope; hit factors against missiles / drones; a beam fries a drone (×damage); missiles cannot arm inside missileMin; how well a beam / a kinetic gun without the PD role does the job
+export const PD = { reach: 500, vsMissile: 0.8, vsDrone: 1.0, beamVsDrone: 2, missileMin: 250, beamIdle: 0.85, gunIdle: 0.4, vsShip: 0.5, smallFull: 300, smallTop: 600, shipReach: 250 };   // vsShip (the cycle, 2026-10-11): a point-defence gun is built for missiles and drones — on a big hull it only grazes; a small, fast one (≤ smallFull in price) it tracks and hits in full, scaling between
+const pdVsShip = o => PD.vsShip + (1 - PD.vsShip) * Math.max(0, Math.min(1, (PD.smallTop - (o.cost || PD.smallTop)) / (PD.smallTop - PD.smallFull)));   // PD envelope; hit factors against missiles / drones; a beam fries a drone (×damage); missiles cannot arm inside missileMin; how well a beam / a kinetic gun without the PD role does the job
 export const PEN = { weapon_kinetic: 0.15, weapon_missile: 0.15, weapon_energy: 0 };  // share of a hit that ignores the shield
 
 export function rng32(seed) {
@@ -60,7 +61,7 @@ export function shipFromDesign(S, design, caps = allCapsules(S)) {
     if (m.K.hangar) { const craft = Math.round(m.v.craft) * m.n; hangars.push({ craft, size: m.v.size, n: m.n, tubes: Math.max(1, craft / 4), role: m.mod.preset || 'standard' }); continue; }   // a launch tube per four drones carried
     if (m.K.mount && !m.K.orbital) {
       const mine = ds.mounts.filter(mt => mt.modId === m.mod.id);           // where each gun of this module sits on the hull (hull squares, nose = +x)
-      for (let i = 0; i < m.n; i++) guns.push({ kind: m.kind, role: m.mod.role || 'ship', pw: m.v.power || 0, dmg: m.v.damage * t.powerFactor * t.fireFactor, rate: m.v.rate, range: m.v.range, acc: Math.min(98, m.v.accuracy + t.bonus), cd: 0, ammo: m.K.charges ? Math.round(m.v.charges) : Infinity, mag: m.K.charges ? Math.round(m.v.charges) : Infinity,
+      for (let i = 0; i < m.n; i++) guns.push({ kind: m.kind, role: m.mod.role || 'ship', brk: BREAK[m.mod.preset] || 0, pw: m.v.power || 0, dmg: m.v.damage * t.powerFactor * t.fireFactor, rate: m.v.rate, range: m.v.range, acc: Math.min(98, m.v.accuracy + t.bonus), cd: 0, ammo: m.K.charges ? Math.round(m.v.charges) : Infinity, mag: m.K.charges ? Math.round(m.v.charges) : Infinity,
         mx: ((mine[i] ? mine[i].x : midx) - midx) * B.unit, my: (mine[i] ? mine[i].y : 0) * B.unit, size: mine[i] ? mine[i].size : 1,   // the hard point, in field units from the ship's centre
         trav: traverseOf(m.kind, mine[i] ? mine[i].size : 1) });                 // how fast the mount slews, degrees a second (0 = a launcher, no turret)
     }
@@ -110,11 +111,17 @@ const go = (s, tx, ty, want, band, spin) => {
 // hit while it lasts, and only then the hull — where every point lost slows the whole ship down
 // Returns what reached the hull and WHERE the hit landed ('shield' / 'hull'), so the replay can burst in the
 // right place; `onShield` forces the shield roll (a missile decides it at the shield's edge).
-function strike(o, dmg, kind, rng, onShield) {
+// SHIELD-BREAKERS (the cycle, 2026-10-11 — "brute force is powerful against screen"): a capital shell is too heavy for a
+// field to turn — it ignores the shield's hardness and hits the field this many times over
+export const BREAK = { capital: 2.5 };
+function strike(o, dmg, kind, rng, onShield, brk = 0) {
   o.hitN = (o.hitN || 0) + 1;                                                     // ENDURANCE: being shot at tires a crew too
   const pen = PEN[kind] || 0; let soft = dmg * (1 - pen); const through = dmg * pen;
   const shielded = o.sh > 0 && (onShield === undefined ? rng() < o.cover : onShield);
-  if (shielded) { const bite = Math.max(0, soft - SHIELD.hard), ab = Math.min(o.sh, bite); o.sh -= ab; soft = bite - ab; if (o.heatCap) o.heat += ab * HEAT.shield; }   // a shield turning a hit heats the ship (HEAT)
+  if (shielded) {
+    if (brk) { const ab = Math.min(o.sh, soft * brk); o.sh -= ab; soft = Math.max(0, soft - ab / brk); if (o.heatCap) o.heat += ab * HEAT.shield; }   // a shield-breaker: no hardness, ×brk on the field; what the field could not hold goes through
+    else { const bite = Math.max(0, soft - SHIELD.hard), ab = Math.min(o.sh, bite); o.sh -= ab; soft = bite - ab; if (o.heatCap) o.heat += ab * HEAT.shield; }   // a shield turning a hit heats the ship (HEAT)
+  }
   let h = soft + through;
   if (o.ar > 0) { h = Math.max(0, h - o.deflect); const ab = Math.min(o.ar, h); o.ar -= ab; h -= ab; }
   if (h > 0) o.hp -= h; return { h, where: shielded ? 'shield' : 'hull' };
@@ -229,18 +236,19 @@ export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {})
       // once the wave is the air cap (or nothing more can join, or it has waited long enough); the next wave starts forming
       // only when the last has mostly gone — one by one they were swatted one by one. Escorts are not part of a wave.
       const mine = drones.filter(d => d.owner === s.idx), forming = mine.filter(d => d.form), striking = mine.filter(d => !d.form && !d.escort).length, left = s.bays.reduce((a, b) => a + b.left, 0);
-      const waveOpen = forming.length > 0 || striking <= s.airCap * 0.1;
+      // SCRAMBLE (the cycle, 2026-10-11): an enemy inside `guard` — raiders on the carrier — and every drone goes at once, no wave
+      const scramble = far <= B.drone.guard, waveOpen = scramble || forming.length > 0 || striking <= s.airCap * 0.1;
       // as many launches a tick as the bay's tubes allow (one a tick capped a 144-hangar bay at 4 a second instead of 57)
       for (const b of s.bays) {
         b.cd -= B.dt; const R = droneRole(b.role), D = B.drone, sz = b.size; let n = drones.filter(d => d.owner === s.idx).length;
-        const ok = R.escort ? worthAt(PD.reach) : worthAt(D.range * R.range) && waveOpen;
+        const ok = R.escort ? worthAt(PD.reach) : (scramble || worthAt(D.range * R.range)) && waveOpen;
         while (b.cd <= 0 && b.left > 0 && ok && n < s.airCap) {
           b.left--; n++; b.cd += D.launchEvery / b.tubes;
-          drones.push({ id: nextId++, side: s.side, owner: s.idx, bay: b, x: s.x, y: s.y, age: 0, home: false, form: !R.escort, escort: !!R.escort, bat: D.battery, hpMax: D.hp * sz * (R.hp || 1), hp: D.hp * sz * (R.hp || 1), speed: D.speed / Math.pow(sz, 0.3) * (R.speed || 1),
+          drones.push({ id: nextId++, side: s.side, owner: s.idx, bay: b, x: s.x, y: s.y, age: 0, home: false, form: !R.escort && !scramble, escort: !!R.escort, bat: D.battery, hpMax: D.hp * sz * (R.hp || 1), hp: D.hp * sz * (R.hp || 1), speed: D.speed / Math.pow(sz, 0.3) * (R.speed || 1),
             dmg: D.dmg * sz * R.dmg, rate: D.rate * R.rate, range: D.range * R.range, hold: R.hold, shot: D.shotCost * R.shot, acc: D.acc, evade: D.evade, cd: rng() * 1, spin: rng() < 0.5 ? 1 : -1 });
         }
       }
-      if (forming.length && (mine.length >= s.airCap || left === 0 || forming[0].age >= B.drone.waveWait)) for (const d of forming) d.form = false;   // the wave goes
+      if (forming.length && (scramble || mine.length >= s.airCap || left === 0 || forming[0].age >= B.drone.waveWait)) for (const d of forming) d.form = false;   // the wave goes
     }
     // nobody sits on top of anybody: enemies keep B.minGap apart, wingmen B.wing
     for (let i = 0; i < ships.length; i++) for (let j = i + 1; j < ships.length; j++) {
@@ -307,7 +315,7 @@ export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {})
         if (g.cd > 0 || g.ammo < 1) continue;
         const near = list => list.filter(e => e.side !== s.side && !e.dead && !e.done).map(e => [e, dist(e, s)]).filter(([, d]) => d <= Math.max(g.range, PD.reach)).sort((a, b) => a[1] - b[1])[0];
         const missile = g.kind === 'weapon_missile', beam = g.kind === 'weapon_energy';
-        const inReach = o => { const d = dist(s, o); return d <= g.range && !(missile && d < PD.missileMin); };
+        const inReach = o => { const d = dist(s, o); return d <= (g.role === 'pd' ? Math.max(g.range, PD.shipReach) : g.range) && !(missile && d < PD.missileMin); };   // a point-defence mount tracks a ship out to shipReach (raiders held just outside its 100 u and were untouchable)
         let o = s.tgt && !s.tgt.dead && inReach(s.tgt) ? s.tgt : null;
         if (!o) { let bd = Infinity; for (const f of foes) if (inReach(f)) { const d = dist(s, f); if (d < bd) { bd = d; o = f; } } }
         // who gets this shot: point defence takes what is coming in first; a gun with a ship in reach shoots the ship;
@@ -330,7 +338,7 @@ export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {})
         if (tgt === o) {
           if (missile) { missiles.push({ id: nextId++, side: s.side, tgt: o, x: gx, y: gy, age: 0, phase: rng() * 6.28, wob: rng() < 0.5 ? 1 : -1, dmg: g.dmg, hit: rng() < g.acc / 100 * (1 - Math.min(0.9, o.evade * (DODGE[g.kind] || 1))) }); continue; }
           const hit = rng() < g.acc / 100 * (1 - o.evade);
-          if (hit) { const r = strike(o, g.dmg, g.kind, rng); hits[s.side]++; dealt[s.side] += r.h; log(s.side, kch, r.where === 'shield' ? 4 : 1, gx, gy, ...impact(o, gx, gy, r.where), s.idx, gi, o); }
+          if (hit) { const r = strike(o, g.dmg * (g.role === 'pd' ? pdVsShip(o) : 1), g.kind, rng, undefined, g.brk); hits[s.side]++; dealt[s.side] += r.h; log(s.side, kch, r.where === 'shield' ? 4 : 1, gx, gy, ...impact(o, gx, gy, r.where), s.idx, gi, o); }
           else log(s.side, kch, 0, gx, gy, o.x, o.y, s.idx, gi, o);
         } else if (tgt.bat === undefined) {                                  // a missile (a drone carries a battery; both carry an age — telling them apart by age had let every drone off the hook)
           const hit = rng() < g.acc / 100 * PD.vsMissile * pdk; log(s.side, kch, hit ? 2 : 0, gx, gy, tgt.x, tgt.y, s.idx, gi, tgt); if (hit) { tgt.done = true; shot[s.side]++; }
@@ -373,9 +381,13 @@ export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {})
       // near a friend at least twice its price); at empty the crew breaks — for good
       if (!s.broken) {
         if ((s.hitN || 0) !== s.seenHits) { s.seenHits = s.hitN || 0; s.hitT = time; }
-        const foe = nearestFoe(s.x, s.y, s.side), engaged = s.engaged = (foe && dist(s, foe) <= s.reachMax * ENDURE.reach) || time - (s.hitT ?? -1e9) < 5;   // an enemy within its reach, or hit in the last 5 s
+        // in the fight: an enemy within its reach, or it within an enemy's (under the guns is strain too — a kited ship tires as
+        // fast as the kiter, 2026-10-11), or hit in the last 5 s. A battered ship tires faster: ×(2 − what is left of hull + armour)
+        const foes = alive(1 - s.side), foe = nearestFoe(s.x, s.y, s.side);
+        const engaged = s.engaged = (foe && dist(s, foe) <= s.reachMax * ENDURE.reach) || foes.some(f => !f.broken && dist(s, f) <= f.reachMax * ENDURE.reach) || time - (s.hitT ?? -1e9) < 5;
+        const whole = (Math.max(0, s.hp) + (s.ar || 0)) / (s.hpMax + (s.arMax || 0));
         capLoss(s, (engaged ? ENDURE.wear : ENDURE.wearIdle) / s.resolve * B.dt);                         // the ceiling always wears — faster in the fight
-        if (engaged) s.en -= ENDURE.drain * (s.off ? ENDURE.scram : hot(s) ? ENDURE.hot : 1) / s.resolve * B.dt;
+        if (engaged) s.en -= ENDURE.drain * (s.off ? ENDURE.scram : hot(s) ? ENDURE.hot : 1) * (2 - whole) / s.resolve * B.dt;
         else { const near = fleets[s.side].some(f => f !== s && !f.dead && !f.broken && (f.cost || 0) >= 2 * (s.cost || 0) && dist(f, s) <= ENDURE.auraR); s.en += ENDURE.recover * (near ? ENDURE.aura : 1) * B.dt; }
         s.en = Math.max(0, Math.min(s.em, s.en));
         if (s.en <= 0) { s.broken = true; broke[s.side]++; }
