@@ -1,7 +1,7 @@
 // THE BATTLE LAB — random ships at one price fight each other; watch any fight replayed, pick two
 // ships and make them fight, or describe a ship in words and throw it into the ring.
 // Runs in a plain browser page (lab.html) and as a published page; nothing here touches the game's save.
-import { runLabAsync, evolve, simulate, createBattle, shipFromDesign, archetype, designFromWords, designFromChips, bestShipOfAsync, challengeAsync, fleetOf, volleysFrom, rng32, B, MAINS } from './battle.js';
+import { runLabAsync, evolve, simulate, createBattle, shipFromDesign, archetype, designFromWords, designFromChips, bestShipOfAsync, challengeAsync, fleetOf, volleysFrom, rng32, B, MAINS, ENDURE } from './battle.js';
 const breathe = () => new Promise(r => setTimeout(r, 0));   // handed back from progress callbacks so the page paints between steps
 import { KINDS, PRESETS, traverseOf } from './modules.js';
 import { drawHull } from './hullview.js';
@@ -538,10 +538,13 @@ function draw() {
         // the bars: heat (amber → red, the reactor), shield (purple), armour (grey), hull (green) — narrower, with less text, when the field is crowded
         g.globalAlpha = 1 - 2 * symA;
         const ht = f0.ht ? lerp(f0.ht[j], f1.ht[j]) : 0, off = f1.off ? f1.off[j] : 0, showHeat = !!s.heatCap && hp > 0;
-        const crowded = !few, bw = crowded ? 40 : 72, bx = cx - bw / 2, rows = 1 + (s.arMax ? 1 : 0) + (s.shMax ? 1 : 0) + (showHeat ? 1 : 0), by = cy - L * 0.5 - 12 - rows * 7;
+        const en = f0.en ? lerp(f0.en[j], f1.en[j]) : null, em = f1.em ? f1.em[j] : 1, br = f1.br ? f1.br[j] : 0, showEn = en !== null && hp > 0;
+        const crowded = !few, bw = crowded ? 40 : 72, bx = cx - bw / 2, rows = 1 + (s.arMax ? 1 : 0) + (s.shMax ? 1 : 0) + (showHeat ? 1 : 0) + (showEn ? 1 : 0), by = cy - L * 0.5 - 12 - rows * 7;
         let yy = by;
-        if (showHeat) { g.fillStyle = 'rgba(255,255,255,.1)'; g.fillRect(bx, yy, bw, 3); g.fillStyle = off ? '#ff3b3b' : ht >= 0.9 ? '#ff7a3b' : '#ffb347'; g.fillRect(bx, yy, bw * Math.min(1, Math.max(0, ht)), 3); yy += 7; }
-        if (off && hp > 0) { g.fillStyle = off === 2 ? '#ff3b3b' : '#ffb347'; g.font = 'bold 10px system-ui, sans-serif'; g.textAlign = 'center'; g.fillText(off === 2 ? 'DARK — reactor down, battery flat' : 'SCRAM — on the battery', cx, cy + L * 0.5 + (crowded ? 28 : 32)); }
+        if (showHeat) { g.fillStyle = 'rgba(255,255,255,.1)'; g.fillRect(bx, yy, bw, 3); g.fillStyle = HEATC(ht, off); g.fillRect(bx, yy, bw * Math.min(1, Math.max(0, ht)), 3); yy += 7; }
+        if (showEn) { g.fillStyle = 'rgba(255,255,255,.1)'; g.fillRect(bx, yy, bw, 4); g.fillStyle = 'rgba(255,255,255,.22)'; g.fillRect(bx + bw * em, yy, bw * (1 - em), 4); g.fillStyle = en < ENDURE.peak ? '#3b6fd6' : '#4da3ff'; g.fillRect(bx, yy, bw * Math.max(0, en), 4); g.fillStyle = 'rgba(255,255,255,.55)'; g.fillRect(bx + bw * ENDURE.peak - 0.5, yy - 1, 1, 6); yy += 7; }   // ENDURANCE: blue, dimmer past the peak (the tick); the grey end is what morale has taken off the ceiling
+        const status = hp <= 0 ? '' : br ? 'BROKEN — falling back' : off === 2 ? 'DARK — reactor down, battery flat' : off ? 'SCRAM — on the battery' : '';
+        if (status) { g.fillStyle = br ? '#7fb3ff' : off === 2 ? '#ff3b3b' : '#ffb347'; g.font = 'bold 10px system-ui, sans-serif'; g.textAlign = 'center'; g.fillText(status, cx, cy + L * 0.5 + (crowded ? 28 : 32)); }
         if (s.shMax) { g.fillStyle = 'rgba(255,255,255,.1)'; g.fillRect(bx, yy, bw, 4); g.fillStyle = '#cf89ff'; g.fillRect(bx, yy, bw * Math.max(0, lerp(f0.sh[j], f1.sh[j])), 4); yy += 7; }
         if (s.arMax) { const ar = f0.ar ? lerp(f0.ar[j], f1.ar[j]) : 0; g.fillStyle = 'rgba(255,255,255,.1)'; g.fillRect(bx, yy, bw, 4); g.fillStyle = '#c9d4e8'; g.fillRect(bx, yy, bw * Math.max(0, ar), 4); yy += 7; }
         g.fillStyle = 'rgba(255,255,255,.1)'; g.fillRect(bx, yy, bw, 5); g.fillStyle = '#7ef3b0'; g.fillRect(bx, yy, bw * Math.max(0, hp), 5);
@@ -555,7 +558,8 @@ function draw() {
     }
     if (symA > 0) {
       g.globalAlpha = symA;
-      drawSymbol(g, cx, cy, tiers[j], hp, side, s.shMax && hp > 0 ? lerp(f0.sh[j], f1.sh[j]) : null);
+      drawSymbol(g, cx, cy, tiers[j], hp, side, s.shMax && hp > 0 ? lerp(f0.sh[j], f1.sh[j]) : null,
+        { ht: s.heatCap && f0.ht ? lerp(f0.ht[j], f1.ht[j]) : null, off: f1.off ? f1.off[j] : 0, en: f0.en ? lerp(f0.en[j], f1.en[j]) : null, br: f1.br ? f1.br[j] : 0 });
       if (few && symA >= 0.5) { g.fillStyle = hp <= 0 ? '#7a4a4a' : SIDE[side]; g.font = 'bold 10px system-ui, sans-serif'; g.textAlign = 'center'; g.fillText(s.name, cx, cy - SYM.size[tiers[j]] - 6); }
       g.globalAlpha = 1;
     }
@@ -600,9 +604,16 @@ function symbolPath(g, x, y, r, tier) {
   g.closePath();
 }
 // a vessel filled with the hull like fluid: full and in the side's colour when whole, draining and reddening as it dies
-function drawSymbol(g, x, y, tier, hp, side, sh) {
+// heat colour: amber, orange from the crew's hold (90 %), red with the reactor off
+const HEATC = (ht, off) => off ? '#ff3b3b' : ht >= 0.9 ? '#ff7a3b' : '#ffb347';
+function drawSymbol(g, x, y, tier, hp, side, sh, st = {}) {
   const r = SYM.size[tier], col = SIDE[side];
   if (hp <= 0) { g.strokeStyle = '#6b4a4a'; g.lineWidth = 1; symbolPath(g, x, y, r, tier); g.stroke(); g.beginPath(); g.moveTo(x - r, y - r); g.lineTo(x + r, y + r); g.moveTo(x + r, y - r); g.lineTo(x - r, y + r); g.stroke(); return; }
+  // zoomed out, the same news as the bars up close: HEAT an arc on the left (amber → red), ENDURANCE a blue arc on the right,
+  // and a word under the symbol when the reactor is off or the crew has broken
+  if (st.ht !== null && st.ht !== undefined && st.ht > 0.02) { g.strokeStyle = HEATC(st.ht, st.off); g.lineWidth = 2; g.beginPath(); g.arc(x, y, r + 7, Math.PI / 2, Math.PI / 2 + Math.PI * Math.min(1, st.ht)); g.stroke(); }
+  if (st.en !== null && st.en !== undefined) { g.strokeStyle = st.en < ENDURE.peak ? '#3b6fd6' : '#4da3ff'; g.lineWidth = 2; g.beginPath(); g.arc(x, y, r + 7, Math.PI / 2, Math.PI / 2 - Math.PI * Math.max(0, st.en), true); g.stroke(); }
+  if (st.br || st.off) { g.fillStyle = st.br ? '#7fb3ff' : st.off === 2 ? '#ff3b3b' : '#ffb347'; g.font = 'bold 9px system-ui, sans-serif'; g.textAlign = 'center'; g.fillText(st.br ? 'BROKEN' : st.off === 2 ? 'DARK' : 'SCRAM', x, y + r + 18); }
   g.save(); symbolPath(g, x, y, r, tier); g.clip();
   g.fillStyle = 'rgba(255,255,255,.07)'; g.fillRect(x - r * 1.5, y - r, r * 3, r * 2);
   const top = y + r - 2 * r * Math.max(0, Math.min(1, hp));

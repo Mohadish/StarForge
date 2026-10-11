@@ -111,6 +111,7 @@ const go = (s, tx, ty, want, band, spin) => {
 // Returns what reached the hull and WHERE the hit landed ('shield' / 'hull'), so the replay can burst in the
 // right place; `onShield` forces the shield roll (a missile decides it at the shield's edge).
 function strike(o, dmg, kind, rng, onShield) {
+  o.hitN = (o.hitN || 0) + 1;                                                     // ENDURANCE: being shot at tires a crew too
   const pen = PEN[kind] || 0; let soft = dmg * (1 - pen); const through = dmg * pen;
   const shielded = o.sh > 0 && (onShield === undefined ? rng() < o.cover : onShield);
   if (shielded) { const bite = Math.max(0, soft - SHIELD.hard), ab = Math.min(o.sh, bite); o.sh -= ab; soft = bite - ab; if (o.heatCap) o.heat += ab * HEAT.shield; }   // a shield turning a hit heats the ship (HEAT)
@@ -118,8 +119,17 @@ function strike(o, dmg, kind, rng, onShield) {
   if (o.ar > 0) { h = Math.max(0, h - o.deflect); const ab = Math.min(o.ar, h); o.ar -= ab; h -= ab; }
   if (h > 0) o.hp -= h; return { h, where: shielded ? 'shield' : 'hull' };
 }
-// how well a ship runs: whole at full hull, HULL.degradeFloor of itself at none
-const eff = s => HULL.degradeFloor + (1 - HULL.degradeFloor) * Math.max(0, s.hp) / s.hpMax;
+// ENDURANCE — the BLUE BAR (his design, 2026-10-11, step 2: "peak performance time"): a ship tires while it fights (an
+// enemy within its reach), `hot`× faster with its reactor running hot and `scram`× faster scrammed; out of reach it rests
+// and recovers at `recover` (`aura`× near a friend at least twice its price — a capital, a flotilla's heart). Past its PEAK
+// (`peak` of the bar) it degrades — slower guns, slower engines, slower turning — down to `floor` at empty, where its crew
+// BREAKS: it stops fighting and falls back, and a fleet with nobody left fighting has lost. MORALE is the bar's ceiling:
+// every friend lost takes `loss` × its share of the fleet's price off it, the flagship `flag` more. `resolve` (per ship,
+// 1 = plain) divides the drain — the hook for cohesion and doctrines (step 3). Replaces the clock as what ends a battle.
+export const ENDURE = { drain: 1 / 300, hot: 1.5, scram: 3, recover: 1 / 600, aura: 3, auraR: 350, peak: 0.5, floor: 0.2, loss: 0.5, flag: 0.15, reach: 1.3 };
+const perf = s => s.en === undefined || s.en >= ENDURE.peak ? 1 : ENDURE.floor + (1 - ENDURE.floor) * Math.max(0, s.en) / ENDURE.peak;
+// how well a ship runs: whole at full hull, HULL.degradeFloor of itself at none — and tired past its peak (ENDURANCE)
+const eff = s => (HULL.degradeFloor + (1 - HULL.degradeFloor) * Math.max(0, s.hp) / s.hpMax) * perf(s);
 // what its reactor gives it (HEAT): whole; after a scram, half on the battery; dark when the battery is flat
 const power = s => !s.off ? 1 : s.batt > 0 ? HEAT.half : HEAT.dark;
 const dark = s => s.off && s.batt <= 0;
@@ -138,19 +148,23 @@ const hot = s => s.heatCap > 0 && s.heat >= HEAT.hold * s.heatCap;      // the c
 export const AVOID = 650;
 export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {}) {
   const mk = (s, side, x, y) => ({ ...s, side, x, y, ang: side ? Math.PI : 0, spin: 1, dead: false, tgt: null, guns: s.guns.map(g => ({ ...g, aim: side ? Math.PI : 0 })), pool: 0, dpool: 0, stock: s.stock || 0, repaired: 0, speed0: s.speed, bays: s.hangars.map(h => ({ ...h, left: h.craft, spent: 0, cd: 0 })),
-    heat: 0, off: false, offT: 0, batt: s.batterySec || 0 });                      // HEAT: how hot, scrammed?, for how long, battery seconds left
+    heat: 0, off: false, offT: 0, batt: s.batterySec || 0,                           // HEAT: how hot, scrammed?, for how long, battery seconds left
+    en: 1, em: 1, broken: false, resolve: s.resolve || 1, reachMax: Math.max(s.pref || 0, ...s.guns.map(g => g.range)) });   // ENDURANCE: the blue bar, its ceiling (morale), broken?, resolve, how far it fights
   const FA = Array.isArray(a0) ? a0 : [a0], FB = Array.isArray(b0) ? b0 : [b0];
   const line = (F, side) => F.map((s, i) => mk(s, side, (side ? 1 : -1) * B.start / 2, (i - (F.length - 1) / 2) * B.spread));   // a fleet starts in a line abreast
   const ships = [...line(FA, 0), ...line(FB, 1)]; ships.forEach((s, i) => { s.idx = i; });
   const fleets = [ships.filter(s => s.side === 0), ships.filter(s => s.side === 1)];
   const alive = side => fleets[side].filter(s => !s.dead);
+  const fighting = side => fleets[side].filter(s => !s.dead && !s.broken);           // ENDURANCE: a broken crew is out of the fight
+  const fleetCost = [0, 1].map(side => fleets[side].reduce((a, s) => a + (s.cost || 0), 0) || 1), flagship = [0, 1].map(side => fleets[side].reduce((a, s) => (!a || s.cost > a.cost ? s : a), null));
   const fleetHull = side => fleets[side].reduce((a, s) => a + Math.max(0, s.hp), 0) / fleets[side].reduce((a, s) => a + s.hpMax, 0);
-  const frames = [], hits = [0, 0], dealt = [0, 0], shot = [0, 0], scrams = [0, 0];   // shot: missiles + drones killed by each side's PD; scrams: reactors that overheated
+  const frames = [], hits = [0, 0], dealt = [0, 0], shot = [0, 0], scrams = [0, 0], broke = [0, 0];   // shot: missiles + drones killed by each side's PD; scrams: reactors that overheated; broke: crews that broke
   let time = 0, shots = [], nextRec = 0, winner = null, nextId = 1, done = false;
   const missiles = [], drones = [];
   const orders = [0, 1].map(() => ({ eliminate: new Set(), avoid: new Set(), area: null, retreat: false })), given = [];
   const frame = () => frames.push({ t: Math.round(time * 100) / 100, p: ships.map(s => [Math.round(s.x), Math.round(s.y)]), a: ships.map(s => Math.round(s.ang * 100) / 100), ga: ships.map(s => s.guns.map(g => Math.round(g.aim * 100) / 100)), hp: ships.map(s => s.hp / s.hpMax), ar: ships.map(s => s.arMax ? s.ar / s.arMax : 0), sh: ships.map(s => s.shMax ? s.sh / s.shMax : 0),
     ht: ships.map(s => s.heatCap && !s.dead ? Math.round(100 * s.heat / s.heatCap) / 100 : 0), off: ships.map(s => s.off && !s.dead ? (s.batt > 0 ? 1 : 2) : 0),   // heat (share of the cap) · 0 running, 1 scrammed on the battery, 2 dark
+    en: ships.map(s => Math.round(100 * s.en) / 100), em: ships.map(s => Math.round(100 * s.em) / 100), br: ships.map(s => s.broken ? 1 : 0),   // ENDURANCE: the blue bar, its ceiling (morale), broken
     msl: ships.map(missilesLeft), dr: ships.map(s => drones.filter(d => d.owner === s.idx).length), bays: ships.map(s => s.bays.reduce((a, b) => a + b.left, 0)), spent: ships.map(s => s.bays.reduce((a, b) => a + b.spent, 0)), stock: ships.map(s => Math.round(s.stock)),
     ents: [...missiles.map(m => [m.id, m.side, 'm', Math.round(m.x), Math.round(m.y)]), ...drones.map(d => [d.id, d.side, 'd', Math.round(d.x), Math.round(d.y), Math.round(100 * d.hp / d.hpMax), d.home ? 1 : 0])], shots });
   // a shot: [side, kind, outcome (0 miss · 1 hit on hull/armour · 2 missile swatted · 3 drone hit · 4 the shield took it), from x,y, to x,y, ship index, gun index,
@@ -189,6 +203,7 @@ export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {})
       if (s.dead) continue;
       const o = s.tgt = pickTarget(s); if (!o) continue;
       s.speed = s.speed0 * eff(s) * power(s);                                       // a scrammed reactor: half on the battery, a quarter dark
+      if (s.broken) { const foe = nearestFoe(s.x, s.y, s.side); go(s, foe.x, foe.y, 1e9, 1, 0); continue; }   // ENDURANCE: a broken crew falls back, flat out, and launches nothing
       const O = orders[s.side], A = O.area;
       const dodge = O.avoid.size ? alive(1 - s.side).filter(x => O.avoid.has(x.idx)).map(x => [x, dist(s, x)]).filter(([, d]) => d < AVOID).sort((p, q) => p[1] - q[1])[0] : null;
       if (O.retreat) { const foe = nearestFoe(s.x, s.y, s.side); go(s, foe.x, foe.y, 1e9, 1, 0); }                                     // away from the nearest enemy, flat out
@@ -273,7 +288,7 @@ export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {})
     for (let k = missiles.length - 1; k >= 0; k--) if (missiles[k].done) missiles.splice(k, 1);
     // the guns: point defence turns on what is coming in; the rest shoot a ship in reach (their own target first), or drones when none is
     for (const s of ships) {
-      if (s.dead) continue;
+      if (s.dead || s.broken) continue;                                             // a broken crew does not fire
       const foes = alive(1 - s.side);
       for (let gi = 0; gi < s.guns.length; gi++) {
         const g = s.guns[gi];
@@ -317,7 +332,12 @@ export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {})
     }
     for (let k = missiles.length - 1; k >= 0; k--) if (missiles[k].done) missiles.splice(k, 1);
     for (let k = drones.length - 1; k >= 0; k--) if (drones[k].hp <= 0) drones.splice(k, 1);
-    for (const s of ships) if (!s.dead && s.hp <= 0) { s.dead = true; s.hp = 0; }
+    for (const s of ships) if (!s.dead && s.hp <= 0) {
+      s.dead = true; s.hp = 0;
+      // MORALE: every friend still in the fight loses a share of its ceiling — the dead ship's share of the fleet's price, the flagship more
+      const hit = ENDURE.loss * (s.cost || 0) / fleetCost[s.side] + (flagship[s.side] === s ? ENDURE.flag : 0);
+      for (const f of fleets[s.side]) if (!f.dead) { f.em = Math.max(0, f.em - hit); f.en = Math.min(f.en, f.em); }
+    }
     // shields recover (free: they are fields, not material); REPAIRS COST THE BANK (his call, 2026-10-10): the fabricator
     // patches the hull and knits the armour only out of its stock — the hull first, the armour last and dearer (only while
     // no missile or drone is waiting to be rebuilt). Armour used to knit itself for free, forever: it out-healed drones.
@@ -338,17 +358,27 @@ export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {})
         if (s.off) { s.offT += B.dt; s.batt = Math.max(0, s.batt - B.dt); if (s.offT >= HEAT.restart && s.heat <= HEAT.resume * s.heatCap) s.off = false; }
         else s.batt = Math.min(s.batterySec, s.batt + s.batterySec / HEAT.recharge * B.dt);
       }
+      // ENDURANCE: tiring while an enemy is within its reach (faster hot, faster still scrammed), resting out of it (faster
+      // near a friend at least twice its price); at empty the crew breaks — for good
+      if (!s.broken) {
+        if ((s.hitN || 0) !== s.seenHits) { s.seenHits = s.hitN || 0; s.hitT = time; }
+        const foe = nearestFoe(s.x, s.y, s.side), engaged = (foe && dist(s, foe) <= s.reachMax * ENDURE.reach) || time - (s.hitT ?? -1e9) < 5;   // an enemy within its reach, or hit in the last 5 s
+        if (engaged) s.en -= ENDURE.drain * (s.off ? ENDURE.scram : hot(s) ? ENDURE.hot : 1) / s.resolve * B.dt;
+        else { const near = fleets[s.side].some(f => f !== s && !f.dead && !f.broken && (f.cost || 0) >= 2 * (s.cost || 0) && dist(f, s) <= ENDURE.auraR); s.en += ENDURE.recover * (near ? ENDURE.aura : 1) * B.dt; }
+        s.en = Math.max(0, Math.min(s.em, s.en));
+        if (s.en <= 0) { s.broken = true; broke[s.side]++; }
+      }
     }
     time += B.dt;
     if (time >= nextRec - 1e-9) { frame(); shots = []; nextRec += record; }
-    if (!alive(0).length || !alive(1).length) { if (shots.length) frame(); const a = alive(0).length, b = alive(1).length; winner = !a && !b ? null : !a ? 1 : 0; done = true; }
+    if (!fighting(0).length || !fighting(1).length) { if (shots.length) frame(); const a = fighting(0).length, b = fighting(1).length; winner = !a && !b ? null : !a ? 1 : 0; done = true; }   // destroyed or broken: a fleet with nobody left fighting has lost
     else if (time >= B.maxTime - 1e-9) done = true;
   };
   // on points when the clock runs out: the healthier fleet (hull left over the whole fleet), then whoever dealt more; a draw only when nobody hurt anybody
   const result = () => {
     let w = winner;
     if (w === null && time >= B.maxTime - 1e-9) { const ha = fleetHull(0), hb = fleetHull(1); w = ha > hb + 0.02 ? 0 : hb > ha + 0.02 ? 1 : dealt[0] > dealt[1] ? 0 : dealt[1] > dealt[0] ? 1 : null; }
-    return { winner: w, time: Math.round(time), timedOut: time >= B.maxTime - 1e-9, left: [fleetHull(0), fleetHull(1)], hits, dealt, shot, scrams, frames, sides: ships.map(s => s.side), n: [FA.length, FB.length], orders: given };
+    return { winner: w, time: Math.round(time), timedOut: time >= B.maxTime - 1e-9, left: [fleetHull(0), fleetHull(1)], hits, dealt, shot, scrams, broke, frames, sides: ships.map(s => s.side), n: [FA.length, FB.length], orders: given };
   };
   // an order to one side; ships are named by their index in `ships` (the replay's order)
   const order = (side, cmd) => {
