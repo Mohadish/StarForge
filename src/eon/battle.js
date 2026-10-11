@@ -9,7 +9,7 @@
 // the ship is out of its reach. So killing a swarm costs the damage you were putting on the ship.
 // MOVEMENT. Each ship holds the distance where most of its damage reaches — closing, backing off,
 // circling — and the faster ship wins that argument; the field has a hard edge, so a runner is cornered.
-import { designStats, allCapsules, autoFit, KINDS, FAB, DODGE, SHIELD, HULL, PRESETS, TURRET, traverseOf, applyPreset } from './modules.js';
+import { designStats, allCapsules, autoFit, KINDS, FAB, DODGE, SHIELD, HULL, HEAT, PRESETS, TURRET, traverseOf, applyPreset } from './modules.js';
 import { hullsFor } from './hull.js';
 // the silhouettes random ships are drawn from: the player's own starships (hull.js setUserHulls) and the shipped pack of his (hullpack.js) when there are any, else the plain built-in ones
 export const starshipHulls = () => { const all = hullsFor('starship'), own = all.filter(h => h.user || h.pack); return own.length ? own : all; };
@@ -60,7 +60,7 @@ export function shipFromDesign(S, design, caps = allCapsules(S)) {
     if (m.K.hangar) { const craft = Math.round(m.v.craft) * m.n; hangars.push({ craft, size: m.v.size, n: m.n, tubes: Math.max(1, craft / 4), role: m.mod.preset || 'standard' }); continue; }   // a launch tube per four drones carried
     if (m.K.mount && !m.K.orbital) {
       const mine = ds.mounts.filter(mt => mt.modId === m.mod.id);           // where each gun of this module sits on the hull (hull squares, nose = +x)
-      for (let i = 0; i < m.n; i++) guns.push({ kind: m.kind, role: m.mod.role || 'ship', dmg: m.v.damage * t.powerFactor * t.fireFactor, rate: m.v.rate, range: m.v.range, acc: Math.min(98, m.v.accuracy + t.bonus), cd: 0, ammo: m.K.charges ? Math.round(m.v.charges) : Infinity, mag: m.K.charges ? Math.round(m.v.charges) : Infinity,
+      for (let i = 0; i < m.n; i++) guns.push({ kind: m.kind, role: m.mod.role || 'ship', pw: m.v.power || 0, dmg: m.v.damage * t.powerFactor * t.fireFactor, rate: m.v.rate, range: m.v.range, acc: Math.min(98, m.v.accuracy + t.bonus), cd: 0, ammo: m.K.charges ? Math.round(m.v.charges) : Infinity, mag: m.K.charges ? Math.round(m.v.charges) : Infinity,
         mx: ((mine[i] ? mine[i].x : midx) - midx) * B.unit, my: (mine[i] ? mine[i].y : 0) * B.unit, size: mine[i] ? mine[i].size : 1,   // the hard point, in field units from the ship's centre
         trav: traverseOf(m.kind, mine[i] ? mine[i].size : 1) });                 // how fast the mount slews, degrees a second (0 = a launcher, no turret)
     }
@@ -77,7 +77,8 @@ export function shipFromDesign(S, design, caps = allCapsules(S)) {
     hullR: Math.max(12, 0.45 * ds.hull.bw * B.unit), shieldR: Math.max(16, 0.62 * ds.hull.bw * B.unit),   // where a missile meets the hull, and where the shield's edge is (as the replay draws them)
     missiles: t.missiles, drones: t.drones, airCap: t.airCap, fab: t.industry * FAB.missilesPerIndustry, dfab: t.industry * FAB.dronesPerIndustry, pd: guns.filter(g => g.role === 'pd').length,
     stock: t.fabStock, stockMax: t.fabStock, missileCost: t.missileCost, droneCost: t.droneCost, maxReloads: t.maxReloads, maxSorties: t.maxSorties,
-    hullPerStock: t.hullPerStock, armorPerStock: t.armorPerStock, massGen: t.massGen, spare: Math.max(0, t.powerOut - t.powerUse) };
+    hullPerStock: t.hullPerStock, armorPerStock: t.armorPerStock, massGen: t.massGen, spare: Math.max(0, t.powerOut - t.powerUse),
+    heatCap: t.heatCap, cool: t.cool, batterySec: t.batterySec };
 }
 const missilesLeft = s => s.guns.reduce((a, g) => a + (Number.isFinite(g.ammo) ? g.ammo : 0), 0);
 // what a mover wants to do this tick to hold `want` from (tx,ty) — close / back off / circle — as a displacement
@@ -112,13 +113,17 @@ const go = (s, tx, ty, want, band, spin) => {
 function strike(o, dmg, kind, rng, onShield) {
   const pen = PEN[kind] || 0; let soft = dmg * (1 - pen); const through = dmg * pen;
   const shielded = o.sh > 0 && (onShield === undefined ? rng() < o.cover : onShield);
-  if (shielded) { const bite = Math.max(0, soft - SHIELD.hard), ab = Math.min(o.sh, bite); o.sh -= ab; soft = bite - ab; }
+  if (shielded) { const bite = Math.max(0, soft - SHIELD.hard), ab = Math.min(o.sh, bite); o.sh -= ab; soft = bite - ab; if (o.heatCap) o.heat += ab * HEAT.shield; }   // a shield turning a hit heats the ship (HEAT)
   let h = soft + through;
   if (o.ar > 0) { h = Math.max(0, h - o.deflect); const ab = Math.min(o.ar, h); o.ar -= ab; h -= ab; }
   if (h > 0) o.hp -= h; return { h, where: shielded ? 'shield' : 'hull' };
 }
 // how well a ship runs: whole at full hull, HULL.degradeFloor of itself at none
 const eff = s => HULL.degradeFloor + (1 - HULL.degradeFloor) * Math.max(0, s.hp) / s.hpMax;
+// what its reactor gives it (HEAT): whole; after a scram, half on the battery; dark when the battery is flat
+const power = s => !s.off ? 1 : s.batt > 0 ? HEAT.half : HEAT.dark;
+const dark = s => s.off && s.batt <= 0;
+const hot = s => s.heatCap > 0 && s.heat >= HEAT.hold * s.heatCap;      // the crew holds fire and the fabricator
 
 // one fight between two FLEETS (a single ship is a fleet of one); returns the winning side (0 / 1 / null
 // for a draw), the time, and frames for a replay. Every ship picks its own target — the nearest living
@@ -132,18 +137,20 @@ const eff = s => HULL.degradeFloor + (1 - HULL.degradeFloor) * Math.max(0, s.hp)
 //   retreat            everyone flat out away from the nearest enemy; the clock then decides on points
 export const AVOID = 650;
 export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {}) {
-  const mk = (s, side, x, y) => ({ ...s, side, x, y, ang: side ? Math.PI : 0, spin: 1, dead: false, tgt: null, guns: s.guns.map(g => ({ ...g, aim: side ? Math.PI : 0 })), pool: 0, dpool: 0, stock: s.stock || 0, repaired: 0, speed0: s.speed, bays: s.hangars.map(h => ({ ...h, left: h.craft, spent: 0, cd: 0 })) });
+  const mk = (s, side, x, y) => ({ ...s, side, x, y, ang: side ? Math.PI : 0, spin: 1, dead: false, tgt: null, guns: s.guns.map(g => ({ ...g, aim: side ? Math.PI : 0 })), pool: 0, dpool: 0, stock: s.stock || 0, repaired: 0, speed0: s.speed, bays: s.hangars.map(h => ({ ...h, left: h.craft, spent: 0, cd: 0 })),
+    heat: 0, off: false, offT: 0, batt: s.batterySec || 0 });                      // HEAT: how hot, scrammed?, for how long, battery seconds left
   const FA = Array.isArray(a0) ? a0 : [a0], FB = Array.isArray(b0) ? b0 : [b0];
   const line = (F, side) => F.map((s, i) => mk(s, side, (side ? 1 : -1) * B.start / 2, (i - (F.length - 1) / 2) * B.spread));   // a fleet starts in a line abreast
   const ships = [...line(FA, 0), ...line(FB, 1)]; ships.forEach((s, i) => { s.idx = i; });
   const fleets = [ships.filter(s => s.side === 0), ships.filter(s => s.side === 1)];
   const alive = side => fleets[side].filter(s => !s.dead);
   const fleetHull = side => fleets[side].reduce((a, s) => a + Math.max(0, s.hp), 0) / fleets[side].reduce((a, s) => a + s.hpMax, 0);
-  const frames = [], hits = [0, 0], dealt = [0, 0], shot = [0, 0];           // shot: missiles + drones killed by each side's PD
+  const frames = [], hits = [0, 0], dealt = [0, 0], shot = [0, 0], scrams = [0, 0];   // shot: missiles + drones killed by each side's PD; scrams: reactors that overheated
   let time = 0, shots = [], nextRec = 0, winner = null, nextId = 1, done = false;
   const missiles = [], drones = [];
   const orders = [0, 1].map(() => ({ eliminate: new Set(), avoid: new Set(), area: null, retreat: false })), given = [];
   const frame = () => frames.push({ t: Math.round(time * 100) / 100, p: ships.map(s => [Math.round(s.x), Math.round(s.y)]), a: ships.map(s => Math.round(s.ang * 100) / 100), ga: ships.map(s => s.guns.map(g => Math.round(g.aim * 100) / 100)), hp: ships.map(s => s.hp / s.hpMax), ar: ships.map(s => s.arMax ? s.ar / s.arMax : 0), sh: ships.map(s => s.shMax ? s.sh / s.shMax : 0),
+    ht: ships.map(s => s.heatCap && !s.dead ? Math.round(100 * s.heat / s.heatCap) / 100 : 0), off: ships.map(s => s.off && !s.dead ? (s.batt > 0 ? 1 : 2) : 0),   // heat (share of the cap) · 0 running, 1 scrammed on the battery, 2 dark
     msl: ships.map(missilesLeft), dr: ships.map(s => drones.filter(d => d.owner === s.idx).length), bays: ships.map(s => s.bays.reduce((a, b) => a + b.left, 0)), spent: ships.map(s => s.bays.reduce((a, b) => a + b.spent, 0)), stock: ships.map(s => Math.round(s.stock)),
     ents: [...missiles.map(m => [m.id, m.side, 'm', Math.round(m.x), Math.round(m.y)]), ...drones.map(d => [d.id, d.side, 'd', Math.round(d.x), Math.round(d.y), Math.round(100 * d.hp / d.hpMax), d.home ? 1 : 0])], shots });
   // a shot: [side, kind, outcome (0 miss · 1 hit on hull/armour · 2 missile swatted · 3 drone hit · 4 the shield took it), from x,y, to x,y, ship index, gun index,
@@ -173,15 +180,15 @@ export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {})
     if (done) return;
     // the fabricator aboard, while its stock lasts: missiles to the emptiest launcher, spent (or shot-down) drones built back into the bays
     for (const s of ships) {
-      if (s.dead) continue;
-      if (s.fab > 0 && s.stock >= s.missileCost) { s.pool += s.fab * B.dt; while (s.pool >= 1 && s.stock >= s.missileCost) { const g = s.guns.filter(x => Number.isFinite(x.ammo) && x.ammo < x.mag).sort((a, b) => a.ammo - b.ammo)[0]; if (!g) { s.pool = Math.min(s.pool, 1); break; } g.ammo++; s.pool--; s.stock -= s.missileCost; } }
-      if (s.dfab > 0 && s.bays.length && s.stock >= s.droneCost) { s.dpool += s.dfab * B.dt; while (s.dpool >= 1 && s.stock >= s.droneCost) { const b = s.bays.find(x => x.spent > 0); if (!b) { s.dpool = Math.min(s.dpool, 1); break; } b.spent--; b.left++; s.dpool--; s.stock -= s.droneCost; } }
+      if (s.dead || s.off || hot(s)) continue;                                      // a scrammed or hot ship builds nothing (HEAT); building heats it, per unit of material
+      if (s.fab > 0 && s.stock >= s.missileCost) { s.pool += s.fab * B.dt; while (s.pool >= 1 && s.stock >= s.missileCost) { const g = s.guns.filter(x => Number.isFinite(x.ammo) && x.ammo < x.mag).sort((a, b) => a.ammo - b.ammo)[0]; if (!g) { s.pool = Math.min(s.pool, 1); break; } g.ammo++; s.pool--; s.stock -= s.missileCost; s.heat += s.missileCost * HEAT.fab; } }
+      if (s.dfab > 0 && s.bays.length && s.stock >= s.droneCost) { s.dpool += s.dfab * B.dt; while (s.dpool >= 1 && s.stock >= s.droneCost) { const b = s.bays.find(x => x.spent > 0); if (!b) { s.dpool = Math.min(s.dpool, 1); break; } b.spent--; b.left++; s.dpool--; s.stock -= s.droneCost; s.heat += s.droneCost * HEAT.fab; } }
     }
     // ships pick a target and hold their range from it (a hurt ship more slowly) — unless an order says otherwise; drones launch toward it
     for (const s of ships) {
       if (s.dead) continue;
       const o = s.tgt = pickTarget(s); if (!o) continue;
-      s.speed = s.speed0 * eff(s);
+      s.speed = s.speed0 * eff(s) * power(s);                                       // a scrammed reactor: half on the battery, a quarter dark
       const O = orders[s.side], A = O.area;
       const dodge = O.avoid.size ? alive(1 - s.side).filter(x => O.avoid.has(x.idx)).map(x => [x, dist(s, x)]).filter(([, d]) => d < AVOID).sort((p, q) => p[1] - q[1])[0] : null;
       if (O.retreat) { const foe = nearestFoe(s.x, s.y, s.side); go(s, foe.x, foe.y, 1e9, 1, 0); }                                     // away from the nearest enemy, flat out
@@ -290,7 +297,12 @@ export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {})
         // a turret must be LAID on its target before it fires: it slews there at its rate, and a target crossing
         // faster than the mount can turn is never caught — a capital gun cannot follow a corvette round the hull
         if (g.trav) { const want = Math.atan2(tgt.y - gy, tgt.x - gx); slew(g, want); if (Math.abs(norm(want - g.aim)) > TURRET.tol * Math.PI / 180) continue; }
-        g.cd = 1 / Math.max(g.rate * eff(s), 0.01); if (Number.isFinite(g.ammo)) g.ammo--;      // a battered ship fires slower
+        // HEAT: too hot and the crew holds fire; dark, and a beam has nothing to fire with. Every shot heats the ship: a beam
+        // twice its power draw, a gun half of it (per shot = draw × factor ÷ rate, so a gun firing flat out adds draw × factor a second)
+        const kinetic = g.kind === 'weapon_kinetic';
+        if ((beam || kinetic) && (hot(s) || (beam && dark(s)))) continue;
+        g.cd = 1 / Math.max(g.rate * eff(s) * (missile ? 1 : power(s)), 0.01); if (Number.isFinite(g.ammo)) g.ammo--;      // a battered ship fires slower, a scrammed one slower still
+        if (beam || kinetic) s.heat += g.pw * (beam ? HEAT.beam : HEAT.gun) / g.rate;
         if (tgt === o) {
           if (missile) { missiles.push({ id: nextId++, side: s.side, tgt: o, x: gx, y: gy, age: 0, phase: rng() * 6.28, wob: rng() < 0.5 ? 1 : -1, dmg: g.dmg, hit: rng() < g.acc / 100 * (1 - Math.min(0.9, o.evade * (DODGE[g.kind] || 1))) }); continue; }
           const hit = rng() < g.acc / 100 * (1 - o.evade);
@@ -311,11 +323,21 @@ export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {})
     // no missile or drone is waiting to be rebuilt). Armour used to knit itself for free, forever: it out-healed drones.
     for (const s of ships) {
       if (s.dead) continue;
-      s.sh = Math.min(s.shMax, s.sh + s.rec * B.dt);
-      if (s.massGen > 0 && s.spare > 0) s.stock = Math.min(s.stockMax, s.stock + s.massGen * s.spare * B.dt);   // (breakthrough) spare power made into material
-      if (s.hp > 0 && s.hp < s.hpMax && s.hullRepair > 0 && s.stock > 0) { const r = Math.min(s.hullRepair * B.dt, s.hpMax - s.hp, s.stock * s.hullPerStock); s.hp += r; s.repaired += r; s.stock -= r / s.hullPerStock; }
-      const waiting = (s.stock >= s.missileCost && s.missileCost > 0 && s.guns.some(g => Number.isFinite(g.ammo) && g.ammo < g.mag)) || (s.stock >= s.droneCost && s.droneCost > 0 && s.bays.some(b => b.spent > 0));
-      if (s.arMax && s.ar < s.arMax && s.repair > 0 && s.stock > 0 && !waiting) { const r = Math.min(s.repair * B.dt, s.arMax - s.ar, s.stock * s.armorPerStock); s.ar += r; s.stock -= r / s.armorPerStock; }
+      if (dark(s)) s.sh = 0; else s.sh = Math.min(s.shMax, s.sh + s.rec * power(s) * B.dt);   // dark: no power to hold the field — it collapses
+      if (s.massGen > 0 && s.spare > 0 && !s.off) s.stock = Math.min(s.stockMax, s.stock + s.massGen * s.spare * B.dt);   // (breakthrough) spare power made into material
+      if (!s.off && !hot(s)) {                                                       // the fabricator's mending needs the reactor too, and heats the ship
+        if (s.hp > 0 && s.hp < s.hpMax && s.hullRepair > 0 && s.stock > 0) { const r = Math.min(s.hullRepair * B.dt, s.hpMax - s.hp, s.stock * s.hullPerStock); s.hp += r; s.repaired += r; s.stock -= r / s.hullPerStock; s.heat += r / s.hullPerStock * HEAT.fab; }
+        const waiting = (s.stock >= s.missileCost && s.missileCost > 0 && s.guns.some(g => Number.isFinite(g.ammo) && g.ammo < g.mag)) || (s.stock >= s.droneCost && s.droneCost > 0 && s.bays.some(b => b.spent > 0));
+        if (s.arMax && s.ar < s.arMax && s.repair > 0 && s.stock > 0 && !waiting) { const r = Math.min(s.repair * B.dt, s.arMax - s.ar, s.stock * s.armorPerStock); s.ar += r; s.stock -= r / s.armorPerStock; s.heat += r / s.armorPerStock * HEAT.fab; }
+      }
+      // HEAT: shed (twice as fast with the reactor off); full → SCRAM; restart after `restart` s once cool enough; the battery
+      // drains while scrammed and recharges while running
+      if (s.heatCap > 0) {
+        s.heat = Math.max(0, s.heat - s.cool * (s.off ? 2 : 1) * B.dt);
+        if (!s.off && s.heat >= s.heatCap) { s.off = true; s.offT = 0; scrams[s.side]++; }
+        if (s.off) { s.offT += B.dt; s.batt = Math.max(0, s.batt - B.dt); if (s.offT >= HEAT.restart && s.heat <= HEAT.resume * s.heatCap) s.off = false; }
+        else s.batt = Math.min(s.batterySec, s.batt + s.batterySec / HEAT.recharge * B.dt);
+      }
     }
     time += B.dt;
     if (time >= nextRec - 1e-9) { frame(); shots = []; nextRec += record; }
@@ -326,7 +348,7 @@ export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {})
   const result = () => {
     let w = winner;
     if (w === null && time >= B.maxTime - 1e-9) { const ha = fleetHull(0), hb = fleetHull(1); w = ha > hb + 0.02 ? 0 : hb > ha + 0.02 ? 1 : dealt[0] > dealt[1] ? 0 : dealt[1] > dealt[0] ? 1 : null; }
-    return { winner: w, time: Math.round(time), timedOut: time >= B.maxTime - 1e-9, left: [fleetHull(0), fleetHull(1)], hits, dealt, shot, frames, sides: ships.map(s => s.side), n: [FA.length, FB.length], orders: given };
+    return { winner: w, time: Math.round(time), timedOut: time >= B.maxTime - 1e-9, left: [fleetHull(0), fleetHull(1)], hits, dealt, shot, scrams, frames, sides: ships.map(s => s.side), n: [FA.length, FB.length], orders: given };
   };
   // an order to one side; ships are named by their index in `ships` (the replay's order)
   const order = (side, cmd) => {
@@ -477,6 +499,7 @@ export function systemsOf(ship) {
   const drv = n('stardrive'), thr = n('thruster'), rea = n('reactor'), cpu = n('weapon_system'), fab = n('works'), arm = n('armor'), shd = n('shield');
   const parts = [`drive ×${drv}${thr ? ` + ${thr} thrusters` : ''}`, `reactor ×${rea}${t.powerFactor < 0.999 ? ` (short: ${r(t.powerFactor * 100)} % power)` : ''}`,
     `computer ×${cpu}: ${r(t.mounts)} mounts — guns ${r(t.mountsUsed)}${t.drones ? `, drones in the air ${t.airCap} of ${t.drones}` : ''}${t.fireFactor < 0.999 ? ` (short: guns at ${r(t.fireFactor * 100)} %)` : ''}`];
+  if (t.heatCap) parts.push(`heat: holds ${r(t.heatCap)}, sheds ${r(t.cool)}/s (ship ${t.heatRatio.toFixed(1)}× its reactor), battery ${t.batterySec.toFixed(0)} s`);
   if (fab) parts.push(`fabricator ×${fab} (stock ${r(t.fabStock)})`);
   if (t.missiles) parts.push(`${t.missiles} missiles`);
   if (arm) parts.push(`${arm} armour`); if (shd) parts.push(`${shd} shields`);

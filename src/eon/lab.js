@@ -535,10 +535,13 @@ function draw() {
         g.globalAlpha = 1;
       }
       if (symA < 0.5) {
-        // three bars: shield (purple), armour (grey), hull (green) — narrower, with less text, when the field is crowded
+        // the bars: heat (amber → red, the reactor), shield (purple), armour (grey), hull (green) — narrower, with less text, when the field is crowded
         g.globalAlpha = 1 - 2 * symA;
-        const crowded = !few, bw = crowded ? 40 : 72, bx = cx - bw / 2, rows = 1 + (s.arMax ? 1 : 0) + (s.shMax ? 1 : 0), by = cy - L * 0.5 - 12 - rows * 7;
+        const ht = f0.ht ? lerp(f0.ht[j], f1.ht[j]) : 0, off = f1.off ? f1.off[j] : 0, showHeat = !!s.heatCap && hp > 0;
+        const crowded = !few, bw = crowded ? 40 : 72, bx = cx - bw / 2, rows = 1 + (s.arMax ? 1 : 0) + (s.shMax ? 1 : 0) + (showHeat ? 1 : 0), by = cy - L * 0.5 - 12 - rows * 7;
         let yy = by;
+        if (showHeat) { g.fillStyle = 'rgba(255,255,255,.1)'; g.fillRect(bx, yy, bw, 3); g.fillStyle = off ? '#ff3b3b' : ht >= 0.9 ? '#ff7a3b' : '#ffb347'; g.fillRect(bx, yy, bw * Math.min(1, Math.max(0, ht)), 3); yy += 7; }
+        if (off && hp > 0) { g.fillStyle = off === 2 ? '#ff3b3b' : '#ffb347'; g.font = 'bold 10px system-ui, sans-serif'; g.textAlign = 'center'; g.fillText(off === 2 ? 'DARK — reactor down, battery flat' : 'SCRAM — on the battery', cx, cy + L * 0.5 + (crowded ? 28 : 32)); }
         if (s.shMax) { g.fillStyle = 'rgba(255,255,255,.1)'; g.fillRect(bx, yy, bw, 4); g.fillStyle = '#cf89ff'; g.fillRect(bx, yy, bw * Math.max(0, lerp(f0.sh[j], f1.sh[j])), 4); yy += 7; }
         if (s.arMax) { const ar = f0.ar ? lerp(f0.ar[j], f1.ar[j]) : 0; g.fillStyle = 'rgba(255,255,255,.1)'; g.fillRect(bx, yy, bw, 4); g.fillStyle = '#c9d4e8'; g.fillRect(bx, yy, bw * Math.max(0, ar), 4); yy += 7; }
         g.fillStyle = 'rgba(255,255,255,.1)'; g.fillRect(bx, yy, bw, 5); g.fillStyle = '#7ef3b0'; g.fillRect(bx, yy, bw * Math.max(0, hp), 5);
