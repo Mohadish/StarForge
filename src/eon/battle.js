@@ -23,7 +23,10 @@ export const B = { dt: 0.25, start: 3000, maxTime: 600, record: 1, unit: 8, minG
   // travelCost 0.1 → 0.04 and reach 220 → 800 (his ask, 2026-10-10: "the distance they can travel is minuscule — they don't
   // behave as attack drones"): a drone now flies 2500 u on a full battery (was 1000), the carrier stands off at 800 instead of
   // closing to 220; launchEvery is per launch TUBE (one per four drones carried), not per hangar module
-  drone: { hp: 70, speed: 240, dmg: 30, rate: 0.4, range: 120, acc: 65, evade: 0.55, launchEvery: 2.5, sortie: 90, dock: 40, battery: 100, travelCost: 0.04, shotCost: 10, idleCost: 0.5, reach: 800, waveWait: 6 } };   // waveWait: a forming wave goes after this many seconds even if short
+  // dmg 30 → 70 (his call, 2026-10-10, "increase drone damage per volley"): at 30 a carrier lost every duel at its price —
+  // its drones' volleys went into armour that knit back. Swept 30/45/60/70/80/100: at 70 a 900 carrier beats a 900 gun ship
+  // 12/0 (7/5 without a fabricator), a 3000 one still loses 2/10 to guns, and beams stay the counter (0/12; 100 starts to flip them)
+  drone: { hp: 70, speed: 240, dmg: 70, rate: 0.4, range: 120, acc: 65, evade: 0.55, launchEvery: 2.5, sortie: 90, dock: 40, battery: 100, travelCost: 0.04, shotCost: 10, idleCost: 0.5, reach: 800, waveWait: 6 } };   // waveWait: a forming wave goes after this many seconds even if short
 // what a ROLE does to a drone (his ask, 2026-10-10: "sniper drones should be long-range snipers" — a role chip on drones did
 // nothing): multipliers on B.drone; `hold` = where it sits from its target, × its range; `shot` = battery per volley, ×;
 // ESCORT drones (point defence) stay with the carrier and shoot down incoming missiles and drones
