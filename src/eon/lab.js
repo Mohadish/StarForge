@@ -539,10 +539,18 @@ function draw() {
         g.globalAlpha = 1 - 2 * symA;
         const ht = f0.ht ? lerp(f0.ht[j], f1.ht[j]) : 0, off = f1.off ? f1.off[j] : 0, showHeat = !!s.heatCap && hp > 0;
         const en = f0.en ? lerp(f0.en[j], f1.en[j]) : null, em = f1.em ? f1.em[j] : 1, br = f1.br ? f1.br[j] : 0, showEn = en !== null && hp > 0;
-        const crowded = !few, bw = crowded ? 40 : 72, bx = cx - bw / 2, rows = 1 + (s.arMax ? 1 : 0) + (s.shMax ? 1 : 0) + (showHeat ? 1 : 0) + (showEn ? 1 : 0), by = cy - L * 0.5 - 12 - rows * 7;
+        const crowded = !few, bw = crowded ? 40 : 72, bx = cx - bw / 2, rows = 1 + (s.arMax ? 1 : 0) + (s.shMax ? 1 : 0) + (showHeat || showEn ? 1 : 0), by = cy - L * 0.5 - 12 - rows * 7;
         let yy = by;
-        if (showHeat) { g.fillStyle = 'rgba(255,255,255,.1)'; g.fillRect(bx, yy, bw, 3); g.fillStyle = HEATC(ht, off); g.fillRect(bx, yy, bw * Math.min(1, Math.max(0, ht)), 3); yy += 7; }
-        if (showEn) { g.fillStyle = 'rgba(255,255,255,.1)'; g.fillRect(bx, yy, bw, 4); g.fillStyle = 'rgba(255,255,255,.22)'; g.fillRect(bx + bw * em, yy, bw * (1 - em), 4); g.fillStyle = en < ENDURE.peak ? '#3b6fd6' : '#4da3ff'; g.fillRect(bx, yy, bw * Math.max(0, en), 4); g.fillStyle = 'rgba(255,255,255,.55)'; g.fillRect(bx + bw * ENDURE.peak - 0.5, yy - 1, 1, 6); yy += 7; }   // ENDURANCE: blue, dimmer past the peak (the tick); the grey end is what morale has taken off the ceiling
+        // ONE bar for the ship's state (his call: heat fills the blue): BLUE = how much it has left (dimmer past the peak tick),
+        // the GREY end = the ceiling worn away by time, scrams and losses; HEAT fills it from the left, amber → orange near the
+        // limit → red with the reactor off. The limit is the end of the blue: a tired ship has less room before it scrams.
+        if (showHeat || showEn) {
+          const e = showEn ? Math.max(0, en) : 1, lim = Math.max(ENDURE.heatFloor, e);
+          g.fillStyle = 'rgba(255,255,255,.1)'; g.fillRect(bx, yy, bw, 5); g.fillStyle = 'rgba(255,255,255,.2)'; g.fillRect(bx + bw * em, yy, bw * (1 - em), 5);
+          g.fillStyle = e < ENDURE.peak ? '#3b6fd6' : '#4da3ff'; g.fillRect(bx, yy, bw * e, 5);
+          if (showHeat && ht > 0.01) { g.fillStyle = HEATC(ht / lim, off); g.fillRect(bx, yy + 1, bw * Math.min(1, ht), 3); }
+          g.fillStyle = 'rgba(255,255,255,.6)'; g.fillRect(bx + bw * ENDURE.peak - 0.5, yy - 1, 1, 7); yy += 8;
+        }
         const status = hp <= 0 ? '' : br ? 'BROKEN — falling back' : off === 2 ? 'DARK — reactor down, battery flat' : off ? 'SCRAM — on the battery' : '';
         if (status) { g.fillStyle = br ? '#7fb3ff' : off === 2 ? '#ff3b3b' : '#ffb347'; g.font = 'bold 10px system-ui, sans-serif'; g.textAlign = 'center'; g.fillText(status, cx, cy + L * 0.5 + (crowded ? 28 : 32)); }
         if (s.shMax) { g.fillStyle = 'rgba(255,255,255,.1)'; g.fillRect(bx, yy, bw, 4); g.fillStyle = '#cf89ff'; g.fillRect(bx, yy, bw * Math.max(0, lerp(f0.sh[j], f1.sh[j])), 4); yy += 7; }
@@ -609,10 +617,11 @@ const HEATC = (ht, off) => off ? '#ff3b3b' : ht >= 0.9 ? '#ff7a3b' : '#ffb347';
 function drawSymbol(g, x, y, tier, hp, side, sh, st = {}) {
   const r = SYM.size[tier], col = SIDE[side];
   if (hp <= 0) { g.strokeStyle = '#6b4a4a'; g.lineWidth = 1; symbolPath(g, x, y, r, tier); g.stroke(); g.beginPath(); g.moveTo(x - r, y - r); g.lineTo(x + r, y + r); g.moveTo(x + r, y - r); g.lineTo(x - r, y + r); g.stroke(); return; }
-  // zoomed out, the same news as the bars up close: HEAT an arc on the left (amber → red), ENDURANCE a blue arc on the right,
-  // and a word under the symbol when the reactor is off or the crew has broken
-  if (st.ht !== null && st.ht !== undefined && st.ht > 0.02) { g.strokeStyle = HEATC(st.ht, st.off); g.lineWidth = 2; g.beginPath(); g.arc(x, y, r + 7, Math.PI / 2, Math.PI / 2 + Math.PI * Math.min(1, st.ht)); g.stroke(); }
-  if (st.en !== null && st.en !== undefined) { g.strokeStyle = st.en < ENDURE.peak ? '#3b6fd6' : '#4da3ff'; g.lineWidth = 2; g.beginPath(); g.arc(x, y, r + 7, Math.PI / 2, Math.PI / 2 - Math.PI * Math.max(0, st.en), true); g.stroke(); }
+  // zoomed out, the same one bar as up close, bent into an arc on the right: BLUE how much the ship has left, HEAT filling
+  // it from the bottom (amber → orange near the limit → red with the reactor off); a word under the symbol when it is off or broken
+  const e = st.en !== null && st.en !== undefined ? Math.max(0, st.en) : null, arcTo = f => Math.PI / 2 - Math.PI * Math.min(1, f);
+  if (e !== null) { g.strokeStyle = e < ENDURE.peak ? '#3b6fd6' : '#4da3ff'; g.lineWidth = 2.5; g.beginPath(); g.arc(x, y, r + 7, Math.PI / 2, arcTo(e), true); g.stroke(); }
+  if (st.ht !== null && st.ht !== undefined && st.ht > 0.02) { g.strokeStyle = HEATC(st.ht / Math.max(ENDURE.heatFloor, e ?? 1), st.off); g.lineWidth = 1.5; g.beginPath(); g.arc(x, y, r + 7, Math.PI / 2, arcTo(st.ht), true); g.stroke(); }
   if (st.br || st.off) { g.fillStyle = st.br ? '#7fb3ff' : st.off === 2 ? '#ff3b3b' : '#ffb347'; g.font = 'bold 9px system-ui, sans-serif'; g.textAlign = 'center'; g.fillText(st.br ? 'BROKEN' : st.off === 2 ? 'DARK' : 'SCRAM', x, y + r + 18); }
   g.save(); symbolPath(g, x, y, r, tier); g.clip();
   g.fillStyle = 'rgba(255,255,255,.07)'; g.fillRect(x - r * 1.5, y - r, r * 3, r * 2);
