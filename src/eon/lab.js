@@ -1,7 +1,7 @@
 // THE BATTLE LAB — random ships at one price fight each other; watch any fight replayed, pick two
 // ships and make them fight, or describe a ship in words and throw it into the ring.
 // Runs in a plain browser page (lab.html) and as a published page; nothing here touches the game's save.
-import { runLabAsync, evolve, simulate, createBattle, shipFromDesign, archetype, designFromWords, designFromChips, bestShipOfAsync, challengeAsync, fleetOf, volleysFrom, rng32, B, MAINS, ENDURE } from './battle.js';
+import { runLabAsync, evolve, simulate, createBattle, shipFromDesign, archetype, designFromWords, designFromChips, bestShipOfAsync, challengeAsync, fleetOf, volleysFrom, rng32, B, MAINS, ENDURE, classOf, systemsOf } from './battle.js';
 const breathe = () => new Promise(r => setTimeout(r, 0));   // handed back from progress callbacks so the page paints between steps
 import { KINDS, PRESETS, traverseOf } from './modules.js';
 import { drawHull } from './hullview.js';
@@ -9,7 +9,7 @@ import { setUserHulls, hullDef } from './hull.js';
 import { readLocal, loadLibrary, saveLibrary, decodeLibrary, mergeLibrary, loadFleets } from './library.js';
 loadFleets();                                                                      // the saved fleets kept with the page come down into the browser's copy, which the picker reads
 import { lookOf, spriteOf, lookFromColors } from './skins.js';
-import { buildPlan, planFromCode, planCode, plansLoad, exportAllText } from './fleetplan.js';
+import { buildPlan, planFromCode, planCode, plansLoad, exportAllText, shipLabel } from './fleetplan.js';
 import { mountNav } from './nav.js';
 const TCELL = { weapon_energy: 0, weapon_kinetic: 1, weapon_missile: 2 };   // a style's turret cells: beam, gun, missile
 const skinsOn = () => !!($('skins') && $('skins').checked);
@@ -276,7 +276,7 @@ function buildFromChips() {
 
 // ---------------- replay ----------------
 function watch(i) {
-  cur = LAB.fights[i]; if (!cur) return; clock = 0; playing = true; last = 0; cam = null; liveAcc = 0; armed = null; camUser = null; cur.tiers = null; $('camFit').hidden = true; hideMenu();
+  cur = LAB.fights[i]; if (!cur) return; sel = null; showCard(null); clock = 0; playing = true; last = 0; cam = null; liveAcc = 0; armed = null; camUser = null; cur.tiers = null; $('camFit').hidden = true; hideMenu();
   const A = cur.A, Bs = cur.B; cur.ships = [...A.ships, ...Bs.ships];
   const side = (f, k) => `<b style="color:${SIDE[k]}">${esc(f.name)}</b> <small>${esc(f.arch.label)}${f.n > 1 ? ` · ${f.n} ships` : ''}</small>`;
   $('fightTitle').innerHTML = `${side(A, 0)} &nbsp;vs&nbsp; ${side(Bs, 1)}`;
@@ -352,13 +352,50 @@ function fieldTap(e) {
     else { live.order(0, { type: 'area', kind: armed === 'protect' ? 'protect' : armed === 'avoid-area' ? 'avoid' : 'attack', x: cam2.cx + (x - cam2.W / 2) / cam2.sc, y: cam2.cy + (y - cam2.H / 2) / cam2.sc, r: 300 }); armed = null; }
     updateCmdBar(); draw(); return;
   }
-  const j = nearest(0); if (j >= 0) focusShip(j);                                 // a tap on a ship: the camera rides it, close enough to see its guns work
+  const j = nearest(0); if (j >= 0) selectShip(j);                                // a tap on a ship: its card; a second tap on it: the camera rides it
 }
 function focusShip(j) {
   const s = cur.ships[j], L = s.ds.hull.bw * B.unit, cv = $('arena'), now = cv._cam ? cv._cam.sc : 1;
   camUser = { focus: j, dx: 0, dy: 0, sc: Math.max(now, 120 / L) };
   $('camFit').hidden = false; $('camFit').textContent = '⌖ Whole fight'; draw();
 }
+// ---------------- THE SHIP CARD (his ask, 2026-10-12: "the first thing ... I want to see that ship's statistics in a floaty
+// window"): a tap on a ship shows what it is and how it is doing, live — hull, armour, shield, the blue bar and its heat, what
+// it is doing, its guns, its stock; a second tap on the same ship (or 🎥 on the card) rides it. Inside the Fleet Generator's
+// frame the card goes to the page around us (under the fight, or floating over it in full screen); here it sits under the controls.
+let sel = null, infoT = 0;
+const OUTSIDE = ARENA && window.parent !== window;
+const ibar = (frac, col, top = null) => `<span style="position:relative;display:inline-block;width:120px;height:8px;background:#1f2a44;border-radius:4px;overflow:hidden;vertical-align:middle;margin-right:6px"><i style="display:block;height:100%;width:${Math.round(100 * Math.max(0, Math.min(1, frac)))}%;background:${col}"></i>${top !== null ? `<b style="position:absolute;top:0;bottom:0;left:${Math.round(100 * Math.max(0, Math.min(1, top)))}%;right:0;background:rgba(120,130,150,.55)"></b>` : ''}</span>`;
+function shipCard(j) {
+  const s = cur.ships[j], F = cur.frames, f = F[Math.max(0, Math.min(F.length - 1, Math.floor(clock)))], nA = cur.n ? cur.n[0] : 1, side = j < nA ? 0 : 1, fleet = side ? cur.B : cur.A;
+  const hp = Math.max(0, f.hp[j]), ar = f.ar[j] || 0, sh = f.sh[j] || 0, ht = f.ht ? f.ht[j] : 0, off = f.off ? f.off[j] : 0, en = f.en ? f.en[j] : 1, em = f.em ? f.em[j] : 1, br = f.br ? f.br[j] : 0;
+  const lim = Math.max(ENDURE.heatFloor, en), hot = ht >= 0.9 * lim;
+  const state = hp <= 0 ? '<b style="color:#ff7979">SUNK</b>' : br ? '<b style="color:#7fb3ff">BROKEN</b> — the crew has had enough and falls back' : off === 2 ? '<b style="color:#ff3b3b">DARK</b> — reactor off, battery flat: a quarter speed, no beams, no shield' : off === 1 ? '<b style="color:#ffb347">SCRAM</b> — reactor off, on the battery: half speed and fire' : hot ? '<b style="color:#ff7a3b">running hot</b> — holding fire until it cools' : en <= 0 ? '<b style="color:#3b6fd6">spent</b> — fights on at ' + Math.round(ENDURE.floor * 100) + ' % of its peak' : en < ENDURE.peak ? 'tiring — past its peak, slowing down' : 'fighting fit';
+  const row = (label, html) => `<div style="display:flex;align-items:center;gap:6px;white-space:nowrap"><span style="width:62px;color:#9eb3d8">${label}</span>${html}</div>`;
+  const msl = f.msl ? f.msl[j] : 0, dr = f.dr ? f.dr[j] : 0, bays = f.bays ? f.bays[j] : 0, spent = f.spent ? f.spent[j] : 0, stock = f.stock ? f.stock[j] : 0;
+  return `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:4px"><b style="color:${SIDE[side]};font-size:13px">${esc(s.name)}</b><span style="color:#9eb3d8">${esc(s.plan ? shipLabel(s.plan) : classOf(s.cost))} · ${fmt(s.cost)} · ${esc(fleet.name)}</span><span style="flex:1"></span><button data-sact="ride" class="x" title="the camera rides it">🎥 Ride it</button><button data-sact="close" class="x" title="close the card">✕</button></div>
+    <div style="color:#9eb3d8;margin-bottom:4px">${esc(s.arch.label)}</div>
+    ${row('Hull', ibar(hp, mixColor('#7ef3b0', '#ff4d4d', 1 - hp)) + `${fmt(hp * s.hpMax)} / ${fmt(s.hpMax)}`)}
+    ${s.arMax ? row('Armour', ibar(ar, '#c9d4e8') + `${fmt(ar * s.arMax)} / ${fmt(s.arMax)}`) : ''}
+    ${s.shMax ? row('Shield', ibar(sh, '#cf89ff') + `${fmt(sh * s.shMax)} / ${fmt(s.shMax)} · +${fmt(s.rec)}/s`) : ''}
+    ${row('Stamina', ibar(Math.max(0, en), en < ENDURE.peak ? '#3b6fd6' : '#4da3ff', em) + `${Math.round(Math.max(0, en) * 100)} %${em < 0.995 ? ` · ceiling ${Math.round(em * 100)} %` : ''}`)}
+    ${s.heatCap ? row('Heat', ibar(ht / lim, HEATC(ht / lim, off)) + `${Math.round(100 * ht / lim)} % of what it can take`) : ''}
+    <div style="margin-top:4px">${state}</div>
+    <div style="color:#9eb3d8;margin-top:4px">${fmt(s.dps)} dmg/s · reach ${s.pref} · speed ${fmt(s.speed)} · turns ${Math.round(s.turn || 0)}°/s · evasion ${Math.round(s.evade * 100)} %${s.missiles ? ` · missiles ${msl} left` : ''}${s.drones ? ` · drones: ${dr} out, ${bays} in the bays${spent ? `, ${spent} to rebuild` : ''}` : ''}${s.stockMax ? ` · fabricator stock ${fmt(stock)} / ${fmt(s.stockMax)}` : ''}</div>
+    <div style="color:#6f83a8;font-size:11px;margin-top:3px">${esc(systemsOf(s))}</div>`;
+}
+function showCard(html) {
+  if (OUTSIDE) return tellParent({ type: 'ship', html });
+  const el = $('shipInfo'); if (!el) return; if (!html) { el.hidden = true; el.innerHTML = ''; return; } el.innerHTML = html; el.hidden = false;
+}
+function updateCard(now = false) {
+  if (sel === null || !cur || !cur.ships[sel]) return; const t = performance.now(); if (!now && t - infoT < 200) return; infoT = t;
+  showCard(shipCard(sel));
+}
+function selectShip(j) { if (sel === j) return focusShip(j); sel = j; updateCard(true); draw(); }
+function closeCard() { sel = null; showCard(null); if (cur) draw(); }
+function shipAct(act) { if (act === 'close') return closeCard(); if (act === 'ride' && sel !== null) focusShip(sel); }
+document.addEventListener('click', e => { const a = e.target.closest('[data-sact]'); if (a && a.closest('#shipInfo')) shipAct(a.dataset.sact); });
 function draw() {
   const cv = $('arena'); if (!ARENA) cv.style.height = arenaH + 'px';            // in arena mode the canvas fills the page instead
   const W = cv.clientWidth || 360, H = cv.clientHeight || arenaH;
@@ -596,8 +633,9 @@ function draw() {
   $('scrub').max = F.length - 1; $('scrub').value = clock;
   g.font = 'bold 11px system-ui, sans-serif'; g.textAlign = 'left';
   if (focus != null) { g.fillStyle = SIDE[sideOf(focus)]; g.fillText(`FOLLOWING ${ships[focus].name} · ⌖ for the whole fight`, 10, H - 10); }
-  else if (Math.max(...ships.map(s => s.ds.hull.bw)) * B.unit * sc < SYM.far) { g.fillStyle = 'rgba(158,179,216,.8)'; g.fillText('tap a ship to ride along and watch its guns work', 10, H - 10); }   // zoomed out: say how to get close
-  cv._P = P; cv._cam = { cx: view.cx, cy: view.cy, sc, W, H, followCx: cam.cx, followCy: cam.cy }; cv._fight = cur;   // where the ships are on screen and how the field maps, for taps and the wheel (and the fight, for poking at from the console)
+  else if (Math.max(...ships.map(s => s.ds.hull.bw)) * B.unit * sc < SYM.far) { g.fillStyle = 'rgba(158,179,216,.8)'; g.fillText('tap a ship for its card · tap it again to ride along', 10, H - 10); }   // zoomed out: say how to get close
+  if (sel !== null && P[sel]) { const r = Math.max(14, 0.62 * ships[sel].ds.hull.bw * B.unit * sc); g.strokeStyle = SIDE[sideOf(sel)]; g.lineWidth = 1.5; g.setLineDash([5, 4]); g.beginPath(); g.arc(P[sel][0], P[sel][1], r, 0, 7); g.stroke(); g.setLineDash([]); }   // the ship whose card is open
+  cv._P = P; cv._cam = { cx: view.cx, cy: view.cy, sc, W, H, followCx: cam.cx, followCy: cam.cy }; cv._fight = cur; updateCard();   // where the ships are on screen and how the field maps, for taps and the wheel (and the fight, for poking at from the console)
 }
 // tactical symbols: size tiers by cost against the biggest ship in THIS fight (later: proper classes)
 const SYM = { near: 16, far: 34, size: [6, 7, 8, 9, 11] };
@@ -815,7 +853,7 @@ if (!$('seed').value) $('seed').value = Math.floor(Math.random() * 1e6);
 if (ARENA) {
   // a window for one fight: an empty pool, the codes come by message from the page around us (or in the link as #arena&fleetA=…&fleetB=…)
   LAB = { fleets: [], fights: [], budget: 6000, fleetSizes: [1, 1], table: {}, rate: {} };
-  window.addEventListener('message', e => { const d = e.data; if (!d || d.type !== 'fight' || e.source !== window.parent) return; $('codeA').value = d.a || ''; $('codeB').value = d.b || ''; fightCodes(); });
+  window.addEventListener('message', e => { const d = e.data; if (!d || e.source !== window.parent) return; if (d.type === 'shipAct') return shipAct(d.act); if (d.type !== 'fight') return; $('codeA').value = d.a || ''; $('codeB').value = d.b || ''; fightCodes(); });
   if ($('codeA').value && $('codeB').value) fightCodes();
   tellParent({ type: 'ready' });
 } else libraryReady.then(run);                                                 // the first run waits (briefly) for the page's store, so random ships wear the silhouettes kept there

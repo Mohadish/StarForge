@@ -472,7 +472,7 @@ let frameReady = false, pending = null, lastFight = null, frameTimer = 0;
 function sendFight() {
   const a = $('codeA').value.trim(), b = $('codeB').value.trim(), pa = planFromCode(a), pb = planFromCode(b);
   if (!pa || !pb) { $('fightNote').textContent = `${pa ? 'Fleet 2' : 'Fleet 1'} is not a fleet code — click the box and pick a saved fleet, or paste a code.`; return; }
-  lastFight = { type: 'fight', a, b }; $('fightNote').textContent = ''; $('arenaWrap').hidden = false; $('arenaNote').textContent = `${pa.name || 'Fleet 1'} vs ${pb.name || 'Fleet 2'} — fighting…`;
+  lastFight = { type: 'fight', a, b }; $('fightNote').textContent = ''; $('arenaWrap').hidden = false; $('shipInfo').hidden = true; $('arenaNote').textContent = `${pa.name || 'Fleet 1'} vs ${pb.name || 'Fleet 2'} — fighting…`;
   const fr = $('arenaFrame'); if (!fr.getAttribute('src')) fr.src = 'lab.html#arena';
   if (frameReady) fr.contentWindow.postMessage(lastFight, '*'); else pending = lastFight;
   $('arenaWrap').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -482,9 +482,12 @@ const labLink = () => lastFight ? `lab.html#fleetA=${encodeURIComponent(lastFigh
 window.addEventListener('message', e => {
   const d = e.data, fr = $('arenaFrame'); if (!d || !fr.contentWindow || e.source !== fr.contentWindow) return;
   if (d.type === 'ready') { frameReady = true; if (pending) { e.source.postMessage(pending, '*'); pending = null; } }
-  else if (d.type === 'result') $('arenaNote').innerHTML = d.html + ' <span style="color:var(--muted)">Tap a ship to ride it; ⚑ Command this fight to give Fleet 1 its orders.</span>';
+  else if (d.type === 'result') $('arenaNote').innerHTML = d.html + ' <span style="color:var(--muted)">Tap a ship for its card, tap it again to ride it; ⚑ Command this fight to give Fleet 1 its orders.</span>';
   else if (d.type === 'error') $('arenaNote').textContent = d.text;
+  else if (d.type === 'ship') { const el = $('shipInfo'); if (!d.html) { el.hidden = true; el.innerHTML = ''; } else { el.innerHTML = d.html; el.hidden = false; } }   // the card of the ship tapped in the fight
 });
+// the card's buttons (ride it, close) go back into the fight
+$('shipInfo').addEventListener('click', e => { const a = e.target.closest('[data-sact]'); if (!a) return; const fr = $('arenaFrame'); if (fr.contentWindow) fr.contentWindow.postMessage({ type: 'shipAct', act: a.dataset.sact }, '*'); if (a.dataset.sact === 'close') $('shipInfo').hidden = true; });
 $('fightCodes').onclick = sendFight; $('fightAgain').onclick = sendFight;
 $('arenaLab').onclick = () => { location.href = labLink(); };
 // full screen: the frame fills the screen, the lab's own bar (play, speed, orders) stays at its bottom
