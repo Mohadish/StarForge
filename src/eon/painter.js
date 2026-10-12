@@ -9,16 +9,18 @@ import { createShapeEditor, GW, GH } from './shapeedit.js';
 import { readLocal, loadLibrary, saveLibrary, libraryCode as codeOf } from './library.js';
 import { renderStrip, createDialog, createMenu, saveFlow } from './hullui.js';
 import { mountNav } from './nav.js';
+import { createDesigner } from './designer.js';
 mountNav('paint');
 
 const $ = id => document.getElementById(id), esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // the library (library.js): the browser's copy at once, the page's own database when there is one (a published page) —
 // that one survives republishes and devices, and is what the lab next door reads
-let HULLS = readLocal(), durable = false;
-setUserHulls(HULLS);
-const saveHulls = () => { setUserHulls(HULLS); saveLibrary(HULLS).then(kept => { durable = kept; libNote(); }); };
+let HULLS = readLocal(), durable = false, CODE_HULLS = [], designer = null;                // CODE_HULLS: hand-drawn silhouettes that came inside a ship code (shown, not saved)
+const registerHulls = () => setUserHulls([...HULLS, ...CODE_HULLS.filter(h => !HULLS.some(x => x.id === h.id))]);
+registerHulls();
+const saveHulls = () => { registerHulls(); saveLibrary(HULLS).then(kept => { durable = kept; libNote(); }); };
 const libNote = () => { const el = $('libNote'); if (el) el.textContent = durable ? `${HULLS.length} kept in the page's store — safe across devices and republishes` : `${HULLS.length} kept in this browser only`; };
-loadLibrary().then(r => { durable = r.durable; if (r.durable) { HULLS = r.list; setUserHulls(HULLS); refreshHulls(); syncEditBar(); } libNote(); });
+loadLibrary().then(r => { durable = r.durable; if (r.durable) { HULLS = r.list; registerHulls(); refreshHulls(); syncEditBar(); } libNote(); });
 
 let img = null, decoImg = null, turretImg = null, style = STYLES.greeble1, sel = 'dart', last = null, lock = null;
 // a style's sheets: the plating, and when it has them the decorations and the turrets
@@ -65,7 +67,7 @@ function syncEditBar() { const st = ed.state(), mine = mineOf(st.id); $('edWho')
 // ---------------- the library: the strip of thumbnails, the menu, the save dialog (hullui.js — the fleet generator shows the same) ----------------
 const hdlg = createDialog(), hmenu = createMenu();
 // the built-in shapes (the shipped pack among them, unless the library holds that very shape — then it is "yours"), then yours
-const hullItems = () => { const ids = new Set(HULLS.map(h => h.id)); return [...Object.values(TEMPLATES).filter(t => (t.klass === 'starship' || t.klass === 'platform') && !ids.has(t.id)).map(h => ({ h, group: 'built' })), ...HULLS.map(h => ({ h, group: 'mine' }))]; };
+const hullItems = () => { const ids = new Set(HULLS.map(h => h.id)); return [...Object.values(TEMPLATES).filter(t => (t.klass === 'starship' || t.klass === 'platform') && !ids.has(t.id)).map(h => ({ h, group: 'built' })), ...HULLS.map(h => ({ h, group: 'mine' })), ...CODE_HULLS.filter(h => !ids.has(h.id)).map(h => ({ h, group: 'code' }))]; };
 function refreshHulls() {
   renderStrip($('hullStrip'), hullItems(), sel, {
     onPick: h => pickHull(h.id),
@@ -76,13 +78,13 @@ function refreshHulls() {
   });
 }
 // choosing a silhouette — also while editing: the editor takes the new outline at once
-function pickHull(id) { sel = id; const h = mineOf(id) || hullDef(id); if (h) ed.load(h); lock = ed.editing ? currentLock() : null; syncEditBar(); refreshHulls(); repaint(); }
+function pickHull(id) { sel = id; const h = mineOf(id) || hullDef(id); if (h) ed.load(h); lock = ed.editing ? currentLock() : null; syncEditBar(); refreshHulls(); if (designer) designer.refresh(); repaint(); }   // the design wears it: hard points, shield cover and squares follow
 function toast(msg) { $('toast').textContent = msg; $('toast').classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => $('toast').classList.remove('on'), 2200); }
 // SAVE (hullui.js saveFlow): one of yours → overwrite it, or keep it as a new one, named; a built-in's child → a new one, named
 function commitShape(id, name) {
   const h = ed.build(name); h.id = id || 'u' + Math.random().toString(36).slice(2, 9); h.name = name; h.klass = 'starship';   // id null = a NEW one, never the one it was started from; whatever that was (a platform, a dock), what is painted here is a ship — so the lab uses it
   const i = HULLS.findIndex(x => x.id === h.id); if (i >= 0) HULLS[i] = h; else HULLS.push(h);
-  ed.state().id = h.id; ed.state().name = h.name; sel = h.id; saveHulls(); refreshHulls(); syncEditBar();
+  ed.state().id = h.id; ed.state().name = h.name; sel = h.id; saveHulls(); refreshHulls(); syncEditBar(); if (designer) designer.refresh();
   toast(i >= 0 ? `Overwrote “${name}”` : `Saved “${name}” — it is in the game's library too`); return h;
 }
 async function saveShape() {
@@ -113,7 +115,7 @@ const DEF = RECIPE;                                                          // 
 // pointer; a launcher sits fixed facing forward, as in the game; a hangar is a bay (no art yet).
 const WEAPONS = [['E', 'weapon_energy', 'beams', '#5fe3d0'], ['K', 'weapon_kinetic', 'guns', '#ffb347'], ['M', 'weapon_missile', 'missiles', '#ff8a6b'], ['H', 'hangar', 'hangars', '#ffe08a']];
 const COLOR = Object.fromEntries(WEAPONS.map(w => [w[1], w[3]])), TCELL = { weapon_energy: 0, weapon_kinetic: 1, weapon_missile: 2 };
-const guns = () => WEAPONS.map(([k, kind]) => ({ kind, n: Math.max(0, Math.min(12, Math.round(+$('n' + k).value || 0))), size: +$('s' + k).value || 1 })).filter(g => g.n > 0);
+const guns = () => designer ? designer.paintGuns() : [];                           // the design's guns (designer.js): kind, how many, size
 let aim = null;                                                           // where the turrets look (canvas px), or null = straight ahead
 function drawTurrets(g) {
   if (!last?.hardpoints?.length || !$('turrets').checked) return;
@@ -177,18 +179,18 @@ function repaint(overlayOnly = false) {
 // ---------------- wiring ----------------
 $('style').innerHTML = Object.values(STYLES).filter(s => s.ribbon).map(s => `<option value="${s.id}">${esc(s.name)}${s.deco ? '' : ' · no greebles yet'}</option>`).join('');
 $('style').value = style.id;   // the select shows the style actually painted (it showed the first option while greeble was painted, 2026-10-10)
-$('style').onchange = async e => { style = STYLES[e.target.value]; await loadBoth(style); repaint(); };
-for (const id of ['vol', 'mPlating', 'mFittings', 'seed', 'wash', 'lights', 'washA', 'washB', 'lightColor', 'ribOff', 'engOff', 'coreOff', 'spineOff', 'fatOff', 'greebleOff', 'mountOff', 'turretOff']) $(id).oninput = () => { if (id === 'vol' && ed.editing && !ed.dragging) lock = currentLock(); repaint(); };
+$('style').onchange = async e => { style = STYLES[e.target.value]; await loadBoth(style); repaint(); if (designer) designer.codeChanged(); };
+for (const id of ['vol', 'mPlating', 'mFittings', 'seed', 'wash', 'lights', 'washA', 'washB', 'lightColor', 'ribOff', 'engOff', 'coreOff', 'spineOff', 'fatOff', 'greebleOff', 'mountOff', 'turretOff']) $(id).oninput = () => { if (id === 'vol' && $('dSize').checked) $('dSize').checked = false; if (id === 'vol' && ed.editing && !ed.dragging) lock = currentLock(); repaint(); if ((id === 'washA' || id === 'washB') && designer) designer.codeChanged(); };   // dragging the size: trying the look at another size (the design's own size comes back with the tick)
 $('seedN').onchange = e => { $('seed').value = Math.max(0, Math.min(999, Math.round(+e.target.value || 0))); repaint(); };
 $('seedNext').onclick = () => { $('seed').value = (+$('seed').value + 1) % 1000; repaint(); };
-for (const id of ['glow', 'greebles', 'inner', 'spine', 'engines', 'outline', 'base', 'voids', 'backing', 'underlay', ...WEAPONS.flatMap(([k]) => ['n' + k, 's' + k])]) $(id).onchange = () => repaint();
+for (const id of ['glow', 'greebles', 'inner', 'spine', 'engines', 'outline', 'base', 'voids', 'backing', 'underlay']) $(id).onchange = () => repaint();
 $('turrets').onchange = () => repaint(true);
 $('resetOff').onclick = () => { for (const id of ['mPlating', 'mFittings', 'ribOff', 'engOff', 'coreOff', 'spineOff', 'fatOff', 'greebleOff', 'mountOff', 'turretOff']) $(id).value = 0; repaint(); };
 // the turrets follow the pointer over the ship (a finger too); off the canvas they face forward again
 $('out').addEventListener('pointermove', e => { if (ed.editing || !last?.hardpoints?.length) return; const cv = $('out'), r = cv.getBoundingClientRect(); aim = [(e.clientX - r.left) * cv.width / r.width, (e.clientY - r.top) * cv.height / r.height]; repaint(true); });
 $('out').addEventListener('pointerleave', () => { if (aim) { aim = null; repaint(true); } });
 $('png').onclick = () => { const was = ed.editing; if (was) ed.editing = false; aim = null; repaint(true); $('out').toBlob(b => { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = `hull-${(ed.state().name || sel).replace(/\W+/g, '-')}-${vol()}.png`; a.click(); if (was) ed.editing = true; }); };
-for (const [id, v] of [['s400', 250], ['s1000', 600], ['s3000', 1700], ['s6000', 3300]]) $(id).onclick = () => { $('vol').value = v; if (ed.editing) lock = currentLock(); repaint(); };
+for (const [id, v] of [['s400', 250], ['s1000', 600], ['s3000', 1700], ['s6000', 3300]]) $(id).onclick = () => { $('dSize').checked = false; $('vol').value = v; if (ed.editing) lock = currentLock(); repaint(); };
 $('edDone').onclick = () => { ed.editing = false; };
 $('edEdit').onclick = () => { ed.editing = true; };
 $('edUndo').onclick = () => ed.undo();
@@ -211,6 +213,18 @@ $('libCode').onclick = async () => {
   try { await navigator.clipboard.writeText(code); toast(`Library code copied (${HULLS.length} silhouette${HULLS.length === 1 ? '' : 's'}) — paste it into the lab's Silhouettes box`); }
   catch (e) { hdlg.code(code); }                                                     // no clipboard here: the code shown to copy by hand
 };
+// ---------------- THE SHIP DESIGNER (designer.js): the modules drive the size and the guns ----------------
+designer = createDesigner({ $, hdlg,
+  getHull: () => sel,
+  setHull: rec => { if (rec.hullDef && !HULLS.some(h => h.id === rec.hullDef.id)) { CODE_HULLS = [...CODE_HULLS.filter(h => h.id !== rec.hullDef.id), { ...rec.hullDef, klass: rec.hullDef.klass || 'starship' }]; registerHulls(); } const id = rec.hullDef ? rec.hullDef.id : rec.hull; if (hullDef(id)) pickHull(id); },
+  coat: () => ({ style: style.id, colA: $('washA').value, colB: $('washB').value }),
+  setCoat: async rec => { if (rec.style && STYLES[rec.style] && STYLES[rec.style].ribbon && rec.style !== style.id) { style = STYLES[rec.style]; $('style').value = style.id; await loadBoth(style); } if (rec.colA) $('washA').value = rec.colA; if (rec.colB) $('washB').value = rec.colB; repaint(); },
+  onChange: () => { if ($('dSize').checked) { const v = designer.volume(); if (v) { $('vol').value = Math.round(v); if (ed.editing && !ed.dragging) lock = currentLock(); } } repaint(); },
+});
+$('dSize').onchange = () => designer.start();
+const savedHull = (() => { try { return JSON.parse(localStorage.getItem('forge.painter.design.v1') || 'null')?.hull; } catch (e) { return null; } })();
+if (savedHull && hullDef(savedHull)) sel = savedHull;                             // the silhouette the design last wore
+designer.start();
 refreshHulls();
 loadBoth(style).then(() => { pickHull(sel); }).catch(e => { $('info').textContent = e.message; });
 window.__forgeBooted = true;

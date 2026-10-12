@@ -41,9 +41,9 @@ export function thumbOf(h, w = 84, hgt = 48) {
 export function renderStrip(el, items, sel, { onPick, onMenu } = {}) {
   ensure(); el.classList.add('hstrip'); el.innerHTML = ''; let last = null;
   for (const { h, group } of items) {
-    if (last && group !== last) { const sep = document.createElement('div'); sep.className = 'hsep'; sep.textContent = group === 'mine' ? 'yours' : group === 'fleet' ? 'this fleet' : ''; el.appendChild(sep); }
+    if (last && group !== last) { const sep = document.createElement('div'); sep.className = 'hsep'; sep.textContent = group === 'mine' ? 'yours' : group === 'fleet' ? 'this fleet' : group === 'code' ? 'from a code' : ''; el.appendChild(sep); }
     last = group;
-    const t = document.createElement('div'); t.className = 'hthumb' + (h.id === sel ? ' on' : '') + (group === 'mine' ? ' mine' : ''); t.dataset.id = h.id; t.title = h.name + (group === 'mine' ? ' — yours' : group === 'fleet' ? ' — came with this fleet' : ' — built in');
+    const t = document.createElement('div'); t.className = 'hthumb' + (h.id === sel ? ' on' : '') + (group === 'mine' ? ' mine' : ''); t.dataset.id = h.id; t.title = h.name + (group === 'mine' ? ' — yours' : group === 'fleet' ? ' — came with this fleet' : group === 'code' ? ' — came with a ship code (Save… keeps it in your library)' : ' — built in');
     t.appendChild(thumbOf(h)); const n = document.createElement('div'); n.className = 'nm'; n.textContent = h.name; t.appendChild(n);
     t.onclick = () => onPick && onPick(h, group);
     if (onMenu && group === 'mine') {
