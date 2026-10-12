@@ -46,11 +46,23 @@ function drawShip(cv, ship, lk, after) {
   }
   if (after) after(g);
 }
-// the sample: a standard dart of about 1200, in the chosen coat
+// the composer's picture: before a fleet is composed, the coat on a standard dart of about 1200; once it is composed, the
+// fleet's FLAGSHIP (its biggest ship) in the coat — and it DRAGS onto Fleet 1 / Fleet 2 at the top, saved or not (his ask,
+// 2026-10-12: "click and drag it directly there instead of doing copy paste")
 let sample = null;
+const flagship = () => PLAN ? PLAN.ships.map(s => s.built).filter(Boolean).sort((a, b) => b.cost - a.cost)[0] || null : null;
+const planNow = () => ({ ...PLAN, style: $('style').value, colA: $('colA').value, colB: $('colB').value });   // the fleet as the composer shows it now: what the code box holds
 function drawSample() {
+  const cv = $('sample'), big = flagship();
+  cv.classList.toggle('drag', !!big);
+  if (big) {
+    drawShip(cv, big, look()); cv.title = 'drag it onto Fleet 1 or Fleet 2 at the top';
+    $('sampleNote').innerHTML = `<b>${esc(PLAN.name)}</b>, its flagship: ${esc(shipLabel(big.plan))} · ${fmt(big.cost)}. <b>Drag it onto Fleet 1 or Fleet 2 at the top</b> to fight with this fleet as it is now, saved or not.`;
+    return;
+  }
   if (!sample) { const d = designFromWords(S, '4 beams + armoured + shielded', 1200, rng32(5)); d.hull = 'dart'; sample = shipFromDesign(S, d); }
-  drawShip($('sample'), sample, look());
+  drawShip(cv, sample, look()); cv.title = 'a standard dart of about 1200, in this coat';
+  $('sampleNote').textContent = 'The coat every ship of the fleet wears: the plating style and your two colours, on a standard dart of about 1200. Once the fleet is composed its flagship stands here, ready to drag into a fight.';
 }
 
 // ---------------- step 1: price, ships, coat, tactics ----------------
@@ -58,6 +70,8 @@ function init() {
   $('style').innerHTML = styleChoices().map(s => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
   $('tactics').innerHTML = TACTIC_IDS.map(id => `<div class="trow"><label class="chk"><input type="checkbox" data-on="${id}"> <b>${TACTICS[id].name}</b></label><input type="range" data-share="${id}" min="0" max="100" value="50" disabled><span data-pct="${id}" class="pct">—</span><span class="tiny what">${TACTICS[id].what}</span></div>`).join('');
   for (const id of ['style', 'colA', 'colB']) $(id).addEventListener('input', () => { drawSample(); if (PLAN) { PLAN.style = $('style').value; PLAN.colA = $('colA').value; PLAN.colB = $('colB').value; renderFleet(); } });
+  $('name').addEventListener('input', () => { if (!PLAN) return; PLAN.name = $('name').value.trim() || 'My fleet'; $('code').value = planCode(planNow()); drawSample(); });   // the code is the fleet as shown, its name too
+  syncCodeCard();
   $('tactics').addEventListener('change', e => { if (e.target.matches('[data-on]') && mix().length > 3) { e.target.checked = false; note('Three tactics at most — untick one first.'); } shares(); });
   $('tactics').addEventListener('input', e => { if (e.target.matches('[data-share]')) shares(); });
   shares(); drawSample(); showSide('A'); showSide('B'); renderFleetStrip();
@@ -90,9 +104,10 @@ function renderFleet() {
       <div class="tiny">${b ? `${esc((hullDef(b.design.hull) || {}).name || b.design.hull)} · hull ${fmt(b.hpMax)}${b.arMax ? ` · armour ${fmt(b.arMax)}` : ''} · shield ${fmt(b.shMax)} · ${fmt(b.dps)} dmg/s · reach ${b.pref} · speed ${fmt(b.speed)} · turns ${Math.round(b.turn || 0)}°/s · evasion ${Math.round(b.evade * 100)}%<br>${esc(systemsOf(b))}` : '<span style="color:var(--bad)">could not build this one at this price</span>'}</div></div>
       <canvas class="pic" data-pic="${i}" width="220" height="124" title="Edit to open it"></canvas></div>`; }).join('');
   for (const cv of $('ships').querySelectorAll('[data-pic]')) { const s = p.ships[+cv.dataset.pic]; drawShip(cv, s.built, lk); }
-  $('code').value = planCode({ ...p, style: $('style').value, colA: $('colA').value, colB: $('colB').value });
+  $('code').value = planCode(planNow()); syncCodeCard(); drawSample();
   if (editing != null) refreshEditor();
 }
+const syncCodeCard = () => { $('save').disabled = $('copy').disabled = !PLAN; };
 $('ships').addEventListener('input', e => { const c = e.target.closest('[data-cost]'); if (c) { const show = $('ships').querySelector(`[data-show="${c.dataset.cost}"]`); if (show) show.textContent = fmt(+c.value); } });
 $('ships').addEventListener('change', e => {
   const c = e.target.closest('[data-cost]'); if (c && PLAN) { setCost(PLAN, +c.dataset.cost, +c.value); rebuild(); return; }
@@ -263,7 +278,7 @@ $('outUndo').onclick = () => ed.undo();
 $('compose').onclick = compose;
 // "by size": the ship count that keeps every tactic at its natural ship size (fleetplan.js TACTICS.size) — the cycle holds there
 $('nAuto').onclick = () => { const m = mix(); if (!m.length) { note('Tick at least one tactic.', 'note1'); return; } $('n').value = naturalShips(Math.max(150, +$('budget').value || 6000), m); };
-$('recompose').onclick = () => { $('fleet').hidden = true; $('codeCard').hidden = true; closeEditor(); $('step1').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+$('recompose').onclick = () => { $('fleet').hidden = true; closeEditor(); $('step1').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
 $('copy').onclick = async () => { const c = $('code'); c.select(); try { await navigator.clipboard.writeText(c.value); $('codeNote').textContent = 'Copied — send it to a friend; they paste it into a Fleet box at the top of their generator.'; } catch (e) { document.execCommand && document.execCommand('copy'); $('codeNote').textContent = 'Selected — copy it.'; } };
 // a fleet overwritten while it sits in the Fleet 1 / Fleet 2 box at the top: the box takes the new version at once
 const syncSlots = rec => { for (const k of ['A', 'B']) { const box = $('code' + k), q = box.value.trim() ? planFromCode(box.value) : null; if (q && q.id === rec.id) { box.value = planCode(rec); showSide(k); } } };
@@ -282,12 +297,18 @@ $('save').onclick = async () => {
 };
 const exportAll = () => { const list = PLANS; if (!list.length) { $('fightNote').textContent = 'Nothing saved yet.'; return; } try { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([exportAllText(list)], { type: 'text/plain' })); a.download = 'starforge-fleets.txt'; document.body.appendChild(a); a.click(); a.remove(); $('fightNote').textContent = 'Saved starforge-fleets.txt — every fleet, a line about it and its code.'; } catch (e) { $('codeA').value = exportAllText(list).slice(0, 4000); $('fightNote').textContent = 'Could not save a file here — the text is in the Fleet 1 box; copy it.'; } };
 function loadPlan(p) {
-  if (!p) return; PLAN = { ...p, ships: p.ships.map(s => ({ ...s })), hulls: p.hulls || {} }; PLAN.savedId = p.id || null;   // opened from the ribbon: Save… can overwrite it
+  if (!p) return; PLAN = { ...p, ships: p.ships.map(s => ({ ...s })), hulls: p.hulls || {} }; PLAN.savedId = p.id || p.savedId || null;   // opened from the ribbon (or a code that came from it): Save… can overwrite it
   $('budget').value = p.budget; $('n').value = p.ships.length; $('name').value = p.name || 'My fleet'; if (p.style) $('style').value = p.style; if (p.colA) $('colA').value = p.colA; if (p.colB) $('colB').value = p.colB;
   for (const id of TACTIC_IDS) { const m = (p.mix || []).find(x => x.id === id); $('tactics').querySelector(`[data-on="${id}"]`).checked = !!m; if (m) $('tactics').querySelector(`[data-share="${id}"]`).value = Math.round(m.share * 100); }
   shares(); drawSample(); closeEditor(); rebuild(); $('fleet').hidden = false; $('codeCard').hidden = false;
 }
-$('codeIn').onclick = () => { const p = planFromCode($('code').value); if (!p) { $('codeNote').textContent = 'That is not a fleet code.'; return; } loadPlan(p); $('codeNote').textContent = 'Taken in.'; };
+// the code box is the composer's fleet: paste a fleet code into it and that fleet opens below, ready to change
+$('code').addEventListener('input', () => {
+  const text = $('code').value.trim(); if (!text) return;
+  const p = planFromCode(text); if (!p) { $('codeNote').textContent = 'That is not a fleet code (yet) — paste the whole line, it starts with FLEET2:'; return; }
+  if (PLAN && text === planCode(planNow())) return;
+  loadPlan(p); $('codeNote').innerHTML = `<b>${esc(p.name || 'The fleet')}</b> is open in the composer below — change anything and this code follows.`;
+});
 
 // ---------------- the fight at the top ----------------
 // a code box: click it → your saved fleets (→ 1, → 2, ✎ open to edit, ⧉ copy, ⤓ export all); paste or type → the picture under it redraws
@@ -341,17 +362,51 @@ function fleetMenu(x, y, p) {
     { label: 'Delete', run: async () => { if (!(await hdlg.confirmDelete(p, 'It goes for good.'))) return; savePlans(PLANS.filter(x => x.id !== p.id)); if (PLAN && PLAN.savedId === p.id) PLAN.savedId = null; renderFleetStrip(); } },
   ]);
 }
-{ // drag a saved fleet onto the Fleet 1 / Fleet 2 picture at the top
-  let drag = null, ghost = null;
-  const targetAt = (x, y) => { if (ghost) ghost.style.display = 'none'; const el = document.elementFromPoint(x, y); if (ghost) ghost.style.display = ''; return el && (el.closest('#sideA, #codeA') ? 'A' : el.closest('#sideB, #codeB') ? 'B' : null); };
-  $('fleetStrip').addEventListener('pointerdown', e => { const t = e.target.closest('.fthumb'); if (!t || e.button) return; drag = { t, id: t.dataset.id, x: e.clientX, y: e.clientY, moved: false }; });
-  document.addEventListener('pointermove', e => {
-    if (!drag) return; if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 8) return;
-    if (!drag.moved) { drag.moved = true; drag.t._dragged = true; hideTip(); ghost = drag.t.cloneNode(true); ghost.classList.add('ghost'); document.body.appendChild(ghost); }
-    ghost.style.left = e.clientX + 'px'; ghost.style.top = e.clientY + 'px'; const k = targetAt(e.clientX, e.clientY); $('sideA').classList.toggle('over', k === 'A'); $('sideB').classList.toggle('over', k === 'B');
-  });
-  const end = e => { if (!drag) return; const d = drag; drag = null; $('sideA').classList.remove('over'); $('sideB').classList.remove('over'); if (ghost) { ghost.remove(); ghost = null; } if (!d.moved) return; const k = targetAt(e.clientX, e.clientY), p = PLANS.find(x => x.id === d.id); if (k && p) { putInFight(k, p); $('fight').scrollIntoView({ behavior: 'smooth', block: 'start' }); } setTimeout(() => { d.t._dragged = false; }, 0); };
-  document.addEventListener('pointerup', end); document.addEventListener('pointercancel', end);
+// DRAG A FLEET INTO THE FIGHT: a saved one from the ribbon, or the one being composed (its flagship picture), dropped on the
+// Fleet 1 or Fleet 2 picture (or box) at the top. The page scrolls up by itself while the pointer is near the top edge.
+function slotDrag(e, makeGhost, onDrop, onMoved) {
+  const x0 = e.clientX, y0 = e.clientY; let ghost = null, moved = false, lastY = y0;
+  const slotAt = (x, y) => { if (ghost) ghost.style.display = 'none'; const el = document.elementFromPoint(x, y); if (ghost) ghost.style.display = ''; return el && (el.closest('#sideA, #codeA') ? 'A' : el.closest('#sideB, #codeB') ? 'B' : null); };
+  const top = () => ((document.querySelector('.fnav') || {}).offsetHeight || 0) + 70;
+  const scroller = setInterval(() => { if (!moved) return; if (lastY < top()) scrollBy(0, -Math.min(40, 8 + (top() - lastY) / 2)); else if (lastY > innerHeight - 50) scrollBy(0, 16); }, 30);
+  const move = ev => {
+    if (!moved && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 8) return;
+    if (!moved) { moved = true; hideTip(); ghost = makeGhost(); document.body.appendChild(ghost); if (onMoved) onMoved(); }
+    lastY = ev.clientY; ghost.style.left = ev.clientX + 'px'; ghost.style.top = ev.clientY + 'px';
+    const k = slotAt(ev.clientX, ev.clientY); $('sideA').classList.toggle('over', k === 'A'); $('sideB').classList.toggle('over', k === 'B');
+  };
+  const end = ev => {
+    document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', end); document.removeEventListener('pointercancel', end); clearInterval(scroller);
+    $('sideA').classList.remove('over'); $('sideB').classList.remove('over'); if (ghost) ghost.remove();
+    if (!moved || ev.type === 'pointercancel') return; const k = slotAt(ev.clientX, ev.clientY); if (k) onDrop(k);
+  };
+  document.addEventListener('pointermove', move); document.addEventListener('pointerup', end); document.addEventListener('pointercancel', end);
+}
+$('fleetStrip').addEventListener('pointerdown', e => {
+  const t = e.target.closest('.fthumb'); if (!t || e.button) return;
+  slotDrag(e, () => { const g = t.cloneNode(true); g.classList.add('ghost'); return g; }, k => { const p = PLANS.find(x => x.id === t.dataset.id); if (p) { putInFight(k, p); $('fight').scrollIntoView({ behavior: 'smooth', block: 'start' }); } },
+    () => { t._dragged = true; setTimeout(() => { t._dragged = false; }, 400); });
+});
+$('sample').addEventListener('pointerdown', e => {
+  if (e.button || !flagship()) return; e.preventDefault();
+  slotDrag(e, () => { const g = document.createElement('canvas'); g.width = 168; g.height = 80; g.className = 'sghost'; const c = g.getContext('2d'), s = $('sample'), q = Math.min(g.width / s.width, g.height / s.height); c.drawImage(s, (g.width - s.width * q) / 2, (g.height - s.height * q) / 2, s.width * q, s.height * q); return g; },
+    k => { putInFight(k, planNow()); $('fight').scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+});
+// RIGHT-CLICK (or long-press) a fleet in the fight — saved or not — to open it in the composer, copy it, swap or empty the slot
+function slotMenu(x, y, k) {
+  const box = $('code' + k), code = box.value.trim(), p = code ? planFromCode(code) : null, other = k === 'A' ? 'B' : 'A';
+  hmenu.open(x, y, [
+    ...(p ? [{ label: '✎ Edit it in the composer', run: () => { loadPlan(p); $('codeNote').innerHTML = `<b>${esc(p.name || 'The fleet')}</b> is open in the composer — change it, then drag its flagship back up here.`; $('fleet').scrollIntoView({ behavior: 'smooth', block: 'start' }); } },
+      { label: '⧉ Copy its code', run: () => copyCode(p) }] : [{ label: 'Empty — click the box above and pick a fleet, or drag one here', run: () => box.focus() }]),
+    { label: `⇄ Swap Fleet 1 and Fleet 2`, run: () => { const a = $('codeA').value; $('codeA').value = $('codeB').value; $('codeB').value = a; showSide('A'); showSide('B'); } },
+    ...(p ? [{ label: '✕ Empty this slot', run: () => { box.value = ''; showSide(k); } }] : []),
+  ]);
+}
+for (const k of ['A', 'B']) {
+  const el = $('side' + k);
+  el.addEventListener('contextmenu', e => { e.preventDefault(); slotMenu(e.clientX, e.clientY, k); });
+  let hold = 0; el.addEventListener('pointerdown', e => { if (e.pointerType === 'mouse') return; clearTimeout(hold); hold = setTimeout(() => slotMenu(e.clientX, e.clientY, k), 550); });
+  for (const ev of ['pointerup', 'pointermove', 'pointercancel']) el.addEventListener(ev, () => clearTimeout(hold));
 }
 function showFleetPick(anchor) {
   const box = $('fleetPick'), list = PLANS, r = anchor.getBoundingClientRect();

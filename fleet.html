@@ -25,6 +25,9 @@ button:disabled { opacity: .5 }
 .tiny { font-size: 11px; color: var(--muted); line-height: 1.5 }
 .chk { display: flex; align-items: center; gap: 6px; font-size: 13px }
 #sample { display: block; width: 100%; max-width: 420px; height: 200px; border: 1px solid var(--line); border-radius: 10px; background: #04070f; margin-top: 10px }
+#sample.drag { cursor: grab; touch-action: none; border-color: rgba(95,227,208,.6) }
+.sghost { position: fixed; transform: translate(-50%, -50%); pointer-events: none; z-index: 99; opacity: .88; width: 168px; height: 80px; border: 1px solid var(--accent); border-radius: 10px; background: #04070f; box-shadow: 0 6px 20px rgba(0,0,0,.6) }
+.side canvas { cursor: context-menu }
 .trow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 5px 0; border-bottom: 1px dashed var(--line) }
 .trow .chk { min-width: 150px }
 .trow input[type=range] { width: 130px; padding: 0 }
@@ -101,9 +104,9 @@ select { background: #04070f; color: var(--fg); border: 1px solid var(--line); b
   <div id="fleetStrip" class="fstrip"></div>
   <div id="fleetTip" class="ftip" hidden></div>
 </section>
-<section class="card" id="codeCard" hidden style="margin-top:10px">
-  <div class="row"><button id="save" class="go">Save…</button><button id="copy">⧉ Copy the code</button><button id="codeIn" class="x">Take a pasted code in</button><span class="tiny">The fleet below, as a code. Save… overwrites the fleet you opened, or keeps this one as a new fleet with a name — it joins the ribbon above.</span></div>
-  <textarea id="code" rows="2" readonly style="margin-top:6px"></textarea>
+<section class="card" id="codeCard" style="margin-top:10px">
+  <div class="row"><button id="save" class="go">Save…</button><button id="copy">⧉ Copy the code</button><span class="tiny">This box is always the fleet in the composer below, as a code. Paste a fleet code into it and that fleet opens in the composer, ready to change. Save… overwrites the fleet you opened, or keeps this one as a new fleet with a name — it joins the ribbon above.</span></div>
+  <textarea id="code" rows="2" style="margin-top:6px" placeholder="paste a fleet code here — it opens in the composer below" spellcheck="false"></textarea>
   <div id="codeNote" class="tiny" style="margin-top:4px">Saved fleets are kept with the page (and in this browser): pick one from the ribbon above, or click the Fleet 1 / Fleet 2 box at the top. Copy the code to send the fleet to a friend; it carries the coat and any silhouettes you drew.</div>
 </section>
 <h2>Compose a fleet</h2>
@@ -117,7 +120,7 @@ select { background: #04070f; color: var(--fg); border: 1px solid var(--line); b
     <label>Colour B<input id="colB" type="color" value="#ffb347"></label>
   </div>
   <canvas id="sample" width="420" height="200" title="a standard dart of about 1200, in this coat"></canvas>
-  <div class="tiny" style="margin-top:4px">The coat every ship of the fleet wears: the plating style and your two colours, on a standard dart of about 1200.</div>
+  <div id="sampleNote" class="tiny" style="margin-top:4px">The coat every ship of the fleet wears: the plating style and your two colours, on a standard dart of about 1200.</div>
   <h2>Grand tactics</h2>
   <div class="tiny">Up to three, and how much of the fleet goes to each. Brute force buys few big hulls, hit &amp; run many small quick ones; too few ships for the tactics and every ship carries the whole mix.</div>
   <div id="tactics" style="margin-top:6px"></div>
