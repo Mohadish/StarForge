@@ -133,8 +133,8 @@ function strike(o, dmg, kind, rng, onShield, brk = 0, pierce = null) {
 // ENDURANCE — the BLUE BAR (his design, 2026-10-11, step 2: "peak performance time"): a ship tires while it fights (an
 // enemy within its reach), `hot`× faster with its reactor running hot and `scram`× faster scrammed; out of reach it rests
 // and recovers at `recover` (`aura`× near a friend at least twice its price — a capital, a flotilla's heart). Past its PEAK
-// (`peak` of the bar) it degrades — slower guns, slower engines, slower turning — down to `floor` at empty, where its crew
-// BREAKS: it stops fighting and falls back, and a fleet with nobody left fighting has lost. MORALE is the bar's ceiling:
+// (`peak` of the bar) it degrades — slower guns, slower engines, slower turning — down to `floor` at empty (until 2026-10-12
+// its crew then BROKE: stopped fighting and fell back; now see `breakOn`), and a fleet with nobody left fighting has lost. MORALE is the bar's ceiling:
 // every friend lost takes `loss` × its share of the fleet's price off it, the flagship `flag` more. `resolve` (per ship,
 // 1 = plain) divides the drain — the hook for cohesion and doctrines (step 3). Replaces the clock as what ends a battle.
 // His second pass (2026-10-11): the CEILING itself wears away — `wear` a second in the fight (`wearIdle` out of it): 100 %,
@@ -142,8 +142,17 @@ function strike(o, dmg, kind, rng, onShield, brk = 0, pierce = null) {
 // A fabricator can win back only `keep` of what the ceiling lost (80 → 90, never 100: `top` is how high it may climb), at
 // `fix` of ceiling per industry a second out of the fight, `fixCost` material per 0.01. And the bar is the hardware's
 // strength too: the heat a ship can take shrinks with it (× the bar, never under `heatFloor`) — a tired ship scrams sooner.
-export const ENDURE = { drain: 1 / 450, hot: 1.5, scram: 3, recover: 1 / 600, aura: 3, auraR: 350, peak: 0.5, floor: 0.2, loss: 0.5, flag: 0.15, reach: 1.3,
-  wear: 1 / 600, wearIdle: 1 / 1800, scramHit: 0.1, keep: 0.5, fix: 0.0005, fixCost: 2, heatFloor: 0.3 };
+// His third pass (2026-10-12): BIG SHIPS TIRE FASTER, steeply by price — a 6000 ship runs ~5 % shorter, 15000 ~20 %, 20000
+// ~30 %, 30000 half (`sizeFatigue`: drain and wear × 1 / (1 − that)); nothing under `sizeFrom`. A small disciplined empire
+// (resolve) can keep giants a sprawling one cannot. And a spent crew is NOT dead in the water: at an empty bar a ship runs at
+// `floor` (30 %) of its peak in EVERYTHING — speed, turning, fire rate, launching, fabrication, shield recharge — and keeps
+// fighting. `breakOn` says when a crew still breaks: 'ceiling' (its ceiling — wear + morale — is gone), 'bar' (the old rule:
+// an empty bar), 'never'.
+export const ENDURE = { drain: 1 / 450, hot: 1.5, scram: 3, recover: 1 / 600, aura: 3, auraR: 350, peak: 0.5, floor: 0.3, loss: 0.5, flag: 0.15, reach: 1.3,
+  wear: 1 / 600, wearIdle: 1 / 1800, scramHit: 0.1, keep: 0.5, fix: 0.0005, fixCost: 2, heatFloor: 0.3,
+  sizeFrom: 1000, sizeAt: 30000, sizeP: 0.5, sizeExp: 1.25, sizeMax: 0.8, breakOn: 'ceiling' };
+// how much shorter a ship of this price can fight (0–sizeMax): 0 under sizeFrom, sizeP at sizeAt, steeper as it grows
+export const sizeFatigue = cost => { const E = ENDURE, c = (cost || 0) - E.sizeFrom; return c <= 0 ? 0 : Math.min(E.sizeMax, E.sizeP * Math.pow(c / (E.sizeAt - E.sizeFrom), E.sizeExp)); };
 const perf = s => s.en === undefined || s.en >= ENDURE.peak ? 1 : ENDURE.floor + (1 - ENDURE.floor) * Math.max(0, s.en) / ENDURE.peak;
 // the ceiling loses `x`: the part a fabricator can never win back comes off `top` as well
 const capLoss = (s, x) => { s.em = Math.max(0, s.em - x); s.top = Math.max(s.em, s.top - x * (1 - ENDURE.keep)); s.en = Math.min(s.en, s.em); };
@@ -169,7 +178,7 @@ export const AVOID = 650;
 export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {}) {
   const mk = (s, side, x, y) => ({ ...s, side, x, y, ang: side ? Math.PI : 0, spin: 1, dead: false, tgt: null, guns: s.guns.map(g => ({ ...g, aim: side ? Math.PI : 0 })), pool: 0, dpool: 0, stock: s.stock || 0, repaired: 0, speed0: s.speed, bays: s.hangars.map(h => ({ ...h, left: h.craft, spent: 0, cd: 0 })),
     heat: 0, off: false, offT: 0, batt: s.batterySec || 0,                           // HEAT: how hot, scrammed?, for how long, battery seconds left
-    en: 1, em: 1, top: 1, engaged: false, broken: false, resolve: s.resolve || 1, reachMax: Math.max(s.pref || 0, ...s.guns.map(g => g.range)) });   // ENDURANCE: the blue bar, its ceiling (morale), broken?, resolve, how far it fights
+    en: 1, em: 1, top: 1, engaged: false, broken: false, resolve: s.resolve || 1, sizeK: 1 / (1 - sizeFatigue(s.cost)), reachMax: Math.max(s.pref || 0, ...s.guns.map(g => g.range)) });   // ENDURANCE: the blue bar, its ceiling (morale), broken?, resolve, how far it fights
   const FA = Array.isArray(a0) ? a0 : [a0], FB = Array.isArray(b0) ? b0 : [b0];
   const line = (F, side) => F.map((s, i) => mk(s, side, (side ? 1 : -1) * B.start / 2, (i - (F.length - 1) / 2) * B.spread));   // a fleet starts in a line abreast
   const ships = [...line(FA, 0), ...line(FB, 1)]; ships.forEach((s, i) => { s.idx = i; });
@@ -215,8 +224,8 @@ export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {})
     // the fabricator aboard, while its stock lasts: missiles to the emptiest launcher, spent (or shot-down) drones built back into the bays
     for (const s of ships) {
       if (s.dead || s.off || hot(s)) continue;                                      // a scrammed or hot ship builds nothing (HEAT); building heats it, per unit of material
-      if (s.fab > 0 && s.stock >= s.missileCost) { s.pool += s.fab * B.dt; while (s.pool >= 1 && s.stock >= s.missileCost) { const g = s.guns.filter(x => Number.isFinite(x.ammo) && x.ammo < x.mag).sort((a, b) => a.ammo - b.ammo)[0]; if (!g) { s.pool = Math.min(s.pool, 1); break; } g.ammo++; s.pool--; s.stock -= s.missileCost; s.heat += s.missileCost * HEAT.fab; } }
-      if (s.dfab > 0 && s.bays.length && s.stock >= s.droneCost) { s.dpool += s.dfab * B.dt; while (s.dpool >= 1 && s.stock >= s.droneCost) { const b = s.bays.find(x => x.spent > 0); if (!b) { s.dpool = Math.min(s.dpool, 1); break; } b.spent--; b.left++; s.dpool--; s.stock -= s.droneCost; s.heat += s.droneCost * HEAT.fab; } }
+      if (s.fab > 0 && s.stock >= s.missileCost) { s.pool += s.fab * perf(s) * B.dt; while (s.pool >= 1 && s.stock >= s.missileCost) { const g = s.guns.filter(x => Number.isFinite(x.ammo) && x.ammo < x.mag).sort((a, b) => a.ammo - b.ammo)[0]; if (!g) { s.pool = Math.min(s.pool, 1); break; } g.ammo++; s.pool--; s.stock -= s.missileCost; s.heat += s.missileCost * HEAT.fab; } }
+      if (s.dfab > 0 && s.bays.length && s.stock >= s.droneCost) { s.dpool += s.dfab * perf(s) * B.dt; while (s.dpool >= 1 && s.stock >= s.droneCost) { const b = s.bays.find(x => x.spent > 0); if (!b) { s.dpool = Math.min(s.dpool, 1); break; } b.spent--; b.left++; s.dpool--; s.stock -= s.droneCost; s.heat += s.droneCost * HEAT.fab; } }
     }
     // ships pick a target and hold their range from it (a hurt ship more slowly) — unless an order says otherwise; drones launch toward it
     for (const s of ships) {
@@ -247,7 +256,7 @@ export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {})
         b.cd -= B.dt; const R = droneRole(b.role), D = B.drone, sz = b.size; let n = drones.filter(d => d.owner === s.idx).length;
         const ok = R.escort ? worthAt(PD.reach) : (scramble || worthAt(D.range * R.range)) && waveOpen;
         while (b.cd <= 0 && b.left > 0 && ok && n < s.airCap) {
-          b.left--; n++; b.cd += D.launchEvery / b.tubes;
+          b.left--; n++; b.cd += D.launchEvery / (b.tubes * perf(s));             // a tired deck launches slower (ENDURANCE)
           drones.push({ id: nextId++, side: s.side, owner: s.idx, bay: b, x: s.x, y: s.y, age: 0, home: false, form: !R.escort && !scramble, escort: !!R.escort, bat: D.battery, hpMax: D.hp * sz * (R.hp || 1), hp: D.hp * sz * (R.hp || 1), speed: D.speed / Math.pow(sz, 0.3) * (R.speed || 1),
             dmg: D.dmg * sz * R.dmg, rate: D.rate * R.rate, range: D.range * R.range, hold: R.hold, shot: D.shotCost * R.shot, acc: D.acc, evade: D.evade, cd: rng() * 1, spin: rng() < 0.5 ? 1 : -1 });
         }
@@ -365,14 +374,15 @@ export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {})
     for (const s of ships) {
       if (s.dead) continue;
       if ((s.shHitN || 0) !== s.shSeen) { s.shSeen = s.shHitN || 0; s.shHitT = time; }          // SHIELD.delay: the field regenerates only after a quiet spell
-      if (dark(s)) s.sh = 0; else if (time - (s.shHitT ?? -1e9) >= SHIELD.delay) s.sh = Math.min(s.shMax, s.sh + s.rec * power(s) * B.dt);   // dark: no power to hold the field — it collapses
+      if (dark(s)) s.sh = 0; else if (time - (s.shHitT ?? -1e9) >= SHIELD.delay) s.sh = Math.min(s.shMax, s.sh + s.rec * power(s) * perf(s) * B.dt);   // dark: no power to hold the field — it collapses
       if (s.massGen > 0 && s.spare > 0 && !s.off) s.stock = Math.min(s.stockMax, s.stock + s.massGen * s.spare * B.dt);   // (breakthrough) spare power made into material
       if (!s.off && !hot(s)) {                                                       // the fabricator's mending needs the reactor too, and heats the ship
-        if (s.hp > 0 && s.hp < s.hpMax && s.hullRepair > 0 && s.stock > 0) { const r = Math.min(s.hullRepair * B.dt, s.hpMax - s.hp, s.stock * s.hullPerStock); s.hp += r; s.repaired += r; s.stock -= r / s.hullPerStock; s.heat += r / s.hullPerStock * HEAT.fab; }
+        const pf = perf(s);                                                          // a tired crew mends slower too (ENDURANCE)
+        if (s.hp > 0 && s.hp < s.hpMax && s.hullRepair > 0 && s.stock > 0) { const r = Math.min(s.hullRepair * pf * B.dt, s.hpMax - s.hp, s.stock * s.hullPerStock); s.hp += r; s.repaired += r; s.stock -= r / s.hullPerStock; s.heat += r / s.hullPerStock * HEAT.fab; }
         const waiting = (s.stock >= s.missileCost && s.missileCost > 0 && s.guns.some(g => Number.isFinite(g.ammo) && g.ammo < g.mag)) || (s.stock >= s.droneCost && s.droneCost > 0 && s.bays.some(b => b.spent > 0));
-        if (s.arMax && s.ar < s.arMax && s.repair > 0 && s.stock > 0 && !waiting) { const r = Math.min(s.repair * B.dt, s.arMax - s.ar, s.stock * s.armorPerStock); s.ar += r; s.stock -= r / s.armorPerStock; s.heat += r / s.armorPerStock * HEAT.fab; }
+        if (s.arMax && s.ar < s.arMax && s.repair > 0 && s.stock > 0 && !waiting) { const r = Math.min(s.repair * pf * B.dt, s.arMax - s.ar, s.stock * s.armorPerStock); s.ar += r; s.stock -= r / s.armorPerStock; s.heat += r / s.armorPerStock * HEAT.fab; }
         // ENDURANCE: out of the fight, a fabricator wins back part of the worn ceiling (never above `top`), from the stock
-        if (!s.engaged && !waiting && s.industry > 0 && s.em < s.top && s.stock > 0) { const r = Math.min(ENDURE.fix * s.industry * B.dt, s.top - s.em, s.stock / ENDURE.fixCost * 0.01), u = r / 0.01 * ENDURE.fixCost; s.em += r; s.stock -= u; s.heat += u * HEAT.fab; }
+        if (!s.engaged && !waiting && s.industry > 0 && s.em < s.top && s.stock > 0) { const r = Math.min(ENDURE.fix * s.industry * pf * B.dt, s.top - s.em, s.stock / ENDURE.fixCost * 0.01), u = r / 0.01 * ENDURE.fixCost; s.em += r; s.stock -= u; s.heat += u * HEAT.fab; }
       }
       // HEAT: shed (twice as fast with the reactor off); full → SCRAM; restart after `restart` s once cool enough; the battery
       // drains while scrammed and recharges while running
@@ -382,8 +392,8 @@ export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {})
         if (s.off) { s.offT += B.dt; s.batt = Math.max(0, s.batt - B.dt); if (s.offT >= HEAT.restart && s.heat <= HEAT.resume * heatLim(s)) s.off = false; }
         else s.batt = Math.min(s.batterySec, s.batt + s.batterySec / HEAT.recharge * B.dt);
       }
-      // ENDURANCE: tiring while an enemy is within its reach (faster hot, faster still scrammed), resting out of it (faster
-      // near a friend at least twice its price); at empty the crew breaks — for good
+      // ENDURANCE: tiring while an enemy is within its reach (faster hot, faster still scrammed, faster the bigger it is),
+      // resting out of it (faster near a friend at least twice its price); spent, it fights on at `floor`; it breaks per `breakOn`
       if (!s.broken) {
         if ((s.hitN || 0) !== s.seenHits) { s.seenHits = s.hitN || 0; s.hitT = time; }
         // in the fight: an enemy within its reach, or it within an enemy's (under the guns is strain too — a kited ship tires as
@@ -391,11 +401,11 @@ export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {})
         const foes = alive(1 - s.side), foe = nearestFoe(s.x, s.y, s.side);
         const engaged = s.engaged = (foe && dist(s, foe) <= s.reachMax * ENDURE.reach) || foes.some(f => !f.broken && dist(s, f) <= f.reachMax * ENDURE.reach) || time - (s.hitT ?? -1e9) < 5;
         const whole = (Math.max(0, s.hp) + (s.ar || 0)) / (s.hpMax + (s.arMax || 0));
-        capLoss(s, (engaged ? ENDURE.wear : ENDURE.wearIdle) / s.resolve * B.dt);                         // the ceiling always wears — faster in the fight
-        if (engaged) s.en -= ENDURE.drain * (s.off ? ENDURE.scram : hot(s) ? ENDURE.hot : 1) * (2 - whole) / s.resolve * B.dt;
+        capLoss(s, (engaged ? ENDURE.wear : ENDURE.wearIdle) * s.sizeK / s.resolve * B.dt);               // the ceiling always wears — faster in the fight, faster for a big ship
+        if (engaged) s.en -= ENDURE.drain * (s.off ? ENDURE.scram : hot(s) ? ENDURE.hot : 1) * (2 - whole) * s.sizeK / s.resolve * B.dt;
         else { const near = fleets[s.side].some(f => f !== s && !f.dead && !f.broken && (f.cost || 0) >= 2 * (s.cost || 0) && dist(f, s) <= ENDURE.auraR); s.en += ENDURE.recover * (near ? ENDURE.aura : 1) * B.dt; }
         s.en = Math.max(0, Math.min(s.em, s.en));
-        if (s.en <= 0) { s.broken = true; broke[s.side]++; }
+        if (ENDURE.breakOn === 'ceiling' ? s.em <= 0 : ENDURE.breakOn === 'bar' && s.en <= 0) { s.broken = true; broke[s.side]++; }
       }
     }
     time += B.dt;
