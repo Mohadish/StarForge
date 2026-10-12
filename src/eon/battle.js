@@ -26,7 +26,7 @@ export const B = { dt: 0.25, start: 3000, maxTime: 600, record: 1, unit: 8, minG
   // dmg 30 → 70 (his call, 2026-10-10, "increase drone damage per volley"): at 30 a carrier lost every duel at its price —
   // its drones' volleys went into armour that knit back. Swept 30/45/60/70/80/100: at 70 a 900 carrier beats a 900 gun ship
   // 12/0 (7/5 without a fabricator), a 3000 one still loses 2/10 to guns, and beams stay the counter (0/12; 100 starts to flip them)
-  drone: { hp: 70, speed: 240, dmg: 70, rate: 0.4, range: 120, acc: 65, evade: 0.55, launchEvery: 2.5, sortie: 90, dock: 40, battery: 100, travelCost: 0.04, shotCost: 10, idleCost: 0.5, reach: 800, waveWait: 6, guard: 900 } };   // guard: an enemy this close to a carrier and it scrambles everything (the cycle, 2026-10-11)   // waveWait: a forming wave goes after this many seconds even if short
+  drone: { hp: 70, speed: 240, dmg: 70, rate: 0.4, range: 120, acc: 65, evade: 0.55, launchEvery: 2.5, sortie: 90, dock: 40, battery: 100, travelCost: 0.04, shotCost: 10, idleCost: 0.5, reach: 800, waveWait: 6, guard: 400 } };   // guard: an enemy this close to a carrier and it scrambles everything (the cycle, 2026-10-11); 900 → 400 (2026-10-12): a capital closing to 580 made the carriers dump every drone into its point defence at once — now they keep harassing in waves until raiders are really on them   // waveWait: a forming wave goes after this many seconds even if short
 // what a ROLE does to a drone (his ask, 2026-10-10: "sniper drones should be long-range snipers" — a role chip on drones did
 // nothing): multipliers on B.drone; `hold` = where it sits from its target, × its range; `shot` = battery per volley, ×;
 // ESCORT drones (point defence) stay with the carrier and shoot down incoming missiles and drones
@@ -122,6 +122,7 @@ function strike(o, dmg, kind, rng, onShield, brk = 0, pierce = null) {
   const pen = pierce ?? PEN[kind] ?? 0; let soft = dmg * (1 - pen); const through = dmg * pen;
   const shielded = o.sh > 0 && (onShield === undefined ? rng() < o.cover : onShield);
   if (shielded) {
+    o.shHitN = (o.shHitN || 0) + 1;                                               // the field was hit: it holds off regenerating for SHIELD.delay
     if (brk) { const ab = Math.min(o.sh, soft * brk); o.sh -= ab; soft = Math.max(0, soft - ab / brk); if (o.heatCap) o.heat += ab * HEAT.shield; }   // a shield-breaker: no hardness, ×brk on the field; what the field could not hold goes through
     else { const bite = Math.max(0, soft - SHIELD.hard), ab = Math.min(o.sh, bite); o.sh -= ab; soft = bite - ab; if (o.heatCap) o.heat += ab * HEAT.shield; }   // a shield turning a hit heats the ship (HEAT)
   }
@@ -363,7 +364,8 @@ export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {})
     // no missile or drone is waiting to be rebuilt). Armour used to knit itself for free, forever: it out-healed drones.
     for (const s of ships) {
       if (s.dead) continue;
-      if (dark(s)) s.sh = 0; else s.sh = Math.min(s.shMax, s.sh + s.rec * power(s) * B.dt);   // dark: no power to hold the field — it collapses
+      if ((s.shHitN || 0) !== s.shSeen) { s.shSeen = s.shHitN || 0; s.shHitT = time; }          // SHIELD.delay: the field regenerates only after a quiet spell
+      if (dark(s)) s.sh = 0; else if (time - (s.shHitT ?? -1e9) >= SHIELD.delay) s.sh = Math.min(s.shMax, s.sh + s.rec * power(s) * B.dt);   // dark: no power to hold the field — it collapses
       if (s.massGen > 0 && s.spare > 0 && !s.off) s.stock = Math.min(s.stockMax, s.stock + s.massGen * s.spare * B.dt);   // (breakthrough) spare power made into material
       if (!s.off && !hot(s)) {                                                       // the fabricator's mending needs the reactor too, and heats the ship
         if (s.hp > 0 && s.hp < s.hpMax && s.hullRepair > 0 && s.stock > 0) { const r = Math.min(s.hullRepair * B.dt, s.hpMax - s.hp, s.stock * s.hullPerStock); s.hp += r; s.repaired += r; s.stock -= r / s.hullPerStock; s.heat += r / s.hullPerStock * HEAT.fab; }

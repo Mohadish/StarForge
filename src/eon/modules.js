@@ -135,7 +135,7 @@ export const GUN = { min: 0.5, max: 4, step: 0.5, power: [1.1, 1.0, 0.5], cost: 
 // (passive channel 'synthesis', % → every cost ÷); `massGen` — spare reactor power turned into material, units a second
 // per spare MW (passive channel 'mass_generation', % of 0.01).
 export const FAB = { missilesPerIndustry: 0.02, dronesPerIndustry: 0.008, stockPerVolume: 4, hullPerStock: 10, armorPerStock: 4, synth: 1, massGen: 0 };
-export const SHIELD = { hard: 8 };                         // a shield shrugs off this much of every hit before it dents: small fast shots barely scratch it
+export const SHIELD = { hard: 8, delay: 3 };               // a shield shrugs off this much of every hit before it dents: small fast shots barely scratch it · delay (2026-10-12, his ask): after a hit on the field it does not regenerate for this many seconds — steady pressure keeps it down
 export const DODGE = { weapon_missile: 2.5 };               // an agile ship shakes off missiles far more than beams or shells
 export function gunTune(mod, K = KINDS[mod.kind]) {
   if (K?.hangar) {                                           // a hangar's dials: how many drones, how big each
