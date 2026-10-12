@@ -61,7 +61,7 @@ export function shipFromDesign(S, design, caps = allCapsules(S)) {
     if (m.K.hangar) { const craft = Math.round(m.v.craft) * m.n; hangars.push({ craft, size: m.v.size, n: m.n, tubes: Math.max(1, craft / 4), role: m.mod.preset || 'standard' }); continue; }   // a launch tube per four drones carried
     if (m.K.mount && !m.K.orbital) {
       const mine = ds.mounts.filter(mt => mt.modId === m.mod.id);           // where each gun of this module sits on the hull (hull squares, nose = +x)
-      for (let i = 0; i < m.n; i++) guns.push({ kind: m.kind, role: m.mod.role || 'ship', brk: BREAK[m.mod.preset] || 0, pw: m.v.power || 0, dmg: m.v.damage * t.powerFactor * t.fireFactor, rate: m.v.rate, range: m.v.range, acc: Math.min(98, m.v.accuracy + t.bonus), cd: 0, ammo: m.K.charges ? Math.round(m.v.charges) : Infinity, mag: m.K.charges ? Math.round(m.v.charges) : Infinity,
+      for (let i = 0; i < m.n; i++) guns.push({ kind: m.kind, role: m.mod.role || 'ship', brk: BREAK[m.mod.preset] || 0, pierce: PIERCE[m.mod.preset] ?? null, pw: m.v.power || 0, dmg: m.v.damage * t.powerFactor * t.fireFactor, rate: m.v.rate, range: m.v.range, acc: Math.min(98, m.v.accuracy + t.bonus), cd: 0, ammo: m.K.charges ? Math.round(m.v.charges) : Infinity, mag: m.K.charges ? Math.round(m.v.charges) : Infinity,
         mx: ((mine[i] ? mine[i].x : midx) - midx) * B.unit, my: (mine[i] ? mine[i].y : 0) * B.unit, size: mine[i] ? mine[i].size : 1,   // the hard point, in field units from the ship's centre
         trav: traverseOf(m.kind, mine[i] ? mine[i].size : 1) });                 // how fast the mount slews, degrees a second (0 = a launcher, no turret)
     }
@@ -114,9 +114,12 @@ const go = (s, tx, ty, want, band, spin) => {
 // SHIELD-BREAKERS (the cycle, 2026-10-11 — "brute force is powerful against screen"): a capital shell is too heavy for a
 // field to turn — it ignores the shield's hardness and hits the field this many times over
 export const BREAK = { capital: 2.5 };
-function strike(o, dmg, kind, rng, onShield, brk = 0) {
+// PIERCING rounds (the cycle — "long range is marginally better than screen"): a sniper's slug goes this share through a
+// shield untouched (a kinetic shell otherwise 15 %): the screen's fields regenerated faster than snipers could ever dent them
+export const PIERCE = { sniper: 0.7 };
+function strike(o, dmg, kind, rng, onShield, brk = 0, pierce = null) {
   o.hitN = (o.hitN || 0) + 1;                                                     // ENDURANCE: being shot at tires a crew too
-  const pen = PEN[kind] || 0; let soft = dmg * (1 - pen); const through = dmg * pen;
+  const pen = pierce ?? PEN[kind] ?? 0; let soft = dmg * (1 - pen); const through = dmg * pen;
   const shielded = o.sh > 0 && (onShield === undefined ? rng() < o.cover : onShield);
   if (shielded) {
     if (brk) { const ab = Math.min(o.sh, soft * brk); o.sh -= ab; soft = Math.max(0, soft - ab / brk); if (o.heatCap) o.heat += ab * HEAT.shield; }   // a shield-breaker: no hardness, ×brk on the field; what the field could not hold goes through
@@ -338,7 +341,7 @@ export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {})
         if (tgt === o) {
           if (missile) { missiles.push({ id: nextId++, side: s.side, tgt: o, x: gx, y: gy, age: 0, phase: rng() * 6.28, wob: rng() < 0.5 ? 1 : -1, dmg: g.dmg, hit: rng() < g.acc / 100 * (1 - Math.min(0.9, o.evade * (DODGE[g.kind] || 1))) }); continue; }
           const hit = rng() < g.acc / 100 * (1 - o.evade);
-          if (hit) { const r = strike(o, g.dmg * (g.role === 'pd' ? pdVsShip(o) : 1), g.kind, rng, undefined, g.brk); hits[s.side]++; dealt[s.side] += r.h; log(s.side, kch, r.where === 'shield' ? 4 : 1, gx, gy, ...impact(o, gx, gy, r.where), s.idx, gi, o); }
+          if (hit) { const r = strike(o, g.dmg * (g.role === 'pd' ? pdVsShip(o) : 1), g.kind, rng, undefined, g.brk, g.pierce); hits[s.side]++; dealt[s.side] += r.h; log(s.side, kch, r.where === 'shield' ? 4 : 1, gx, gy, ...impact(o, gx, gy, r.where), s.idx, gi, o); }
           else log(s.side, kch, 0, gx, gy, o.x, o.y, s.idx, gi, o);
         } else if (tgt.bat === undefined) {                                  // a missile (a drone carries a battery; both carry an age — telling them apart by age had let every drone off the hook)
           const hit = rng() < g.acc / 100 * PD.vsMissile * pdk; log(s.side, kch, hit ? 2 : 0, gx, gy, tgt.x, tgt.y, s.idx, gi, tgt); if (hit) { tgt.done = true; shot[s.side]++; }

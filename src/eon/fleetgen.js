@@ -10,7 +10,7 @@ import { TEMPLATES, hullDef, setUserHulls, areaOf, bboxOf, HULL_VOLUME } from '.
 import { lookFromColors, styleChoices, spriteOf, thumbOf } from './skins.js';
 import { STYLES, loadStyle } from './styles.js';
 import { paintHull, recipeFor } from './paint.js';
-import { TACTICS, TACTIC_IDS, composePlan, setCost, buildPlan, shipLabel, wordsToChips, chipsToWords, planStrip, planCode, planFromCode, exportAllText } from './fleetplan.js';
+import { TACTICS, TACTIC_IDS, composePlan, setCost, buildPlan, shipLabel, wordsToChips, chipsToWords, planStrip, planCode, planFromCode, exportAllText, naturalShips } from './fleetplan.js';
 import { createShapeEditor, GW, GH } from './shapeedit.js';
 import { readLocal, loadLibrary, saveLibrary, readFleets, loadFleets, saveFleets } from './library.js';
 import { renderStrip, createDialog, createMenu, saveFlow } from './hullui.js';
@@ -259,6 +259,8 @@ $('outUndo').onclick = () => ed.undo();
 
 // ---------------- the code, saving, into the fight ----------------
 $('compose').onclick = compose;
+// "by size": the ship count that keeps every tactic at its natural ship size (fleetplan.js TACTICS.size) — the cycle holds there
+$('nAuto').onclick = () => { const m = mix(); if (!m.length) { note('Tick at least one tactic.', 'note1'); return; } $('n').value = naturalShips(Math.max(150, +$('budget').value || 6000), m); };
 $('recompose').onclick = () => { $('fleet').hidden = true; $('codeCard').hidden = true; closeEditor(); $('step1').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
 $('copy').onclick = async () => { const c = $('code'); c.select(); try { await navigator.clipboard.writeText(c.value); $('codeNote').textContent = 'Copied — send it to a friend; they paste it into a Fleet box at the top of their generator.'; } catch (e) { document.execCommand && document.execCommand('copy'); $('codeNote').textContent = 'Selected — copy it.'; } };
 // a fleet overwritten while it sits in the Fleet 1 / Fleet 2 box at the top: the box takes the new version at once

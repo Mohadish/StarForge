@@ -110,7 +110,7 @@ select { background: #04070f; color: var(--fg); border: 1px solid var(--line); b
 <section class="card" id="step1">
   <div class="ctl">
     <label>Price of the fleet<input id="budget" type="number" value="6000" min="150" step="50" inputmode="numeric"></label>
-    <label>Ships<input id="n" type="number" value="8" min="1" max="25" step="1" inputmode="numeric"></label>
+    <label>Ships<span style="display:flex;gap:4px"><input id="n" type="number" value="8" min="1" max="25" step="1" inputmode="numeric"><button id="nAuto" class="x" type="button" title="as many ships as the price buys when every tactic keeps its natural ship size (brute 1500, hit &amp; run 375, long range 750, replenishable 750, screen 500)">by size</button></span></label>
     <label>Name<input id="name" type="text" value="My fleet" style="width:150px"></label>
     <label>Style<select id="style"></select></label>
     <label>Colour A<input id="colA" type="color" value="#7fb3ff"></label>

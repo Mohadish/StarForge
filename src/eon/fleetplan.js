@@ -12,18 +12,22 @@ export const TACTICS = {
   // THE CYCLE (his diagram, 2026-10-11) — strong: brute > screen > hit&run > range > replen > brute; marginal: brute > range >
   // screen > replen > hit&run > brute. Tuned at 3000 (see the session notes): brute carries point defence against raiders
   // (one per 500, was per 1100) and its all-in crews hold longer (resolve 1.3); carriers bring four drones per 150 (was 420)
-  brute:  { name: 'Brute force',   what: 'few big hulls, capital guns, thick armour — hold the line and hit what holds it', weight: 0.5, resolve: 1.3,
-    recipe: c => `${k(c, 650)} guns capital + armoured${c >= 500 ? ` + ${k(c, 500)} beams pd` : ''}${c >= 2000 ? ' + shielded' : ''}` },
-  hitrun: { name: 'Hit & run',     what: 'many small fast ships: close, sting, slip away — too quick for heavy turrets', weight: 2,
+  // `size`: the tactic's natural ship price — a bigger budget buys MORE of these, not different ones (a hit-and-run ship at 750
+  // is no longer small or quick; the cycle held at one price only until the fleets kept their ships' size)
+  brute:  { name: 'Brute force',   what: 'few big hulls, capital guns, thick armour — hold the line and hit what holds it', weight: 0.5, resolve: 1.3, size: 1500,
+    recipe: c => `${k(c, 650)} guns capital + armoured${c >= 500 ? ` + ${k(c, 750)} beams pd` : ''}${c >= 2000 ? ' + shielded' : ''}` },
+  hitrun: { name: 'Hit & run',     what: 'many small fast ships: close, sting, slip away — too quick for heavy turrets', weight: 2, size: 375,
     recipe: c => `${k(c, 160, 2)} beams + ${k(c, 120, 3)} fast` },
-  range:  { name: 'Long range',    what: 'snipers and missiles that reach out and stay out', weight: 1,
+  range:  { name: 'Long range',    what: 'snipers and missiles that reach out and stay out', weight: 1, size: 750,
     recipe: c => `${k(c, 320)} guns sniper + ${k(c, 700)} missiles${c >= 900 ? ' + armoured' : ''}` },
-  replen: { name: 'Replenishable', what: 'drones and missiles with the fabricators to keep them coming', weight: 1,
+  replen: { name: 'Replenishable', what: 'drones and missiles with the fabricators to keep them coming', weight: 1, size: 750,
     recipe: c => `${4 * k(c, 150)} drones + ${k(c, 800)} missiles + ${k(c, 1400)} fabricator` },
-  screen: { name: 'Screen',        what: 'point defence and shields: swat missiles and drones, cover the others', weight: 1.3,
-    recipe: c => `${k(c, 210, 2)} beams pd + shielded${c < 500 ? ' + fast' : ''}` },
+  screen: { name: 'Screen',        what: 'point defence and shields: swat missiles and drones, cover the others', weight: 1.3, size: 500,
+    recipe: c => `${k(c, 190, 2)} beams pd + shielded${c < 500 ? ' + fast' : ''}` },
 };
 export const TACTIC_IDS = Object.keys(TACTICS);
+// how many ships a fleet of this price and mix has when every tactic keeps its natural ship size (1–25)
+export const naturalShips = (budget, mix) => { const tot = mix.reduce((a, m) => a + m.share, 0) || 1; return Math.max(1, Math.min(25, mix.reduce((a, m) => a + Math.max(1, Math.round(budget * m.share / tot / (TACTICS[m.id]?.size || 750))), 0))); };
 
 // how many ships each tactic gets, from its share and its appetite (weight): whole numbers, every chosen
 // tactic at least one ship; too few ships (fewer than tactics, or one or two) → one blended group
