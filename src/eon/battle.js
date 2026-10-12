@@ -338,7 +338,7 @@ export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {})
         const kinetic = g.kind === 'weapon_kinetic';
         if ((beam || kinetic) && (hot(s) || (beam && dark(s)))) continue;
         g.cd = 1 / Math.max(g.rate * eff(s) * (missile ? 1 : power(s)), 0.01); if (Number.isFinite(g.ammo)) g.ammo--;      // a battered ship fires slower, a scrammed one slower still
-        if (beam || kinetic) s.heat += g.pw * (beam ? HEAT.beam : HEAT.gun) / g.rate;
+        if (beam || kinetic) s.heat += g.pw * (g.role === 'pd' ? HEAT.pd : beam ? HEAT.beam : HEAT.gun) / g.rate;   // point defence: rapid fire that never stops runs the hottest (HEAT.pd)
         if (tgt === o) {
           if (missile) { missiles.push({ id: nextId++, side: s.side, tgt: o, x: gx, y: gy, age: 0, phase: rng() * 6.28, wob: rng() < 0.5 ? 1 : -1, dmg: g.dmg, hit: rng() < g.acc / 100 * (1 - Math.min(0.9, o.evade * (DODGE[g.kind] || 1))) }); continue; }
           const hit = rng() < g.acc / 100 * (1 - o.evade);
@@ -474,7 +474,11 @@ export function trimToBudget(S, d, budget, rng, caps = allCapsules(S), grow = tr
       }
       else if (!armorFull) { if (armor) armor.n = Math.min(maxArmor, armor.n + layers); else d.modules.push({ id: uid(), kind: 'armor', caps: [], n: Math.min(maxArmor, layers) }); }
       else if (grow && w.some(canDial)) { const x = pick(w.filter(canDial)), k = pick(['dmg', 'rof', 'rng'].filter(k => (x[k] ?? 1) < 4)); x[k] = DIALS[DIALS.indexOf(x[k] ?? 1) + 1] || 4; delete x.preset; }   // guns and armour full: bigger guns
-      else { const sh = d.modules.find(x => x.kind === 'shield'); if (sh) sh.n += Math.max(1, Math.min(40, Math.floor(short / 150))); else d.modules.push({ id: uid(), kind: 'shield', caps: [], n: 1 }); }   // the rest goes on shields — in steps that scale with the shortfall (4 at a time left his 30 000 carrier at 19 000 when the rounds ran out)
+      // armour full: the rest goes into what the design ASKED FOR — every weapon and hangar module grows in proportion to the
+      // shortfall — not onto shields (his 12 000 brute came out with 92 shields: 13 800 points regenerating 736 a second, and
+      // no drone could reach its hull, 2026-10-12). Shields only for a design with no weapons at all.
+      else if (w.length) { const k = Math.min(0.5, short / Math.max(1, cost)); for (const x of w) x.n += Math.max(1, Math.round(x.n * k)); }
+      else { const sh = d.modules.find(x => x.kind === 'shield'); if (sh) sh.n += Math.max(1, Math.min(40, Math.floor(short / 150))); else d.modules.push({ id: uid(), kind: 'shield', caps: [], n: 1 }); }
     }
     else if (armor && armor.n > 1) armor.n -= Math.max(1, Math.min(armor.n - 1, Math.ceil(armor.n * Math.min(0.8, off))));
     else if (armor) d.modules.splice(d.modules.indexOf(armor), 1);

@@ -96,13 +96,20 @@ export const airWanted = drones => Math.min(drones, Math.max(6, Math.ceil(drones
 export const ARMOR = { ring: 0.4 };
 // HEAT (his design, 2026-10-11): the reactor is the one source of power, and so of heat. Beams heat the most (twice their
 // power draw), guns a little (half), launchers and drones not at all; a shield turning a hit heats the ship (per point it
-// soaks); the fabricator heats as it builds (per unit of material). A ship sheds `cool` × its reactor output a second, more
-// the more ship there is round the reactor (ship volume ÷ reactor volume, against `ref`, ×0.5–×2) and holds `cap` seconds of
-// output before it is full. At `hold` the crew holds fire and stops the fabricator; at full the reactor SCRAMS: off for at
-// least `restart` s and until the heat is down to `resume`, cooling twice as fast meanwhile; the RESERVE runs the ship at
-// `half` for `battery` s × reserve/output, then it goes DARK — the shield collapses, beams fall silent, guns and engines run
-// at `dark`. Missiles and drones fly on regardless. Meltdown: later.
-export const HEAT = { cap: 12, cool: 0.3, ref: 10, beam: 2, gun: 0.5, shield: 1.5, fab: 60, hold: 0.9, resume: 0.5, restart: 8, battery: 10, recharge: 20, half: 0.5, dark: 0.25 };
+// soaks); the fabricator heats as it builds (per unit of material). The heat budget follows the COMBAT LOAD — the power of
+// the guns, beams, shields and fabricators aboard (never under `floor` of the reactor's output) — not the whole reactor:
+// on a big hull the drives and the reactor itself dwarf the weapons, and a 12 000 ship that sized its heat by its whole
+// output never got past 9 % (his report, 2026-10-12). A ship sheds `cool` × its load a second, more the more ship there is
+// round the reactor (ship volume ÷ reactor volume, against `ref`, ×0.5–×2), and holds `cap` seconds of load before it is
+// full. At `hold` the crew holds fire and stops the fabricator; at full the reactor SCRAMS: off for at least `restart` s and
+// until the heat is down to `resume`, cooling twice as fast meanwhile; the RESERVE runs the ship at `half` for `battery` s ×
+// reserve/output, then it goes DARK — the shield collapses, beams fall silent, guns and engines run at `dark`. Missiles and
+// drones fly on regardless. Meltdown: later. (cap 30 / cool 0.7 of the load — tuned so the five strong links of the cycle hold;
+// 0.9 let screens out-fire the brute, 0.55 broke hit & run over long range; beams 1.5 and POINT DEFENCE 3 — rapid fire that
+// never stops runs hottest: one beam factor for both made raiders overheat (or, eased, let screens out-fire the brute) — fab 30 a unit and a 20 % floor: carriers at 60
+// a unit on a load-sized budget scrammed off their own fabricators. Before: 12 / 0.3 of the
+// whole output had it: ~30 s of full fire to the crew's hold.)
+export const HEAT = { cap: 30, cool: 0.7, floor: 0.2, ref: 10, beam: 1.5, pd: 3, gun: 0.5, shield: 1.5, fab: 30, hold: 0.9, resume: 0.5, restart: 8, battery: 10, recharge: 20, half: 0.5, dark: 0.25 };
 export const HULL = { degradeFloor: 0.5, fabRepairPerIndustry: 0.05, fabRepairCap: 0.5 };   // fabRepairCap is no longer used: the fabricator's stock is the limit (2026-10-10)
 // mass vs agility (2026-10-08, his ask: "a massive ship should move slowly and turn on its axis slowly; a small one should dodge")
 // ref = a corvette's volume; a drive-only 51-square ship turns ~7°/s (180° in ~26 s), a corvette ~70°/s; evasion ≈ 27% tiny, 12% corvette, 3–4% massive
@@ -207,7 +214,7 @@ export function moduleStats(mod, capMap, passive) {
 export function designStats(S, design, caps = allCapsules(S)) {
   const capMap = new Map(caps.map(c => [c.id, c])), passive = passiveOf(caps);
   const mods = design.modules.map(m => ({ mod: m, n: Math.max(1, m.n || 1), ...moduleStats(m, capMap, passive) }));
-  const t = { cost: 0, volume: 0, powerOut: 0, powerUse: 0, reserve: 0, reactorVol: 0, hp: 0, deflect: 0, repair: 0,
+  const t = { cost: 0, volume: 0, powerOut: 0, powerUse: 0, reserve: 0, reactorVol: 0, heatLoad: 0, hp: 0, deflect: 0, repair: 0,
     shieldRaw: 0, shieldRec: 0, thrust: 0, evasionRaw: 0, lift: 0, dpsRaw: 0, ground: 0, range: 0, accSum: 0, weapons: 0, mounts: 0, mountsUsed: 0, bonus: 0,
     industry: 0, research: 0, social: 0, housing: 0, missiles: 0, drones: 0, fabStock: 0, missileVol: 0, droneVol: 0, armor: 0, gantries: [], engines: { thruster: 0, stardrive: 0 } };
   const radii = [], guns = [];
@@ -222,6 +229,7 @@ export function designStats(S, design, caps = allCapsules(S)) {
     if (g.engine) { t.engines[g.engine] += n; t.thrust += v.thrust * n; t.evasionRaw += v.evasion * n; if (v.lift) t.lift += v.lift * n; }
     if (g.mount) { t.mountsUsed += m.load * n; guns.push({ modId: m.mod.id, kind: m.kind, n, pos: m.mod.pos, size: m.volume / g.volume, load: m.load, role: roleOf(m.mod) }); if (g.charges) { t.missiles += Math.round(v.charges) * n; t.missileVol += m.volume * n; } if (g.hangar) { t.drones += Math.round(v.craft) * n; t.droneVol += m.volume * n; } }
     if (m.kind === 'works') t.fabStock += m.volume * n * FAB.stockPerVolume;
+    if (m.kind === 'weapon_energy' || m.kind === 'weapon_kinetic' || m.kind === 'shield' || m.kind === 'works') t.heatLoad += (v.power || 0) * n;   // HEAT: what makes heat sets the heat budget
     if (g.orbital) t.ground += v.damage * v.rate * v.accuracy / 100 * n;
     else if (g.mount && !g.hangar) { t.weapons += n; t.dpsRaw += v.damage * v.rate * v.accuracy / 100 * n; t.range = Math.max(t.range, v.range); t.accSum += v.accuracy * n; }
     if (m.kind === 'works') t.industry += v.industry * n;
@@ -263,7 +271,8 @@ export function designStats(S, design, caps = allCapsules(S)) {
   t.missileCost = t.missiles ? t.missileVol / t.missiles / t.synth : 0; t.droneCost = t.drones ? t.droneVol / t.drones / t.synth : 0;
   t.hullPerStock = FAB.hullPerStock * t.synth; t.armorPerStock = FAB.armorPerStock * t.synth;                                          // repairs, paid from the same stock
   t.heatRatio = t.reactorVol ? t.volume / t.reactorVol : 0;                                                                              // HEAT (see HEAT): ship round the reactor
-  t.heatCap = HEAT.cap * t.powerOut; t.cool = HEAT.cool * t.powerOut * clamp(t.heatRatio / HEAT.ref, 0.5, 2); t.batterySec = t.powerOut ? HEAT.battery * t.reserve / t.powerOut : 0;
+  t.heatLoad = Math.max(t.heatLoad * t.powerFactor, HEAT.floor * t.powerOut);                                                                // the combat load (see HEAT)
+  t.heatCap = HEAT.cap * t.heatLoad; t.cool = HEAT.cool * t.heatLoad * clamp(t.heatRatio / HEAT.ref, 0.5, 2); t.batterySec = t.powerOut ? HEAT.battery * t.reserve / t.powerOut : 0;
   t.maxReloads = t.missileCost ? Math.floor(t.fabStock / t.missileCost) : 0;      // if the whole stock went on missiles
   t.maxSorties = t.droneCost ? Math.floor(t.fabStock / t.droneCost) : 0;          // if the whole stock went on drones
   t.upkeep = t.klass === 'structure' ? t.cost * 0.02 / (1 + (passive.maintenance || 0) / 100) : 0;
