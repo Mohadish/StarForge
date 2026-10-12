@@ -42,7 +42,12 @@ function kept(doc, key, fine) {
     },
   };
 }
-const hulls = kept('library/hulls', HULL_KEY, ok), fleets = kept('library/fleets', FLEETS_KEY, okPlan);
+export const SHIPS_KEY = 'forge.eon.ships.v1';
+const okShipRec = r => !!(r && r.id && r.name && Array.isArray(r.modules) && r.modules.length);
+const hulls = kept('library/hulls', HULL_KEY, ok), fleets = kept('library/fleets', FLEETS_KEY, okPlan), ships = kept('library/ships', SHIPS_KEY, okShipRec);
+// the saved SHIPS (his ask, 2026-10-12: "a library of ships"): ship records (shipcode.js), kept the same way, shared by the
+// Painter and the Fleet Generator
+export const readShips = ships.read, loadShips = ships.load, saveShips = ships.save;
 // the silhouettes
 export const readLocal = hulls.read, writeLocal = hulls.write, loadLibrary = hulls.load, saveLibrary = hulls.save;
 // the saved fleets (the generator's plans), kept the same way

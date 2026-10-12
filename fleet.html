@@ -148,6 +148,11 @@ select { background: #04070f; color: var(--fg); border: 1px solid var(--line); b
   <div id="tray"></div>
   <div id="trayNote" class="tiny" style="margin-top:6px;min-height:16px"></div>
   <div class="row"><button id="edApply" class="go">Build it into the fleet</button><button id="edDone">Done</button></div>
+  <h2>This ship as a code</h2>
+  <div class="row" style="margin-top:0"><button id="shipCopy">⧉ Copy the ship's code</button><button id="shipSave">☆ Save to my ships…</button><button id="shipMine">▤ My ships</button><span class="tiny">The ship exactly as built — every module and dial, its silhouette. Paste a ship code into the box (from here, a friend or the Painter) and this ship becomes that one, at its own price; the unlocked ships pay for it. My ships are kept with the page and shared with the Painter.</span></div>
+  <textarea id="shipCode" rows="2" spellcheck="false" style="margin-top:6px" placeholder="paste a ship code (SHIP1:…) — this ship becomes it"></textarea>
+  <div id="shipNote" class="tiny" style="margin-top:4px"></div>
+  <div id="shipPick" class="ctx" hidden></div>
 </section>
 <script type="module" src="src/eon/fleetgen.js"></script>
 </body>

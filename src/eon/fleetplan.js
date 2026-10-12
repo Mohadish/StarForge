@@ -6,6 +6,7 @@
 // No DOM. The lab drives it; the game will read the saved plans.
 import { designFromWords, designFromChips, shipFromDesign, archetype, fleetOf, rng32, MIN_SHIP, classOf } from './battle.js';
 import { hullDef } from './hull.js';
+import { designOf } from './shipcode.js';
 
 const k = (cost, per, min = 1) => Math.max(min, Math.round(cost / per));
 export const TACTICS = {
@@ -103,9 +104,11 @@ export const chipsToWords = stacks => stacks.map(s => CHIP_WORD[s.kind] ? `${s.k
 
 // build the plan's ships for the lab (each from its words or its chips, at its price, with its own dice — a
 // re-price does not reshuffle a design) and the fleet they make
+// A ship can also be a FIXED DESIGN (`p.design`, a ship record from a ship code or the ship library — shipcode.js): built
+// exactly as it is, at its own price; it stays locked so the fleet's re-pricing never touches it.
 export function buildPlan(S, plan, letter = 'abcdefghijklmnopqrstuvwxy', num = '') {
   const ships = plan.ships.map((p, i) => {
-    const rng = rng32(p.seed), d = p.chips ? designFromChips(S, p.chips.map(c => ({ kind: c.kind, h: c.h, role: c.role })), p.cost, rng) : designFromWords(S, p.words, p.cost, rng);
+    const rng = rng32(p.seed), d = p.design ? designOf(p.design) : p.chips ? designFromChips(S, p.chips.map(c => ({ kind: c.kind, h: c.h, role: c.role })), p.cost, rng) : designFromWords(S, p.words, p.cost, rng);
     if (!d) return null;
     if (p.hull && hullDef(p.hull)) d.hull = p.hull;                                // the silhouette the designer gave it (a custom one travels in plan.hulls and must be registered first)
     const s = shipFromDesign(S, d); s.arch = archetype(s); s.name = `${num}${letter[i] || i + 1}`; s.plan = p; p.built = s;

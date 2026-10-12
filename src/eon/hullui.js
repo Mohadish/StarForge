@@ -82,7 +82,7 @@ export function createDialog() {
   q('nm').addEventListener('keydown', e => { if (e.key === 'Enter') q('ok').click(); if (e.key === 'Escape') done(null); });
   d.addEventListener('click', e => { if (e.target === d) done(null); });
   return {
-    ask: h => show('ask', `Save “${h.name}”`),                                                              // → 'over' | 'new' | null
+    ask: (h, what = 'silhouette') => { q('new').textContent = `Save as a new ${what}…`; return show('ask', `Save “${h.name}”`); },   // → 'over' | 'new' | null
     name: (def, title = 'A new silhouette') => show('name', title, def),                                    // → a name | null
     rename: h => show('name', `Rename “${h.name}”`, h.name),
     confirmDelete: (h, note = 'Designs using it fall back to a built-in one.') => show('delete', `Delete “${h.name}”? ${note}`),   // → true | null
@@ -93,7 +93,7 @@ export function createDialog() {
 // `taken(name)` says a different shape already has that name (asked again); `commit(id | null, name)` does the saving
 // and returns the hull. Resolves with the saved hull, or null when cancelled.
 export async function saveFlow(dlg, { mine, defaultName, taken, commit, what = 'silhouette' }) {
-  if (mine) { const c = await dlg.ask(mine); if (!c) return null; if (c === 'over') return commit(mine.id, mine.name); }
+  if (mine) { const c = await dlg.ask(mine, what); if (!c) return null; if (c === 'over') return commit(mine.id, mine.name); }
   let def = defaultName || `My ${what}`, title = `A new ${what}`;
   for (;;) { const name = await dlg.name(def, title); if (!name) return null; if (taken && taken(name)) { def = name; title = `There is already a “${name}” — another name?`; continue; } return commit(null, name); }
 }

@@ -4,7 +4,7 @@
 // picked colours (a sample ship wears them live), grand tactics with shares → Compose → every ship with its price
 // slider, lock, words and its painted picture; Edit opens a ship: chips, its silhouette (double-tap the picture to
 // reshape the outline — the painter's editor), its price. Everything is one FLEET2 code.
-import { designFromWords, designFromChips, shipFromDesign, archetype, rng32, systemsOf } from './battle.js';
+import { designFromWords, designFromChips, shipFromDesign, archetype, rng32, systemsOf, MIN_SHIP } from './battle.js';
 import { KINDS, PRESETS } from './modules.js';
 import { TEMPLATES, hullDef, setUserHulls, areaOf, bboxOf, HULL_VOLUME } from './hull.js';
 import { lookFromColors, styleChoices, spriteOf, thumbOf } from './skins.js';
@@ -12,7 +12,8 @@ import { STYLES, loadStyle } from './styles.js';
 import { paintHull, recipeFor } from './paint.js';
 import { TACTICS, TACTIC_IDS, composePlan, setCost, buildPlan, shipLabel, wordsToChips, chipsToWords, planStrip, planCode, planFromCode, exportAllText, naturalShips } from './fleetplan.js';
 import { createShapeEditor, GW, GH } from './shapeedit.js';
-import { readLocal, loadLibrary, saveLibrary, readFleets, loadFleets, saveFleets } from './library.js';
+import { readLocal, loadLibrary, saveLibrary, readFleets, loadFleets, saveFleets, readShips, loadShips, saveShips } from './library.js';
+import { shipRecord, shipCode, shipFromCode, designOf, chipsOfDesign } from './shipcode.js';
 import { renderStrip, createDialog, createMenu, saveFlow } from './hullui.js';
 import { mountNav } from './nav.js';
 mountNav('fleet');
@@ -32,6 +33,9 @@ let PLANS = readFleets().map(withId);
 const savePlans = list => { PLANS = list; saveFleets(list); };
 loadFleets().then(r => { if (r.durable) { PLANS = r.list.map(withId); renderFleetStrip(); } });
 const look = () => lookFromColors($('style').value, $('colA').value, $('colB').value);
+// the SAVED SHIPS (library.js, shared with the Painter): ship records (shipcode.js)
+let SHIPS = readShips();
+loadShips().then(r => { if (r.durable) SHIPS = r.list; });
 
 // ---------------- painting a ship into a canvas ----------------
 function drawShip(cv, ship, lk, after) {
@@ -98,8 +102,8 @@ function renderFleet() {
   note(`<b>${esc(p.name)}</b>: ${p.ships.length} ships · ${p.mix.map(m => `${TACTICS[m.id].name} ${Math.round(m.share * 100)}%`).join(', ')} · planned ${fmt(p.budget)}, built ${fmt(total)}${Math.abs(total - p.budget) / p.budget > 0.08 ? ' <span style="color:var(--warn)">(some ships could not be brought to their price exactly — see "built")</span>' : ''}. Drag a price and the unlocked others pay for it. <b>Edit</b> opens a ship.`);
   $('ships').innerHTML = p.ships.map((s, i) => {
     const b = s.built, max = p.budget - p.ships.filter((o, j) => j !== i && o.locked).reduce((a, o) => a + o.cost, 0) - p.ships.filter((o, j) => j !== i && !o.locked).length * 150;
-    return `<div class="ship"><div class="left"><div class="n"><button class="x" data-lock="${i}" title="${s.locked ? 'locked: its price stays put' : 'lock its price'}">${s.locked ? '🔒' : '🔓'}</button><b>${b ? esc(b.name) : i + 1}</b><span class="arch">${esc(shipLabel(s))}${b ? ' · ' + esc(b.arch.label) : ''}</span><button class="x" data-edit="${i}">Edit</button><span class="rec"><span data-show="${i}">${fmt(s.cost)}</span>${b && Math.abs(b.cost - s.cost) / s.cost > 0.08 ? ` <small>built ${fmt(b.cost)}</small>` : ''}</span></div>
-      <input type="range" data-cost="${i}" min="150" max="${Math.max(150, Math.round(max))}" value="${Math.round(s.cost)}" ${s.locked ? 'disabled' : ''}>
+    return `<div class="ship"><div class="left"><div class="n"><button class="x" data-lock="${i}" title="${s.design ? 'a fixed design (a ship code or one of your ships): its price is its own — Edit it and Build it from chips to free it' : s.locked ? 'locked: its price stays put' : 'lock its price'}">${s.design ? '📌' : s.locked ? '🔒' : '🔓'}</button><b>${b ? esc(b.name) : i + 1}</b><span class="arch">${esc(shipLabel(s))}${b ? ' · ' + esc(b.arch.label) : ''}</span><button class="x" data-edit="${i}">Edit</button><span class="rec"><span data-show="${i}">${fmt(s.cost)}</span>${b && Math.abs(b.cost - s.cost) / s.cost > 0.08 ? ` <small>built ${fmt(b.cost)}</small>` : ''}</span></div>
+      <input type="range" data-cost="${i}" min="150" max="${Math.max(150, Math.round(max))}" value="${Math.round(s.cost)}" ${s.locked || s.design ? 'disabled' : ''}>
       <input type="text" data-words="${i}" value="${esc(s.words)}" title="the ship in words — edit and press Enter">
       <div class="tiny">${b ? `${esc((hullDef(b.design.hull) || {}).name || b.design.hull)} · hull ${fmt(b.hpMax)}${b.arMax ? ` · armour ${fmt(b.arMax)}` : ''} · shield ${fmt(b.shMax)} · ${fmt(b.dps)} dmg/s · reach ${b.pref} · speed ${fmt(b.speed)} · turns ${Math.round(b.turn || 0)}°/s · evasion ${Math.round(b.evade * 100)}%<br>${esc(systemsOf(b))}` : '<span style="color:var(--bad)">could not build this one at this price</span>'}</div></div>
       <canvas class="pic" data-pic="${i}" width="220" height="124" title="Edit to open it"></canvas></div>`; }).join('');
@@ -111,11 +115,11 @@ const syncCodeCard = () => { $('save').disabled = $('copy').disabled = !PLAN; };
 $('ships').addEventListener('input', e => { const c = e.target.closest('[data-cost]'); if (c) { const show = $('ships').querySelector(`[data-show="${c.dataset.cost}"]`); if (show) show.textContent = fmt(+c.value); } });
 $('ships').addEventListener('change', e => {
   const c = e.target.closest('[data-cost]'); if (c && PLAN) { setCost(PLAN, +c.dataset.cost, +c.value); rebuild(); return; }
-  const w = e.target.closest('[data-words]'); if (w && PLAN) { const s = PLAN.ships[+w.dataset.words]; s.words = w.value.trim() || s.words; s.custom = true; s.chips = null; rebuild(); }
+  const w = e.target.closest('[data-words]'); if (w && PLAN) { const s = PLAN.ships[+w.dataset.words]; s.words = w.value.trim() || s.words; s.custom = true; s.chips = null; s.design = null; rebuild(); }
 });
 $('ships').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('[data-words]')) e.target.blur(); });
 $('ships').addEventListener('click', e => {
-  const l = e.target.closest('[data-lock]'); if (l) { const s = PLAN.ships[+l.dataset.lock]; s.locked = !s.locked; renderFleet(); return; }
+  const l = e.target.closest('[data-lock]'); if (l) { const s = PLAN.ships[+l.dataset.lock]; if (s.design) { note('📌 A fixed design keeps its own price. Open it (Edit) and press Build it into the fleet to make it a chips ship whose price can move.'); return; } s.locked = !s.locked; renderFleet(); return; }
   const ed = e.target.closest('[data-edit]') || e.target.closest('[data-pic]'); if (ed) openEditor(+(ed.dataset.edit ?? ed.dataset.pic));
 });
 
@@ -175,7 +179,7 @@ const mineOf = id => HULLS.find(h => h.id === id) || null;
 function syncOutBar() { const st = ed.state(), mine = mineOf(st.id); $('outWho').textContent = mine ? `Editing ${mine.name} (yours)` : `From ${(st.name || '').replace(/ II$/, '')} — Save makes a new one`; $('outSym').value = st.sym || ''; $('outDelete').hidden = !mine; }
 function openEditor(i) {
   editing = i; const s = PLAN.ships[i]; if (!s) return;
-  tray = (s.chips ? s.chips.map(c => ({ ...c })) : wordsToChips(s.words)).map(c => ({ ...c, id: chipId++ })); traySel = tray.length ? tray[0].id : null;
+  tray = (s.chips ? s.chips.map(c => ({ ...c })) : s.design ? chipsOfDesign(designOf(s.design)) : wordsToChips(s.words)).map(c => ({ ...c, id: chipId++ })); traySel = tray.length ? tray[0].id : null;
   $('editor').hidden = false; refreshEditor(); renderTray(); $('editor').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 function closeEditor() { editing = null; $('editor').hidden = true; if (ed.editing) ed.editing = false; }
@@ -183,7 +187,8 @@ function refreshEditor() {
   const s = PLAN.ships[editing]; if (!s) return closeEditor();
   const b = s.built, p = PLAN, max = p.budget - p.ships.filter((o, j) => j !== editing && o.locked).reduce((a, o) => a + o.cost, 0) - p.ships.filter((o, j) => j !== editing && !o.locked).length * 150;
   $('edTitle').innerHTML = `<b>${b ? esc(b.name) : editing + 1}</b> of ${esc(p.name)} <span class="arch">${esc(shipLabel(s))}</span>`;
-  $('edCost').min = 150; $('edCost').max = Math.max(150, Math.round(max)); $('edCost').value = Math.round(s.cost); $('edCost').disabled = !!s.locked; $('edCostShow').textContent = fmt(s.cost) + (s.locked ? ' 🔒' : '');
+  $('edCost').min = 150; $('edCost').max = Math.max(150, Math.round(max)); $('edCost').value = Math.round(s.cost); $('edCost').disabled = !!s.locked || !!s.design; $('edCostShow').textContent = fmt(s.cost) + (s.design ? ' 📌 fixed design' : s.locked ? ' 🔒' : '');
+  if (document.activeElement !== $('shipCode')) $('shipCode').value = b ? shipCode(shipRecord(b.design, { name: shipName(s), style: $('style').value, colA: $('colA').value, colB: $('colB').value })) : '';
   renderHullStrip();
   if (!ed.editing) { lock = null; drawShip($('edPic'), b, look()); }
 }
@@ -198,14 +203,68 @@ function previewShip() {                                                        
 }
 function applyChips() {
   if (editing == null || !tray.length) return; const s = PLAN.ships[editing];
-  s.chips = tray.map(c => ({ kind: c.kind, h: c.h, role: c.role })); s.words = chipsToWords(s.chips); s.custom = true;
+  s.chips = tray.map(c => ({ kind: c.kind, h: c.h, role: c.role })); s.words = chipsToWords(s.chips); s.custom = true; s.design = null;
   rebuild(); $('trayNote').innerHTML = `Built into the fleet at ${fmt(s.cost)}.`;
 }
 $('edApply').onclick = applyChips;
 $('edDone').onclick = () => { closeEditor(); $('fleet').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
 $('edCost').addEventListener('input', () => { $('edCostShow').textContent = fmt(+$('edCost').value); });
 $('edCost').addEventListener('change', () => { setCost(PLAN, editing, +$('edCost').value); rebuild(); });
-$('edLock').onclick = () => { const s = PLAN.ships[editing]; s.locked = !s.locked; renderFleet(); };
+$('edLock').onclick = () => { const s = PLAN.ships[editing]; if (s.design) { $('shipNote').textContent = '📌 A fixed design keeps its own price — press Build it into the fleet (above) to make it a chips ship whose price can move.'; return; } s.locked = !s.locked; renderFleet(); };
+
+// ---------------- THE SHIP AS A CODE, and MY SHIPS (his ask, 2026-10-12: "this is the ship as a code … lock in ships you like") ----------------
+const shipName = s => s.design ? s.design.name : `${PLAN.name} ${s.built ? s.built.name : ''}`.trim();
+const coat = () => ({ style: $('style').value, colA: $('colA').value, colB: $('colB').value });
+// this ship becomes the one in the record: exactly that design, at its own price — the unlocked others pay for it (the fleet's
+// price grows when they cannot); it is PINNED (a fixed design) so re-pricing the others never touches it
+function takeShip(i, rec) {
+  const s = PLAN.ships[i]; if (!s || !rec) return;
+  if (rec.hullDef) { PLAN.hulls = PLAN.hulls || {}; PLAN.hulls[rec.hullDef.id] = { ...rec.hullDef, klass: 'starship' }; registerHulls(); }
+  const d = designOf(rec), cost = Math.round(shipFromDesign(S, d).cost);
+  s.locked = false;
+  const others = PLAN.ships.filter((o, j) => j !== i && !o.locked), lockedSum = PLAN.ships.filter((o, j) => j !== i && o.locked).reduce((a, o) => a + o.cost, 0), room = PLAN.budget - lockedSum - others.length * MIN_SHIP;
+  if (!others.length) { PLAN.budget += cost - s.cost; s.cost = cost; }
+  else { if (cost > room) PLAN.budget += cost - room; setCost(PLAN, i, cost); }
+  s.design = { did: d.id, name: rec.name || 'Ship', hull: rec.hull, modules: d.modules.map(m => ({ ...m })), ...(rec.id ? { libId: rec.id } : {}) };
+  s.hull = rec.hull; s.words = rec.name || 'a ship from a code'; s.chips = null; s.custom = true; s.locked = true;
+  rebuild();
+  if (editing === i) { tray = chipsOfDesign(d).map(c => ({ ...c, id: chipId++ })); traySel = tray.length ? tray[0].id : null; renderTray(); }
+}
+$('shipCode').addEventListener('input', () => {
+  if (editing == null || !PLAN) return; const text = $('shipCode').value.trim(); if (!text) return;
+  const rec = shipFromCode(text); if (!rec) { $('shipNote').textContent = 'That is not a ship code (yet) — paste the whole line, it starts with SHIP1:'; return; }
+  const s = PLAN.ships[editing]; if (s.built && text === shipCode(shipRecord(s.built.design, { name: shipName(s), ...coat() }))) return;
+  takeShip(editing, rec); $('shipCode').blur();
+  $('shipNote').innerHTML = `<b>${esc(rec.name || 'The ship')}</b> is this ship now — 📌 a fixed design at ${fmt(PLAN.ships[editing].cost)}; the others paid for it.`;
+});
+$('shipCode').addEventListener('blur', () => { if (editing != null) refreshEditor(); });
+$('shipCopy').onclick = async () => { const c = $('shipCode'); if (!c.value) return; c.select(); try { await navigator.clipboard.writeText(c.value); $('shipNote').textContent = 'Copied — paste it into a ship of any fleet, or into the Painter.'; } catch (e) { document.execCommand && document.execCommand('copy'); $('shipNote').textContent = 'Selected — copy it.'; } };
+$('shipSave').onclick = async () => {
+  const s = PLAN && PLAN.ships[editing], b = s && s.built; if (!b) return;
+  const mine = s.design && s.design.libId ? SHIPS.find(x => x.id === s.design.libId) || null : null;
+  const rec = await saveFlow(hdlg, { what: 'ship', mine, defaultName: shipName(s), taken: n => SHIPS.some(x => x.name.toLowerCase() === n.toLowerCase() && (!mine || x.id !== mine.id)), commit: (id, name) => {
+    const r = { ...shipRecord(b.design, { name, ...coat() }), id: id || 's' + Math.random().toString(36).slice(2, 9), cost: Math.round(b.cost), label: b.arch.label, at: new Date().toISOString() };
+    const list = SHIPS.slice(), k = list.findIndex(x => x.id === r.id); if (k >= 0) list[k] = r; else list.unshift(r); SHIPS = list; saveShips(list);
+    if (s.design) { s.design.libId = r.id; s.design.name = name; s.words = name; }
+    return r;
+  } });
+  if (rec) { renderFleet(); $('shipNote').innerHTML = `Saved <b>${esc(rec.name)}</b> to your ships — ▤ My ships puts it into any fleet; the Painter has it too.`; }
+};
+function showShipPick(anchor) {
+  const box = $('shipPick'), r = anchor.getBoundingClientRect();
+  box.innerHTML = SHIPS.length ? SHIPS.map((x, i) => `<div class="frow"><b title="${esc(x.name)}">${esc(x.name)}</b><small>${fmt(x.cost || 0)}${x.label ? ' · ' + esc(x.label) : ''}</small><button data-spk="U:${i}" title="this ship becomes it">use</button><button data-spk="C:${i}" title="copy its code">⧉</button><button data-spk="D:${i}" title="delete it from your ships">✕</button></div>`).join('')
+    : '<div class="tiny" style="padding:6px">No saved ships yet — ☆ Save to my ships…, here or in the Painter.</div>';
+  box.hidden = false; box.style.left = Math.max(4, Math.min(r.left, innerWidth - 300)) + 'px'; box.style.top = Math.min(r.bottom + 4, innerHeight - 140) + 'px';
+}
+$('shipMine').onclick = e => { e.stopPropagation(); const box = $('shipPick'); if (!box.hidden) { box.hidden = true; return; } showShipPick(e.currentTarget); };
+document.addEventListener('click', async e => {
+  const k = e.target.closest('[data-spk]');
+  if (!k) { if (!e.target.closest('#shipPick')) $('shipPick').hidden = true; return; }
+  const [what, i] = k.dataset.spk.split(':'), x = SHIPS[+i]; $('shipPick').hidden = true; if (!x) return;
+  if (what === 'U' && editing != null) { takeShip(editing, x); $('shipNote').innerHTML = `<b>${esc(x.name)}</b> is this ship now — 📌 a fixed design at ${fmt(PLAN.ships[editing].cost)}.`; }
+  else if (what === 'C') { const code = shipCode(x); try { await navigator.clipboard.writeText(code); $('shipNote').innerHTML = `Copied the code of <b>${esc(x.name)}</b>.`; } catch (er) { $('shipCode').value = code; $('shipCode').select(); $('shipNote').textContent = 'In the box and selected — copy it.'; } }
+  else if (what === 'D') { if (!(await hdlg.confirmDelete(x, 'It goes from your ships; fleets that carry it keep their copy.'))) return; SHIPS = SHIPS.filter(y => y.id !== x.id); saveShips(SHIPS); $('shipNote').innerHTML = `Deleted <b>${esc(x.name)}</b> from your ships.`; }
+});
 
 // the outline editor on the big picture (the painter's): the ship is held still while its points are dragged
 const scaleInfo = (poly, volume) => { const a0 = areaOf(poly) || 1, b = bboxOf(poly); return { s: Math.sqrt(Math.max(volume / HULL_VOLUME, 0.5) / a0), cx: (b.minx + b.maxx) / 2, cy: (b.miny + b.maxy) / 2 }; };
