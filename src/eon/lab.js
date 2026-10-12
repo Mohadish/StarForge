@@ -10,6 +10,7 @@ import { readLocal, loadLibrary, saveLibrary, decodeLibrary, mergeLibrary, loadF
 loadFleets();                                                                      // the saved fleets kept with the page come down into the browser's copy, which the picker reads
 import { lookOf, spriteOf, lookFromColors } from './skins.js';
 import { buildPlan, planFromCode, planCode, plansLoad, exportAllText } from './fleetplan.js';
+import { mountNav } from './nav.js';
 const TCELL = { weapon_energy: 0, weapon_kinetic: 1, weapon_missile: 2 };   // a style's turret cells: beam, gun, missile
 const skinsOn = () => !!($('skins') && $('skins').checked);
 
@@ -30,7 +31,7 @@ try { arenaH = +localStorage.getItem('lab.arenaH') || 360; order = localStorage.
 // ARENA mode (lab.html#arena): the replay card alone, filling the page, no random pool — the Fleet Generator shows a
 // fight inside a frame this way (it posts {type:'fight', a, b}; the lab answers {type:'ready'} and {type:'result'})
 const ARENA = /(^#|[#&])arena(?=&|$)/.test(location.hash) || /[?&]arena(?=&|$)/.test(location.search);
-if (ARENA) document.body.classList.add('arena');
+if (ARENA) document.body.classList.add('arena'); else mountNav('lab');               // the top bar (nav.js) — not inside the Fleet Generator's frame
 const tellParent = msg => { if (ARENA && window.parent !== window) { try { window.parent.postMessage(msg, '*'); } catch (e) { /* no parent to tell */ } } };
 let runNote = '';
 const fleetSizes = () => (LAB && LAB.fleetSizes) || [1, 1];

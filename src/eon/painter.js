@@ -8,6 +8,8 @@ import { paintHull, RECIPE, autoRibbonPct, autoEngines, pct } from './paint.js';
 import { createShapeEditor, GW, GH } from './shapeedit.js';
 import { readLocal, loadLibrary, saveLibrary, libraryCode as codeOf } from './library.js';
 import { renderStrip, createDialog, createMenu, saveFlow } from './hullui.js';
+import { mountNav } from './nav.js';
+mountNav('paint');
 
 const $ = id => document.getElementById(id), esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 // the library (library.js): the browser's copy at once, the page's own database when there is one (a published page) —

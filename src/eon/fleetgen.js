@@ -14,6 +14,8 @@ import { TACTICS, TACTIC_IDS, composePlan, setCost, buildPlan, shipLabel, wordsT
 import { createShapeEditor, GW, GH } from './shapeedit.js';
 import { readLocal, loadLibrary, saveLibrary, readFleets, loadFleets, saveFleets } from './library.js';
 import { renderStrip, createDialog, createMenu, saveFlow } from './hullui.js';
+import { mountNav } from './nav.js';
+mountNav('fleet');
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -279,7 +281,6 @@ $('save').onclick = async () => {
   renderFleet(); renderFleetStrip(); syncSlots(p); $('codeNote').innerHTML = `Saved <b>${esc(p.name)}</b> — it is in the ribbon above; drag it onto Fleet 1 or Fleet 2 at the top, or click a Fleet box and pick it.`;
 };
 const exportAll = () => { const list = PLANS; if (!list.length) { $('fightNote').textContent = 'Nothing saved yet.'; return; } try { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([exportAllText(list)], { type: 'text/plain' })); a.download = 'starforge-fleets.txt'; document.body.appendChild(a); a.click(); a.remove(); $('fightNote').textContent = 'Saved starforge-fleets.txt — every fleet, a line about it and its code.'; } catch (e) { $('codeA').value = exportAllText(list).slice(0, 4000); $('fightNote').textContent = 'Could not save a file here — the text is in the Fleet 1 box; copy it.'; } };
-$('toLabTop').onclick = () => { location.href = 'lab.html'; };
 function loadPlan(p) {
   if (!p) return; PLAN = { ...p, ships: p.ships.map(s => ({ ...s })), hulls: p.hulls || {} }; PLAN.savedId = p.id || null;   // opened from the ribbon: Save… can overwrite it
   $('budget').value = p.budget; $('n').value = p.ships.length; $('name').value = p.name || 'My fleet'; if (p.style) $('style').value = p.style; if (p.colA) $('colA').value = p.colA; if (p.colB) $('colB').value = p.colB;

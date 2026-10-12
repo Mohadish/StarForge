@@ -9,6 +9,8 @@ import { createTetra } from './tetra.js';
 import { drawHull } from './hullview.js';
 import { hullDef, hullsFor, setUserHulls, bboxOf } from './hull.js';
 import { createHullEditor } from './hulledit.js';
+import { mountNav } from './nav.js';
+mountNav('eon', { into: document.getElementById('topbar') });
 
 const KEY = 'forge.eon.v8';
 const HULL_KEY = 'forge.eon.hulls.v1';       // the player's own silhouettes live outside the game: a new game keeps them
