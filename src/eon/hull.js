@@ -76,7 +76,27 @@ export function hullOf(id, volume, minArea = 0, klass = null) {
 // shields sit along the length, evenly spaced; on a structure they sit over it
 export const shieldSpots = (hull, radii) => radii.map((r, i) => ({ x: hull.box.minx + hull.bw * (i + 1) / (radii.length + 1), y: hull.klass === 'structure' ? (hull.box.miny + hull.box.maxy) / 2 : 0, r }));
 
-// how much of the hull lies under at least one field
+// SHIELD COVER (his call, 2026-10-13: "the graphics is just cosmetics … I want to be able to change the shape of the ship and it
+// shouldn't affect anything"): the cover is the fields' total reach against the hull's size in squares — which comes from the
+// volume alone — never where the fields sit on the outline. More shields never cover less, and enough always cover it all.
+// Each field lays FIELD_SHARE of its disc on the hull (0.7: what the fields really covered on big hulls under the old rule, which
+// counted the outline under circles strung along the spine — a round ship got 99 % with seven and lost cover past fifteen).
+export const FIELD_SHARE = 0.7;
+export const fieldCover = (area, radii) => !radii.length ? 0 : Math.min(1, radii.reduce((a, r) => a + FIELD_SHARE * Math.PI * r * r, 0) / Math.max(area, 0.01));
+// the BUBBLE that shows the cover (for drawing only): an ellipse round the hull's middle, grown until it holds `cover` of the
+// hull's area — at full cover it wraps the whole ship (the smallest ellipse of the hull's proportions round its box, a little out)
+export function fieldBubble(hull, cover) {
+  const box = hull.box || bboxOf(hull.poly), bw = box.maxx - box.minx, bh = box.maxy - box.miny, cx = (box.minx + box.maxx) / 2, cy = (box.miny + box.maxy) / 2;
+  const RX = bw / 2 * Math.SQRT2 + 0.25, RY = bh / 2 * Math.SQRT2 + 0.25;
+  if (cover >= 0.999) return { cx, cy, rx: RX, ry: RY, cover: 1 };
+  const step = Math.max(0.04, Math.min(bw, bh) / 30), pts = [];
+  for (let x = box.minx + step / 2; x < box.maxx; x += step) for (let y = box.miny + step / 2; y < box.maxy; y += step) if (inside(hull.poly, x, y)) pts.push([x - cx, y - cy]);
+  if (!pts.length || cover <= 0) return { cx, cy, rx: 0, ry: 0, cover: 0 };
+  let lo = 0, hi = 1;
+  for (let i = 0; i < 16; i++) { const s = (lo + hi) / 2, rx = RX * s, ry = RY * s; let n = 0; for (const [x, y] of pts) if ((x / rx) ** 2 + (y / ry) ** 2 <= 1) n++; if (n / pts.length < cover) lo = s; else hi = s; }
+  const s = (lo + hi) / 2; return { cx, cy, rx: RX * s, ry: RY * s, cover };
+}
+// how much of the hull lies under at least one field — the OLD rule, by position on the outline (no longer used for the cover)
 export function coverage(hull, shields) {
   if (!shields.length) return 0;
   const step = Math.max(0.08, Math.min(hull.bw, hull.bh) / 28);

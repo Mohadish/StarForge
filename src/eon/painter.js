@@ -2,7 +2,7 @@
 // a double-tap on it opens its outline right there (the editor lives on the same canvas, see shapeedit.js):
 // drag the points, double-tap to add or remove, pick the symmetry, name it, save it. Everything follows
 // the volume; the sliders are offsets to dial in and report back.
-import { TEMPLATES, hullOf, hullDef, setUserHulls, areaOf, bboxOf, HULL_VOLUME } from './hull.js';
+import { TEMPLATES, hullOf, hullDef, setUserHulls, areaOf, bboxOf, HULL_VOLUME, fieldBubble } from './hull.js';
 import { STYLES, loadStyle } from './styles.js';
 import { paintHull, RECIPE, autoRibbonPct, autoEngines, pct } from './paint.js';
 import { createShapeEditor, GW, GH } from './shapeedit.js';
@@ -172,8 +172,24 @@ function repaint(overlayOnly = false) {
     $('info').textContent = `${last.rings} ring${last.rings === 1 ? '' : 's'} (${last.widths.join(' · ')} sq, core ${last.core}, spine ${last.spine}) · ${last.engines} engine${last.engines === 1 ? '' : 's'} · ${last.greebles} greebles · ${last.hardpoints.length} hard points (${loadout}) · hull ${last.squares} squares · ${last.px.toFixed(1)} px a square · ${Math.round(performance.now() - t0)} ms · settings to report: plating ${sgn(mP)}, fittings ${sgn(mF)}, seed ${seed}, wash ${Math.round(wash * 100)} ${$('washA').value}→${$('washB').value}, lights ${Math.round(lights * 100)} ${$('lightColor').value} · fine: ribbon ${sgn(ribO)}, engines ${sgn(engO)}, core ${sgn(coreO)}, spine ${sgn(spineO)}, fat ${sgn(fatO)}, greebles ${sgn(grO)}, mounts ${sgn(mtO)}, turrets ${sgn(ttO)}`;
     $('volv').textContent = $('vol').value;
   } else cv.getContext('2d').putImageData(last._snap, 0, 0);
-  if (!ed.editing) drawTurrets(cv.getContext('2d'));
+  if (!ed.editing) { drawTurrets(cv.getContext('2d')); drawField(cv.getContext('2d')); }
   ed.draw(cv.getContext('2d'));
+}
+// the SHIELDS' FIELD (his ask, 2026-10-13: "I need to see a bubble"): one bubble round the ship, as big as the design's cover —
+// it grows from the middle as shields go in and wraps the whole ship at full cover. The cover comes from the ship's size in
+// squares, never its outline (hull.js fieldCover); the bubble only shows it on the outline painted here.
+function drawField(g) {
+  const sh = designer && designer.ship(); if (!sh || !sh.t.shieldRaw || !$('field').checked || !last || !last.view) return;
+  const P = poly(), b = fieldBubble({ poly: P, box: bboxOf(P) }, sh.t.cover), { S, ox, oy } = last.view; if (!(b.rx > 0)) return;
+  const x = ox + b.cx * S, y = oy + b.cy * S, rx = b.rx * S, ry = b.ry * S, full = b.cover >= 0.999;
+  g.save(); g.translate(x, y); g.scale(1, ry / rx);
+  const gr = g.createRadialGradient(0, 0, rx * 0.35, 0, 0, rx); gr.addColorStop(0, 'rgba(207,137,255,0)'); gr.addColorStop(0.82, 'rgba(207,137,255,.07)'); gr.addColorStop(1, 'rgba(207,137,255,.30)');
+  g.fillStyle = gr; g.beginPath(); g.arc(0, 0, rx, 0, 7); g.fill(); g.restore();
+  g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, 7); g.strokeStyle = full ? 'rgba(207,137,255,.85)' : 'rgba(207,137,255,.95)'; g.lineWidth = 2; if (!full) g.setLineDash([8, 6]); g.stroke(); g.setLineDash([]);
+  const text = full ? 'shield covers the whole ship' : `shield covers ${Math.round(b.cover * 100)} % — add a shield`, ty = Math.max(16, y - ry - 8);
+  g.font = 'bold 12px system-ui, sans-serif'; g.textAlign = 'center'; const tw = g.measureText(text).width;
+  g.fillStyle = 'rgba(7,10,18,.82)'; g.beginPath(); g.roundRect ? g.roundRect(x - tw / 2 - 7, ty - 13, tw + 14, 19, 6) : g.rect(x - tw / 2 - 7, ty - 13, tw + 14, 19); g.fill();
+  g.fillStyle = '#cf89ff'; g.fillText(text, x, ty);
 }
 
 // ---------------- wiring ----------------
@@ -185,6 +201,7 @@ $('seedN').onchange = e => { $('seed').value = Math.max(0, Math.min(999, Math.ro
 $('seedNext').onclick = () => { $('seed').value = (+$('seed').value + 1) % 1000; repaint(); };
 for (const id of ['glow', 'greebles', 'inner', 'spine', 'engines', 'outline', 'base', 'voids', 'backing', 'underlay']) $(id).onchange = () => repaint();
 $('turrets').onchange = () => repaint(true);
+$('field').onchange = () => repaint(true);
 $('resetOff').onclick = () => { for (const id of ['mPlating', 'mFittings', 'ribOff', 'engOff', 'coreOff', 'spineOff', 'fatOff', 'greebleOff', 'mountOff', 'turretOff']) $(id).value = 0; repaint(); };
 // the turrets follow the pointer over the ship (a finger too); off the canvas they face forward again
 $('out').addEventListener('pointermove', e => { if (ed.editing || !last?.hardpoints?.length) return; const cv = $('out'), r = cv.getBoundingClientRect(); aim = [(e.clientX - r.left) * cv.width / r.width, (e.clientY - r.top) * cv.height / r.height]; repaint(true); });

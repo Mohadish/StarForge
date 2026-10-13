@@ -25,7 +25,7 @@
 // A REACTOR is sized to the need: its output is dialled from a quarter to four times the standard,
 // and its cost and bulk follow.
 import { CHANNELS } from '../data/properties.js';
-import { hullOf, shieldSpots, coverage, hardPoints } from './hull.js';
+import { hullOf, shieldSpots, fieldCover, hardPoints } from './hull.js';
 
 export const PASSIVE = 0.30;
 export const TRIANGLE = ['miniaturization', 'affordability'];
@@ -243,9 +243,10 @@ export function designStats(S, design, caps = allCapsules(S)) {
   t.hullClass = t.dock ? 'dock' : t.klass;
   const hull = hullOf(design.hull, t.volume, t.gantries.reduce((a, g) => a + g.w * g.h, 0) * 1.8, t.hullClass);
   t.hull = hull; t.bw = hull.w; t.bh = hull.h; t.squares = Math.round(hull.area * 10) / 10;
-  // shield cover: how much of the hull lies under some field
+  // shield cover: the fields' total reach against the hull's size in squares — never its shape (hull.js fieldCover, his call
+  // 2026-10-13); `shields` (spots along the spine) is kept for the pages that count them
   const shields = shieldSpots(hull, radii);
-  t.cover = coverage(hull, shields);
+  t.cover = fieldCover(hull.area, radii);
   t.shield = t.shieldRaw * t.cover;                           // a field that misses part of the hull protects that much less
   t.powerFactor = t.powerUse <= 0 ? 1 : clamp(t.powerOut / t.powerUse, 0.25, 1);   // short of power = everything runs slower, nothing switches off
   t.fireFactor = t.mountsUsed <= 0 ? 1 : clamp(t.mounts / t.mountsUsed, 0.25, 1);   // short of mounts = the guns fire slower, none falls silent

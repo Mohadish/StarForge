@@ -2,6 +2,7 @@
 // none reaches), the gantry openings of a dock, the ground under a structure, and how much of the
 // space dock's room it takes.
 import { CLASS_NAME, KINDS } from './modules.js';
+import { fieldBubble } from './hull.js';
 
 const CLASS_COLOR = { starship: '#5fe3d0', platform: '#7ef3b0', structure: '#ffb347' };
 const shade = (hex, k) => { const n = parseInt(hex.slice(1), 16); const f = v => Math.max(0, Math.min(255, Math.round(v * k))); return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`; };
@@ -38,9 +39,11 @@ export function drawHull(canvas, ds, fit, selMod = null) {
     gr.addColorStop(0, 'rgba(126,243,176,.55)'); gr.addColorStop(1, 'rgba(126,243,176,0)');
     g.fillStyle = gr; g.beginPath(); g.ellipse(X(hull.box.minx), Y(0), r, r * 0.7, 0, 0, 7); g.fill();
   }
-  if (shields.length && t.cover < 0.999) {                              // unprotected hull in red, the covered part painted over it
+  // the shields' field: ONE bubble round the ship's middle, as big as the cover (hull.js fieldBubble) — the hull outside it red
+  const bub = shields.length ? fieldBubble(hull, t.cover) : null, bubPath = () => { g.beginPath(); g.ellipse(X(bub.cx), Y(bub.cy), Math.max(0.1, bub.rx * px), Math.max(0.1, bub.ry * px), 0, 0, 7); };
+  if (bub && t.cover < 0.999) {                                         // unprotected hull in red, the covered part painted over it
     hullPath(); g.fillStyle = 'rgba(255,121,121,.55)'; g.fill();
-    g.save(); g.beginPath(); for (const s of shields) { g.moveTo(X(s.x) + s.r * px, Y(s.y)); g.arc(X(s.x), Y(s.y), s.r * px, 0, 7); } g.clip(); paint(); g.restore();
+    g.save(); bubPath(); g.clip(); paint(); g.restore();
   } else paint();
   hullPath(); g.strokeStyle = 'rgba(255,255,255,.7)'; g.lineWidth = 1.5; g.stroke();
   // the guns: drawn to their size; the open module's are lit; the ones the computer cannot run are red
@@ -55,12 +58,13 @@ export function drawHull(canvas, ds, fit, selMod = null) {
     else { g.beginPath(); g.arc(x, y, r * 1.5, 0, 7); g.stroke(); g.beginPath(); g.arc(x, y, r * 0.6, 0, 7); g.fill(); }
     if (over && !lit) { g.strokeStyle = '#ff7979'; g.lineWidth = 1; g.beginPath(); g.arc(x, y, r * 2.2, 0, 7); g.stroke(); }
   }
-  // the fields
-  for (const s of shields) {
-    const gr = g.createRadialGradient(X(s.x), Y(s.y), s.r * px * 0.2, X(s.x), Y(s.y), s.r * px);
+  // the field
+  if (bub && bub.rx > 0) {
+    g.save(); g.translate(X(bub.cx), Y(bub.cy)); g.scale(1, bub.ry / bub.rx);
+    const gr = g.createRadialGradient(0, 0, bub.rx * px * 0.25, 0, 0, bub.rx * px);
     gr.addColorStop(0, 'rgba(207,137,255,0)'); gr.addColorStop(0.8, 'rgba(207,137,255,.08)'); gr.addColorStop(1, 'rgba(207,137,255,.24)');
-    g.fillStyle = gr; g.beginPath(); g.arc(X(s.x), Y(s.y), s.r * px, 0, 7); g.fill();
-    g.setLineDash([6, 5]); g.strokeStyle = 'rgba(207,137,255,.9)'; g.lineWidth = 1.5; g.stroke(); g.setLineDash([]);
+    g.fillStyle = gr; g.beginPath(); g.arc(0, 0, bub.rx * px, 0, 7); g.fill(); g.restore();
+    bubPath(); g.setLineDash([6, 5]); g.strokeStyle = 'rgba(207,137,255,.9)'; g.lineWidth = 1.5; g.stroke(); g.setLineDash([]);
   }
   // a dock's gantry openings
   t.gantries.forEach((gt, i) => {
