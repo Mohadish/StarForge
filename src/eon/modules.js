@@ -159,7 +159,7 @@ export function gunTune(mod, K = KINDS[mod.kind]) {
 export const PRESETS = {
   standard:   { name: 'Standard',      dmg: 1,   rof: 1,   rng: 1,   role: 'ship', what: 'the plain gun' },
   sniper:     { name: 'Sniper',        dmg: 1.5, rof: 0.5, rng: 3,   role: 'ship', what: 'long reach, slow, hits hard' },
-  capital:    { name: 'Capital',       dmg: 4,   rof: 0.5, rng: 1,   role: 'ship', what: 'huge shots for huge targets — bulky and hungry' },
+  capital:    { name: 'Capital',       dmg: 4,   rof: 1,   rng: 2,   role: 'ship', what: 'huge shots at a steady rate and twice the reach — not a sniper, the heavy gun of the line; bulky and hungry' },   // his call, 2026-10-12: was rate ½, reach 1 — a point-defence gun out-damaged it
   pd:         { name: 'Point defence', dmg: 0.5, rof: 3,   rng: 0.5, role: 'pd',   what: 'fast and light: shoots missiles and drones down, then the ship' },
   antishield: { name: 'Anti-shield',   dmg: 1,   rof: 2,   rng: 1,   role: 'ship', what: 'a hail of hits to burn a shield down' },
   antiarmor:  { name: 'Anti-armour',   dmg: 3,   rof: 0.5, rng: 1,   role: 'ship', what: 'few heavy hits that armour cannot shrug off' },

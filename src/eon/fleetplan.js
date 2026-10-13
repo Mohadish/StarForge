@@ -16,7 +16,7 @@ export const TACTICS = {
   // `size`: the tactic's natural ship price — a bigger budget buys MORE of these, not different ones (a hit-and-run ship at 750
   // is no longer small or quick; the cycle held at one price only until the fleets kept their ships' size)
   brute:  { name: 'Brute force',   what: 'few big hulls, capital guns, thick armour — hold the line and hit what holds it', weight: 0.5, resolve: 1.3, size: 1500,
-    recipe: c => `${k(c, 650)} guns capital + armoured${c >= 500 ? ` + ${k(c, 750)} beams pd` : ''}${c >= 2000 ? ' + shielded' : ''}` },
+    recipe: c => `${k(c, 1300)} guns capital + armoured${c >= 500 ? ` + ${k(c, 750)} beams pd` : ''}${c >= 2000 ? ' + shielded' : ''}` },   // one capital gun per 1300 (was 650): his capital gun went to rate 1, reach 2 (2026-10-12) and costs three times as much — two of them ate the armour and Brute lost every fight to Long range
   hitrun: { name: 'Hit & run',     what: 'many small fast ships: close, sting, slip away — too quick for heavy turrets', weight: 2, size: 375,
     recipe: c => `${k(c, 160, 2)} beams + ${k(c, 120, 3)} fast` },
   range:  { name: 'Long range',    what: 'snipers and missiles that reach out and stay out', weight: 1, size: 750,

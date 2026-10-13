@@ -593,7 +593,7 @@ export function archetype(ship) {
   if (ship.speed > 90) tags.push('fast');
   if (ship.pd) tags.push('PD ×' + ship.pd);
   if (ship.fab > 0) tags.push('fabricator');
-  const roles = [...new Set(ship.design.modules.filter(m => KINDS[m.kind].mount && m.preset && m.preset !== 'standard' && m.preset !== 'pd').map(m => PRESETS[m.preset].name.toLowerCase()))];
+  const roles = [...new Set(ship.design.modules.filter(m => KINDS[m.kind].mount && m.preset && m.preset !== 'standard' && m.preset !== 'pd' && PRESETS[m.preset]).map(m => PRESETS[m.preset].name.toLowerCase()))];   // a gun dialled by hand is 'custom' — no role name (it threw, and the Painter's designer lost its whole panel, 2026-10-12)
   return { main: main ? NAMES[main[0]] : 'Unarmed', mix, tags, roles, label: mix + (roles.length ? ' (' + roles.join(', ') + ')' : '') + (tags.length ? ' · ' + tags.join(', ') : '') };
 }
 
