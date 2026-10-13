@@ -183,9 +183,10 @@ function drawField(g) {
   const P = poly(), b = fieldBubble({ poly: P, box: bboxOf(P) }, sh.t.cover), { S, ox, oy } = last.view; if (!(b.rx > 0)) return;
   const x = ox + b.cx * S, y = oy + b.cy * S, rx = b.rx * S, ry = b.ry * S, full = b.cover >= 0.999;
   g.save(); g.translate(x, y); g.scale(1, ry / rx);
-  const gr = g.createRadialGradient(0, 0, rx * 0.35, 0, 0, rx); gr.addColorStop(0, 'rgba(207,137,255,0)'); gr.addColorStop(0.82, 'rgba(207,137,255,.07)'); gr.addColorStop(1, 'rgba(207,137,255,.30)');
+  const gr = g.createRadialGradient(0, 0, rx * 0.3, 0, 0, rx); gr.addColorStop(0, 'rgba(207,137,255,.06)'); gr.addColorStop(0.8, 'rgba(207,137,255,.16)'); gr.addColorStop(1, 'rgba(207,137,255,.45)');
   g.fillStyle = gr; g.beginPath(); g.arc(0, 0, rx, 0, 7); g.fill(); g.restore();
-  g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, 7); g.strokeStyle = full ? 'rgba(207,137,255,.85)' : 'rgba(207,137,255,.95)'; g.lineWidth = 2; if (!full) g.setLineDash([8, 6]); g.stroke(); g.setLineDash([]);
+  g.save(); g.shadowColor = '#cf89ff'; g.shadowBlur = 12;                         // a glowing rim, so it reads over busy plating
+  g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, 7); g.strokeStyle = '#d9a3ff'; g.lineWidth = 3; if (!full) g.setLineDash([10, 6]); g.stroke(); g.setLineDash([]); g.restore();
   const text = full ? 'shield covers the whole ship' : `shield covers ${Math.round(b.cover * 100)} % — add a shield`, ty = Math.max(16, y - ry - 8);
   g.font = 'bold 12px system-ui, sans-serif'; g.textAlign = 'center'; const tw = g.measureText(text).width;
   g.fillStyle = 'rgba(7,10,18,.82)'; g.beginPath(); g.roundRect ? g.roundRect(x - tw / 2 - 7, ty - 13, tw + 14, 19, 6) : g.rect(x - tw / 2 - 7, ty - 13, tw + 14, 19); g.fill();
