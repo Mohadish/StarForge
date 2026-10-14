@@ -240,7 +240,7 @@ designer = createDesigner({ $, hdlg,
   onChange: () => { if ($('dSize').checked) { const v = designer.volume(); if (v) { $('vol').value = Math.round(v); if (ed.editing && !ed.dragging) lock = currentLock(); } } repaint(); },
 });
 $('dSize').onchange = () => designer.start();
-const savedHull = (() => { try { return JSON.parse(localStorage.getItem('forge.painter.design.v1') || 'null')?.hull; } catch (e) { return null; } })();
+const savedHull = (() => { try { return JSON.parse(localStorage.getItem('forge.painter.ship.v2') || 'null')?.hull; } catch (e) { return null; } })();
 if (savedHull && hullDef(savedHull)) sel = savedHull;                             // the silhouette the design last wore
 designer.start();
 refreshHulls();

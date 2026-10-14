@@ -521,17 +521,24 @@ export function designFromChips(S, stacks, budget, rng = rng32(1), caps = allCap
   const d = { id: uid(), name: '', hull: pick(starshipHulls()).id, modules: [
     { id: uid(), kind: 'stardrive', caps: [], n: 1, k: 1 }, { id: uid(), kind: 'reactor', caps: [], n: 1, k: 1 }, { id: uid(), kind: 'weapon_system', caps: [], n: 1, k: 1 }] };
   const names = [];
+  // a stack may carry its own DIALS (the ship editor's details, 2026-10-13): a gun's damage / rate / reach / load on top of its
+  // role (the role stays — a capital gun turned up is still a capital gun), a hangar's drone size. Every module remembers the
+  // stack it came from (`src`), so the editor can show what each stack became.
+  const tune = (m, dl) => { if (!dl) return; for (const k of ['dmg', 'rof', 'rng', 'chg']) if (dl[k]) m[k] = dl[k]; };
   for (const s of stacks) {
-    const h = Math.max(1, s.h || 1);
-    if (s.kind === 'hangar') { d.modules.push(hangarFor(4 * h, 1, s.role)); names.push(`Drones${h > 1 ? ' ×' + h : ''}${s.role && s.role !== 'standard' ? ' ' + PRESETS[s.role].name.toLowerCase() : ''}`); }
-    else if (KINDS[s.kind]?.mount) { const m = { id: uid(), kind: s.kind, caps: [], n: 2 * h }; applyPreset(m, s.role && PRESETS[s.role] ? s.role : 'standard'); d.modules.push(m); names.push(`${NAMES[s.kind]}${h > 1 ? ' ×' + h : ''}${s.role && s.role !== 'standard' ? ' ' + PRESETS[s.role].name.toLowerCase() : ''}`); }
-    else if (s.kind === 'armor') { d.modules.push({ id: uid(), kind: 'armor', caps: [], n: 4 * h }); names.push(`armour${h > 1 ? ' ×' + h : ''}`); }
-    else if (s.kind === 'shield') { d.modules.push({ id: uid(), kind: 'shield', caps: [], n: 2 * h }); names.push(`shields${h > 1 ? ' ×' + h : ''}`); }
-    else if (s.kind === 'fast') { d.modules.push({ id: uid(), kind: 'thruster', caps: [], n: 2 * h }); names.push(`fast${h > 1 ? ' ×' + h : ''}`); }
-    else if (s.kind === 'fab') { d.modules.push({ id: uid(), kind: 'works', caps: [], n: h }); names.push(`fabricator${h > 1 ? ' ×' + h : ''}`); }
+    const h = Math.max(1, s.h || 1), dl = s.dials || null;
+    if (s.kind === 'hangar') { const m = hangarFor(4 * h, (dl && dl.sz) || 1, s.role); m.src = s.id; d.modules.push(m); names.push(`Drones${h > 1 ? ' ×' + h : ''}${s.role && s.role !== 'standard' ? ' ' + PRESETS[s.role].name.toLowerCase() : ''}`); }
+    else if (KINDS[s.kind]?.mount) { const m = { id: uid(), kind: s.kind, caps: [], n: 2 * h, src: s.id }; applyPreset(m, s.role && PRESETS[s.role] ? s.role : 'standard'); tune(m, dl); d.modules.push(m); names.push(`${NAMES[s.kind]}${h > 1 ? ' ×' + h : ''}${s.role && s.role !== 'standard' ? ' ' + PRESETS[s.role].name.toLowerCase() : ''}`); }
+    else if (s.kind === 'armor') { d.modules.push({ id: uid(), kind: 'armor', caps: [], n: 4 * h, src: s.id }); names.push(`armour${h > 1 ? ' ×' + h : ''}`); }
+    else if (s.kind === 'shield') { d.modules.push({ id: uid(), kind: 'shield', caps: [], n: 2 * h, src: s.id }); names.push(`shields${h > 1 ? ' ×' + h : ''}`); }
+    else if (s.kind === 'fast') { d.modules.push({ id: uid(), kind: 'thruster', caps: [], n: 2 * h, src: s.id }); names.push(`fast${h > 1 ? ' ×' + h : ''}`); }
+    else if (s.kind === 'fab') { d.modules.push({ id: uid(), kind: 'works', caps: [], n: h, src: s.id }); names.push(`fabricator${h > 1 ? ' ×' + h : ''}`); }
   }
   if (!d.modules.some(m => KINDS[m.kind].mount)) return null;
   d.name = names.join(' + ');
+  // budget null = the chips AS THEY ARE: the reactor, computer and drive fitted, the shields grown to cover the hull, and the
+  // price is what that comes to (the Painter's unlocked price); otherwise the ship is built to the budget
+  if (budget == null) { autoFit(S, d, caps); return d; }
   return trimToBudget(S, d, budget, rng, caps, false) || d;
 }
 

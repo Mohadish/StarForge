@@ -16,6 +16,7 @@ import { readLocal, loadLibrary, saveLibrary, readFleets, loadFleets, saveFleets
 import { shipRecord, shipCode, shipFromCode, designOf, chipsOfDesign } from './shipcode.js';
 import { renderStrip, createDialog, createMenu, saveFlow } from './hullui.js';
 import { mountNav } from './nav.js';
+import { createChipEditor } from './chipeditor.js';
 mountNav('fleet');
 
 const $ = id => document.getElementById(id);
@@ -124,35 +125,11 @@ $('ships').addEventListener('click', e => {
 });
 
 // ---------------- the ship editor: chips, silhouette, price; double-tap the picture to reshape the outline ----------------
-const CHIPS = { weapon: [['weapon_energy', 'Beam'], ['weapon_kinetic', 'Gun'], ['weapon_missile', 'Missile'], ['hangar', 'Drones']],
-  role: [['sniper', 'Sniper'], ['capital', 'Capital'], ['pd', 'Point defence'], ['antishield', 'Anti-shield'], ['antiarmor', 'Anti-armour']],
-  trait: [['armor', 'Armoured'], ['shield', 'Shielded'], ['fast', 'Fast'], ['fab', 'Fabricator']] };
-const CHIPC = { weapon_energy: '#5fe3d0', weapon_kinetic: '#ffb347', weapon_missile: '#ff8a6b', hangar: '#ffe08a', armor: '#c9d4e8', shield: '#cf89ff', fast: '#7ef3b0', fab: '#ffb347' };
-let tray = [], traySel = null, chipId = 1, preview = null;
-const chipHtml = (type, key, label) => `<span class="chipb ${type}" data-chip="${type}:${key}" style="--c:${CHIPC[key] || '#ffd26a'}">${label}</span>`;
-function renderTray() {
-  $('palette').innerHTML = `<div class="prow"><span class="tiny">Weapons</span>${CHIPS.weapon.map(([k, l]) => chipHtml('weapon', k, l)).join('')}</div><div class="prow"><span class="tiny">Roles</span>${CHIPS.role.map(([k, l]) => chipHtml('role', k, l)).join('')}</div><div class="prow"><span class="tiny">Traits</span>${CHIPS.trait.map(([k, l]) => chipHtml('trait', k, l)).join('')}</div>`;
-  const label = s => s.type === 'weapon' ? CHIPS.weapon.find(c => c[0] === s.kind)[1] : CHIPS.trait.find(c => c[0] === s.kind)[1];
-  $('tray').innerHTML = tray.map(s => `<span class="stack ${s.id === traySel ? 'sel' : ''}" data-stack="${s.id}" style="--c:${CHIPC[s.kind]}"><b>${label(s)}</b>${s.h > 1 ? `<i class="hh">×${s.h}</i>` : ''}${s.role ? `<small>${CHIPS.role.find(c => c[0] === s.role)[1]}</small>` : ''}<button class="x" data-unstack="${s.id}" title="one off">−</button></span>`).join('') || '<span class="tiny">Empty. Tap or drag chips from above; drop a chip on a stack to pile it up; drop a role on a weapon to give it that role.</span>';
-  previewShip();
-}
-function dropChip(type, key, onStack) {
-  const s = onStack != null ? tray.find(x => x.id === onStack) : null;
-  if (type === 'role') { const w = s && s.type === 'weapon' ? s : tray.find(x => x.id === traySel && x.type === 'weapon') || tray.filter(x => x.type === 'weapon').at(-1); if (w) { w.role = w.role === key ? null : key; traySel = w.id; } }
-  else if (s && s.kind === key) { s.h++; traySel = s.id; }
-  else if (type === 'trait' && tray.some(x => x.kind === key) && !s) { const x = tray.find(x => x.kind === key); x.h++; traySel = x.id; }
-  else { const n = { id: chipId++, type, kind: key, h: 1, role: null }; tray.push(n); traySel = n.id; }
-  renderTray();
-}
-{ // drag a chip (or tap it)
-  let drag = null, ghost = null;
-  const under = (x, y) => { if (ghost) ghost.style.display = 'none'; const el = document.elementFromPoint(x, y); if (ghost) ghost.style.display = ''; return el; };
-  document.addEventListener('pointerdown', e => { const c = e.target.closest('[data-chip]'); if (!c) return; const [type, key] = c.dataset.chip.split(':'); drag = { type, key, x: e.clientX, y: e.clientY, moved: false, el: c }; try { c.setPointerCapture(e.pointerId); } catch (x) { /* fine */ } e.preventDefault(); });
-  document.addEventListener('pointermove', e => { if (!drag) return; if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 6) return; if (!drag.moved) { drag.moved = true; ghost = drag.el.cloneNode(true); ghost.classList.add('ghost'); document.body.appendChild(ghost); } ghost.style.left = e.clientX + 'px'; ghost.style.top = e.clientY + 'px'; const el = under(e.clientX, e.clientY), st = el?.closest?.('[data-stack]'); for (const s of document.querySelectorAll('[data-stack]')) s.classList.toggle('over', s === st); });
-  const end = e => { if (!drag) return; const d = drag; drag = null; for (const s of document.querySelectorAll('[data-stack]')) s.classList.remove('over'); if (ghost) { ghost.remove(); ghost = null; } if (!d.moved) return dropChip(d.type, d.key, null); const el = under(e.clientX, e.clientY), st = el?.closest?.('[data-stack]'); if (st) return dropChip(d.type, d.key, +st.dataset.stack); if (el?.closest?.('#tray') || el?.closest?.('#editor')) return dropChip(d.type, d.key, null); };
-  document.addEventListener('pointerup', end); document.addEventListener('pointercancel', end);
-  document.addEventListener('click', e => { const u = e.target.closest('[data-unstack]'); if (u) { const s = tray.find(x => x.id === +u.dataset.unstack); if (s) { s.h--; if (s.h <= 0) tray = tray.filter(x => x !== s); } return renderTray(); } const st = e.target.closest('[data-stack]'); if (st) { traySel = +st.dataset.stack; return renderTray(); } });
-}
+// the chips are the shared ship editor's (chipeditor.js — the Painter has the very same): bubbles into the tray, a stack opens
+// to its details and dials (double-click), the character sheet under it
+let preview = null, touched = false;                                               // touched: the chips were changed since the ship was opened
+const chipEd = createChipEditor({ palette: $('palette'), tray: $('tray'), info: $('stackInfo'), sheet: $('shipSheet') }, { onChange: () => { touched = true; previewShip(); } });
+const stacksOut = () => chipEd.stacks.map(c => ({ id: c.id, kind: c.kind, h: c.h, role: c.role, ...(c.dials ? { dials: { ...c.dials } } : {}) }));
 // the silhouettes to choose from (the painter's strip, hullui.js): the built-in shapes (the shipped pack among them, unless his
 // library holds that very shape), then his library, then what came with this fleet's code
 const hullItems = () => {
@@ -179,8 +156,8 @@ const mineOf = id => HULLS.find(h => h.id === id) || null;
 function syncOutBar() { const st = ed.state(), mine = mineOf(st.id); $('outWho').textContent = mine ? `Editing ${mine.name} (yours)` : `From ${(st.name || '').replace(/ II$/, '')} — Save makes a new one`; $('outSym').value = st.sym || ''; $('outDelete').hidden = !mine; }
 function openEditor(i) {
   editing = i; const s = PLAN.ships[i]; if (!s) return;
-  tray = (s.chips ? s.chips.map(c => ({ ...c })) : s.design ? chipsOfDesign(designOf(s.design)) : wordsToChips(s.words)).map(c => ({ ...c, id: chipId++ })); traySel = tray.length ? tray[0].id : null;
-  $('editor').hidden = false; refreshEditor(); renderTray(); $('editor').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  chipEd.set(s.chips ? s.chips : s.design ? chipsOfDesign(designOf(s.design)) : wordsToChips(s.words)); touched = false;
+  $('editor').hidden = false; refreshEditor(); previewShip(); $('editor').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 function closeEditor() { editing = null; $('editor').hidden = true; if (ed.editing) ed.editing = false; }
 function refreshEditor() {
@@ -193,17 +170,20 @@ function refreshEditor() {
   if (!ed.editing) { lock = null; drawShip($('edPic'), b, look()); }
 }
 function previewShip() {                                                          // the chips, built live at the ship's price
-  if (editing == null) return; const s = PLAN.ships[editing];
-  const d = tray.length ? designFromChips(S, tray.map(c => ({ kind: c.kind, h: c.h, role: c.role })), s.cost, rng32(s.seed)) : null;
-  if (!d) { $('trayNote').textContent = tray.length ? 'Add at least one weapon.' : 'The ship as it is. Change the chips and Build it.'; preview = null; return; }
+  if (editing == null) return; const s = PLAN.ships[editing], stacks = stacksOut();
+  if (s.design && !touched) { preview = null; chipEd.showShip(s.built || null); $('trayNote').innerHTML = '📌 A fixed design, exactly as its code built it. Change a chip and <b>Build it</b> to make it a chips ship at this price.'; return; }
+  const d = stacks.length ? designFromChips(S, stacks, s.cost, rng32(s.seed)) : null;
+  if (!d) { $('trayNote').textContent = stacks.length ? 'Add at least one weapon.' : 'The ship as it is. Change the chips and Build it.'; preview = null; chipEd.showShip(touched ? null : s.built || null); return; }
   const hull = curHull(); if (hull && hullDef(hull)) d.hull = hull;
   preview = shipFromDesign(S, d); preview.arch = archetype(preview);
-  const t = preview.t; $('trayNote').innerHTML = `<b>${esc(chipsToWords(tray))}</b> → cost ${fmt(t.cost)} · hull ${fmt(t.hp)}${t.armor ? ` · armour ${fmt(t.armor)}` : ''} · shield ${fmt(t.shieldRaw)} · ${fmt(t.dps)} dmg/s · speed ${fmt(t.speed)} · turns ${Math.round(t.turn)}°/s · evasion ${Math.round(t.evasion)}%${Math.abs(t.cost - s.cost) / s.cost > 0.08 ? ' <span style="color:var(--warn)">(not quite at the price)</span>' : ''} — <b>Build it</b> puts it in the fleet.<br><span class="tiny">${esc(systemsOf(preview))}</span>`;
+  const off = Math.abs(preview.t.cost - s.cost) / s.cost > 0.08;
+  $('trayNote').innerHTML = `<b>${esc(chipsToWords(stacks))}</b>, built at ${fmt(s.cost)}${touched ? ' — <b>Build it</b> puts it in the fleet.' : '.'}`;
+  chipEd.showShip(preview, off ? [`Not quite at the price: it comes to ${fmt(preview.t.cost)} for ${fmt(s.cost)}.`] : []);
   if (!ed.editing) drawShip($('edPic'), preview, look());
 }
 function applyChips() {
-  if (editing == null || !tray.length) return; const s = PLAN.ships[editing];
-  s.chips = tray.map(c => ({ kind: c.kind, h: c.h, role: c.role })); s.words = chipsToWords(s.chips); s.custom = true; s.design = null;
+  if (editing == null || !chipEd.stacks.length) return; const s = PLAN.ships[editing];
+  s.chips = stacksOut(); s.words = chipsToWords(s.chips); s.custom = true; s.design = null;
   rebuild(); $('trayNote').innerHTML = `Built into the fleet at ${fmt(s.cost)}.`;
 }
 $('edApply').onclick = applyChips;
@@ -228,7 +208,7 @@ function takeShip(i, rec) {
   s.design = { did: d.id, name: rec.name || 'Ship', hull: rec.hull, modules: d.modules.map(m => ({ ...m })), ...(rec.id ? { libId: rec.id } : {}) };
   s.hull = rec.hull; s.words = rec.name || 'a ship from a code'; s.chips = null; s.custom = true; s.locked = true;
   rebuild();
-  if (editing === i) { tray = chipsOfDesign(d).map(c => ({ ...c, id: chipId++ })); traySel = tray.length ? tray[0].id : null; renderTray(); }
+  if (editing === i) { chipEd.set(chipsOfDesign(d)); touched = false; previewShip(); }
 }
 $('shipCode').addEventListener('input', () => {
   if (editing == null || !PLAN) return; const text = $('shipCode').value.trim(); if (!text) return;
