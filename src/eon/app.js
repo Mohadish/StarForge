@@ -13,7 +13,7 @@ import { createHullEditor } from './hulledit.js';
 import { mountNav } from './nav.js';
 import { lookOf as fleetLook, lookFromColors, styleChoices, spriteOf, thumbOf } from './skins.js';
 import { shipFromDesign, designFromStacks, archetype } from './battle.js';
-import { createChipEditor, CIVIL } from './chipeditor.js';
+import { createChipEditor, CIVIL, vsLayers } from './chipeditor.js';
 import { chipsOfDesign } from './shipcode.js';
 import { createShapeEditor, GW, GH } from './shapeedit.js';
 import { createDialog, saveFlow } from './hullui.js';
@@ -143,7 +143,6 @@ function galaxyFleetPanel(c, s, yours) {            // the chosen star's ships: 
 }
 // DESIGN as the painter (his ask, 2026-10-15): the ship PAINTED in your coat on the big canvas, the chips dropped onto it, its
 // plating / fittings / greeble seed under that, and the coat in a folded tab. It grows as chips go in: a fixed scale per square.
-const PX_MAX = 50;                                  // px a square at most on the design canvas (a small canvas fits the ship in)
 const SHEETS = new Map();                           // a style's sheets for the live painting (skins.js keeps its own for the sprites)
 function sheetsFor(styleId, onReady) {
   const st = STYLES[styleId] && STYLES[styleId].ribbon ? STYLES[styleId] : STYLES.greeble1, k = st.id, had = SHEETS.get(k); if (had) return had === 'loading' ? null : had;
@@ -154,23 +153,47 @@ function sheetsFor(styleId, onReady) {
 const scaleInfo = (poly, volume) => { const a0 = areaOf(poly) || 1, b = bboxOf(poly); return { s: Math.sqrt(Math.max(volume / HULL_VOLUME, 0.5) / a0), cx: (b.minx + b.maxx) / 2, cy: (b.miny + b.maxy) / 2 }; };
 // the guns as the painter places them by rule — while the outline is being reshaped the game's own hard points are stale
 const gunsOf = () => { const out = new Map(); for (const m of DS.mods) if (m.K.mount && !m.K.orbital) { const size = m.volume / m.K.volume, key = m.kind + '|' + size.toFixed(2), e = out.get(key) || { kind: m.kind, n: 0, size }; e.n += m.n; out.set(key, e); } return [...out.values()]; };
+// the STAGE (his layout, 2026-10-15): the chip piles float over the left of the canvas (#cTray, TRAY_W wide), the systems the
+// design sizes for itself sit behind the stern (AUTO_W of room), the ship fills the rest — a hull REF_BW squares wide fills it,
+// a bigger one is fitted in, a small one stays small. The price and the size, big, above the ship.
+const TRAY_W = 210, REF_BW = 9;
+function stageGeo() {
+  const cv = $('dPaint'), W = cv.clientWidth || 900, H = cv.clientHeight || 440; if (cv.width !== W) cv.width = W; if (cv.height !== H) cv.height = H;
+  const autoW = clamp((W - TRAY_W) * 0.22, 100, 150), x0 = TRAY_W + autoW, w = Math.max(160, W - 16 - x0); return { W, H, x0, w, X: x0 + w / 2, autoW };   // a narrow stage gives the stern chips less room
+}
 function paintMain(d) {
   const cv = $('dPaint'); if (!cv || !DS || d.klass === 'structure') return;
-  if (cv.width !== (cv.clientWidth || 900)) cv.width = cv.clientWidth || 900;
-  const g = cv.getContext('2d'), lk = myLook(), sheets = sheetsFor(lk.style.id, () => { if (tab === 'design' && design() === d) paintMain(d); }), hull = DS.hull, editing = outEd.editing;
-  let poly, px, center, hp;
-  if (editing) { const L = outLock || (outLock = outlineLock()), f = outEd.fullPoly(); poly = f.length >= 3 ? f.map(([x, y]) => [(x - L.cx) * L.s, (y - L.cy) * L.s]) : hull.poly; px = L.S; center = [0, 0]; hp = { guns: gunsOf() }; }
-  else { const b = hull.box; poly = hull.poly; px = Math.min(PX_MAX, cv.width * 0.8 / hull.bw, cv.height * 0.72 / hull.bh); center = [(b.minx + b.maxx) / 2, (b.miny + b.maxy) / 2]; hp = { hardpoints: DS.mounts.filter(m => m.kind !== 'weapon_orbital').map(m => ({ kind: m.kind, x: m.x, y: m.y, size: m.size || 1 })) }; }
+  const G = stageGeo(), g = cv.getContext('2d'), lk = myLook(), sheets = sheetsFor(lk.style.id, () => { if (tab === 'design' && design() === d) paintMain(d); }), hull = DS.hull, editing = outEd.editing, shift = G.X - G.W / 2;
+  let poly, px, center, hp, sternX;
+  if (editing) { const L = outLock || (outLock = outlineLock()), f = outEd.fullPoly(); poly = f.length >= 3 ? f.map(([x, y]) => [(x - L.cx) * L.s, (y - L.cy) * L.s]) : hull.poly; px = L.S; center = [-shift / px, 0]; hp = { guns: gunsOf() }; sternX = G.X + bboxOf(poly).minx * px; }
+  else { const b = hull.box; poly = hull.poly; px = Math.min(G.w * 0.92 / REF_BW, G.w * 0.92 / hull.bw, G.H * 0.76 / hull.bh); center = [(b.minx + b.maxx) / 2 - shift / px, (b.miny + b.maxy) / 2]; hp = { hardpoints: DS.mounts.filter(m => m.kind !== 'weapon_orbital').map(m => ({ kind: m.kind, x: m.x, y: m.y, size: m.size || 1 })) }; sternX = G.X - hull.bw / 2 * px; }
   if (sheets && sheets.img && poly.length >= 3) paintHull(cv, poly, sheets.img, sheets.st, { ...recipeWith(DS.t.volume, d.paint || {}), px, center, ...hp, wash: lk.wash, washA: lk.washA, washB: lk.washB, lights: lk.lights, lightColor: lk.lightColor, background: '#04070f' }, sheets.deco);
   else {                                             // the plain plate until the sheets are in
-    g.fillStyle = '#04070f'; g.fillRect(0, 0, cv.width, cv.height);
-    if (poly.length >= 3) { const ox = cv.width / 2 - center[0] * px, oy = cv.height / 2 - center[1] * px; g.beginPath(); poly.forEach(([x, y], i) => i ? g.lineTo(ox + x * px, oy + y * px) : g.moveTo(ox + x * px, oy + y * px)); g.closePath(); g.fillStyle = lk.washA; g.globalAlpha = 0.35; g.fill('evenodd'); g.globalAlpha = 1; }
+    g.fillStyle = '#04070f'; g.fillRect(0, 0, G.W, G.H);
+    if (poly.length >= 3) { const ox = G.W / 2 - center[0] * px, oy = G.H / 2 - center[1] * px; g.beginPath(); poly.forEach(([x, y], i) => i ? g.lineTo(ox + x * px, oy + y * px) : g.moveTo(ox + x * px, oy + y * px)); g.closePath(); g.fillStyle = lk.washA; g.globalAlpha = 0.35; g.fill('evenodd'); g.globalAlpha = 1; }
   }
   if (editing) outEd.draw(g);
-  const t = DS.t;                                    // the numbers that grow as chips go in
-  g.textAlign = 'left'; g.font = 'bold 14px sans-serif'; g.fillStyle = '#e8f0ff'; g.fillText(`${ICON.cost} ${fmt(t.cost)}`, 12, 24);
-  g.font = '12px sans-serif'; g.fillStyle = '#9eb3d8'; g.fillText(`${ICON.volume} ${fmt(t.volume)} volume · ${plural(t.squares, 'square')}`, 12, 42);
-  g.textAlign = 'right'; g.font = '11px sans-serif'; g.fillStyle = '#6b7a99'; g.fillText(editing ? 'drag a point · double-tap the line to add one, a point to remove it · Done or Save as… below' : 'double-click the ship to reshape its outline', cv.width - 12, cv.height - 10); g.textAlign = 'left';
+  drawSternChips(g, G, sternX);
+  const t = DS.t;                                    // the two numbers that matter most, big: the price and the size
+  g.textAlign = 'center'; g.font = 'bold 30px sans-serif'; g.fillStyle = '#ffd26a'; g.fillText(`${ICON.cost} ${fmt(t.cost)}`, G.X, 42);
+  g.font = '15px sans-serif'; g.fillStyle = '#e8f0ff'; g.fillText(`${ICON.volume} ${plural(t.squares, 'square')} · ${fmt(t.volume)} volume`, G.X, 66);
+  g.textAlign = 'right'; g.font = '11px sans-serif'; g.fillStyle = '#6b7a99'; g.fillText(editing ? 'drag a point · double-tap the line to add one, a point to remove it · Done or Save as… below' : 'double-click the ship to reshape its outline', G.W - 12, G.H - 10); g.textAlign = 'left';
+}
+// the systems the design sizes for itself — the reactor, the star drive or the thrusters, the weapons computer, shields added
+// for cover — as chips behind the stern: not added by hand, they grow (×size) and multiply (×n) with what the piles ask for
+function drawSternChips(g, G, sternX) {
+  const auto = DS.mods.filter(m => !m.mod.src); if (!auto.length) return;
+  const wMax = G.autoW - 12, rows = auto.map(m => { const k = m.K.scale ? m.k || 1 : 1; return { m, w: clamp(118 + 14 * (k - 1), Math.min(118, wMax), wMax), h: clamp(34 + 8 * (k - 1), 34, 56) }; });
+  const total = rows.reduce((a, r) => a + r.h + 6, -6); let y = G.H / 2 - total / 2; const right = sternX - 12;
+  g.save(); g.textAlign = 'left'; g.textBaseline = 'middle';
+  for (const { m, w, h } of rows) {
+    const x = right - w, col = m.K.color, tag = `${m.K.scale ? 'size ×' + m.k : ''}${m.n > 1 ? `${m.K.scale ? ' · ' : ''}×${m.n}` : ''}`;
+    g.beginPath(); g.roundRect(x, y, w, h, 9); g.fillStyle = 'rgba(255,255,255,.05)'; g.fill(); g.strokeStyle = col; g.lineWidth = 1; g.stroke();
+    g.fillStyle = col; g.font = `bold ${w < 112 ? 10 : 11}px sans-serif`; g.fillText(m.K.name, x + 8, y + 12);
+    if (tag) { g.fillStyle = '#ffd26a'; g.font = '11px sans-serif'; g.fillText(tag, x + 9, y + h - 11); }
+    y += h + 6;
+  }
+  g.restore();
 }
 // the paint dials (the design's) and the coat tab (yours), from the design and the coat
 function syncPaintCtl(d) {
@@ -182,7 +205,8 @@ function syncPaintCtl(d) {
 // which designer shows: a ship's (chips on the painted ship) or a structure's (modules one by one, under the plan)
 function showMode(chip) {
   const sh = (id, on, disp = '') => { $(id).style.display = on ? disp : 'none'; };
-  sh('dChipBox', chip); sh('dOldSys', !chip); sh('dHull', !chip, 'block'); sh('dPaint', chip, 'block'); sh('dPaintCtl', chip, 'flex'); sh('dOldNote', !chip); sh('dSheetBox', chip); sh('dOldWeap', !chip);
+  $('dMain').classList.toggle('chip', chip);
+  sh('dChipBox', chip); sh('dOldSys', !chip); sh('dHull', !chip, 'block'); sh('dStage', chip, 'block'); sh('dPaintCtl', chip, 'flex'); sh('pCoat', chip); sh('dOldNote', !chip); sh('dStats', chip); sh('dOldWeap', !chip);
   if (!chip) leaveOutline();
 }
 // the reach of your best starship resting at a star (for the galaxy map's rings); 0 when none rests there
@@ -372,7 +396,7 @@ $('gMap').addEventListener('dblclick', e => { if (fleetAt(e)) return; const id =
 // ZOOM with the wheel, about the mouse; PAN with a middle- or right-drag (his ask, 2026-10-15)
 {
   const cv = $('gMap'); let pan = null;
-  cv.addEventListener('pointerdown', e => { if (e.button !== 1 && e.button !== 2) return; pan = { x: e.clientX, y: e.clientY, vx: gView.x, vy: gView.y }; cv.setPointerCapture(e.pointerId); e.preventDefault(); });
+  cv.addEventListener('pointerdown', e => { if (e.button !== 1 && e.button !== 2) return; pan = { x: e.clientX, y: e.clientY, vx: gView.x, vy: gView.y }; try { cv.setPointerCapture(e.pointerId); } catch (x) { /* a synthetic pointer */ } e.preventDefault(); });
   cv.addEventListener('pointermove', e => { if (!pan) return; gView.x = pan.vx + e.clientX - pan.x; gView.y = pan.vy + e.clientY - pan.y; if (LAST) drawGalaxy(LAST); });
   const stop = () => { pan = null; }; cv.addEventListener('pointerup', stop); cv.addEventListener('pointercancel', stop);
   cv.addEventListener('contextmenu', e => e.preventDefault());
@@ -584,7 +608,8 @@ const hullEd = createHullEditor($('hullEd'), {
 });
 // ---- the CHIPS (chipeditor.js — the Fleet Generator's and the Painter's) on a ship design: the stacks become the modules
 // (battle.js designFromStacks) and the price and the bulk follow — a capital gun is a given size, two of them twice that
-const gameChips = createChipEditor({ palette: $('cPalette'), tray: $('cTray'), info: $('cInfo'), sheet: $('cSheet'), dropZones: ['#dPaint'] }, { extra: CIVIL, onChange: chipsChanged, infoExtra: capsuleHtml, onInfoClick: capsuleClick });
+const gameChips = createChipEditor({ palette: $('cPalette'), tray: $('cTray'), info: $('cInfo'), sheet: $('cSheet'), dropZones: ['#dPaint'] },
+  { extra: CIVIL, onChange: chipsChanged, infoExtra: capsuleHtml, onInfoClick: capsuleClick, labels: { weapon: 'Military', role: 'Roles', trait: 'Utilities' }, groupBy: s => s.type === 'weapon' ? 'Military' : 'Utilities', groupOrder: ['Utilities', 'Military'] });
 let chipsFor = null;                                 // the design whose chips are in the editor
 const stacksOut = () => gameChips.stacks.map(s => ({ id: s.id, type: s.type, kind: s.kind, h: s.h, role: s.role, ...(s.dials ? { dials: { ...s.dials } } : {}), ...(s.caps && s.caps.length ? { caps: s.caps.slice() } : {}) }));
 function rebuildFromChips(d, c) {
@@ -612,12 +637,12 @@ function capsuleClick(e, stack) {
 const hdlg = createDialog();
 let outLock = null, outDirty = false, outFor = null;
 function outlineLock() {                             // the frame while the outline is edited: the ship held still, at its volume
-  const cv = $('dPaint'), vol = DS ? DS.t.volume : 300, f = outEd.fullPoly(), raw = f.length >= 3 && outEd.valid() ? f : (hullDef(DS ? DS.hull.id : 'dart') || hullDef('dart')).poly;
-  const { s, cx, cy } = scaleInfo(raw, vol), b = bboxOf(raw), margin = 0.12;
-  return { s, cx, cy, S: Math.min(PX_MAX, cv.width * (1 - 2 * margin) / ((b.maxx - b.minx) * s || 1), cv.height * (1 - 2 * margin) / ((b.maxy - b.miny) * s || 1)) };
+  const G = stageGeo(), vol = DS ? DS.t.volume : 300, f = outEd.fullPoly(), raw = f.length >= 3 && outEd.valid() ? f : (hullDef(DS ? DS.hull.id : 'dart') || hullDef('dart')).poly;
+  const { s, cx, cy } = scaleInfo(raw, vol), b = bboxOf(raw);
+  return { s, cx, cy, X: G.X, S: Math.min(G.w * 0.92 / REF_BW, G.w * 0.92 / ((b.maxx - b.minx) * s || 1), G.H * 0.76 / ((b.maxy - b.miny) * s || 1)) };
 }
 const outEd = createShapeEditor($('dPaint'), {
-  frame() { const L = outLock || (outLock = outlineLock()), cv = $('dPaint'); return { toPx: ([gx, gy]) => [cv.width / 2 + (gx - GW / 2 - L.cx) * L.s * L.S, cv.height / 2 + (gy - GH / 2 - L.cy) * L.s * L.S], fromPx: ([px, py]) => [(px - cv.width / 2) / (L.s * L.S) + L.cx + GW / 2, (py - cv.height / 2) / (L.s * L.S) + L.cy + GH / 2] }; },
+  frame() { const L = outLock || (outLock = outlineLock()), cv = $('dPaint'); return { toPx: ([gx, gy]) => [L.X + (gx - GW / 2 - L.cx) * L.s * L.S, cv.height / 2 + (gy - GH / 2 - L.cy) * L.s * L.S], fromPx: ([px, py]) => [(px - L.X) / (L.s * L.S) + L.cx + GW / 2, (py - cv.height / 2) / (L.s * L.S) + L.cy + GH / 2] }; },
   changed(what) {
     const d = design(); if (!d || !DS) return;
     if (what === 'start') { outEd.load(hullDef(DS.hull.id) || hullDef('dart')); outLock = outlineLock(); outDirty = false; outFor = d.id; syncOutBar(true); }
@@ -707,8 +732,8 @@ function renderDesign(c) {
   const chip = d.klass !== 'structure';                                           // a SHIP: chips on the painted ship · a STRUCTURE: modules one by one
   if (chip && chipsFor !== d.id) { gameChips.set(d.chips || chipsOfDesign(d)); chipsFor = d.id; rebuildFromChips(d, c); }
   showMode(chip);
-  const KL = { starship: 'a star drive: it crosses between stars', platform: 'thrusters only: it moves inside its own system', structure: 'no engine: built on the ground' };
-  $('dKlass').innerHTML = [['starship', 'Starship'], ['platform', 'Platform'], ['structure', 'Structure']].map(([k, l]) => `<button class="${d.klass === k ? 'go' : 'x'}" data-dklass="${k}" style="flex:1" title="${KL[k]}">${l}</button>`).join('');
+  const KL = { starship: 'a star drive: it crosses between stars', platform: 'thrusters only: a ship or a platform that moves inside its own system and cannot leave it', structure: 'no engine: built on the ground' };
+  $('dKlass').innerHTML = [['starship', 'Starship'], ['platform', 'Platform · in-system'], ['structure', 'Structure']].map(([k, l]) => `<button class="${d.klass === k ? 'go' : 'x'}" data-dklass="${k}" style="flex:1" title="${KL[k]}">${l}</button>`).join('');
 
   DS = designStats(S, d, c.caps);
   const t = DS.t;
@@ -723,8 +748,9 @@ function renderDesign(c) {
   const cur = hullDef(DS.hull.id);
   $('dHullPick').innerHTML = `<span class="tiny">Silhouette</span>` + hullsFor(t.hullClass).map(h => `<button class="tpl ${DS.hull.id === h.id ? 'on' : ''}" data-hull="${h.id}" title="${esc(h.name)}${h.user ? ' (yours)' : ''}">${tplIcon(h, DS.hull.id === h.id)}</button>`).join('')
     + (chip ? '' : `<button class="x" data-hulldraw title="draw a new silhouette">✎ Draw…</button>${cur?.user ? `<button class="x" data-hulledit="${cur.id}" title="edit this silhouette">✎ edit</button>` : ''}`)
-    + `<span class="tiny">· ${plural(t.squares, 'square')} now · shape is looks, size is what the dock counts${chip ? ' · double-click the ship to reshape it' : ''}</span>`;
-  if (chip) { syncPaintCtl(d); paintMain(d); gameChips.showShip(paintedShip(d, c.caps)); }
+    + (chip ? '<span class="tiny">· double-click the ship to reshape it</span>' : `<span class="tiny">· ${plural(t.squares, 'square')} now · shape is looks, size is what the dock counts</span>`);
+  let ps = null;
+  if (chip) { ps = paintedShip(d, c.caps); syncPaintCtl(d); paintMain(d); gameChips.showShip(ps); }
   else {
     drawHull($('dHull'), DS, FIT, selMod);
     // the two columns; a clicked card opens in place with its dials and the capsules that fit it
@@ -750,6 +776,14 @@ function renderDesign(c) {
   if (hasShield) hull += box(ICON.shield, 'Shield', `${fmt(t.shield)} · +${fmt(t.shieldRec)}/s`) + box(ICON.cover, 'Shield covers', pct(t.cover) + ' of the hull', t.cover < 0.999);
   let power = box(ICON.power, 'Power', `${fmt(t.powerOut)} made / ${fmt(t.powerUse)} used`, t.powerFactor < 1);
   if (t.powerFactor < 1) power += box(ICON.runs, 'Runs at', pct(t.powerFactor), true);
+  if (t.mounts || t.mountsUsed) power += box(ICON.fire, 'Weapons computer', `${num(t.mountsUsed, 1)} of ${num(t.mounts, 1)} mounts${t.fireFactor < 1 ? ` · guns fire at ${pct(t.fireFactor)}` : ''}`, t.fireFactor < 1);
+  let fire = '';                                     // what the guns do to each layer, as the battle resolves it (chipeditor.js vsLayers)
+  if (t.weapons || t.drones || t.missiles) {
+    const L = { shield: 0, through: 0, armor: 0, hull: 0 };
+    for (const x of DS.mods) if (x.K.mount && !x.K.hangar && !x.K.orbital) { const v = x.v, aim = Math.min(98, v.accuracy + t.bonus), l = vsLayers(v.damage * t.powerFactor * t.fireFactor, v.rate * aim / 100 * x.n, x.mod.preset, x.kind); for (const k in L) L[k] += l[k]; }
+    fire = box(ICON.damage, 'Damage', `${fmt(t.dps)} dmg/s`) + box(ICON.shield, 'Against a shield', `${fmt(L.shield)}${L.through > 0.05 ? ` (+${fmt(L.through)} through it)` : ''}`) + box('▣', 'Against armour', fmt(L.armor)) + box(ICON.hp, 'Against the hull', fmt(L.hull))
+      + (ps ? box(ICON.reach, 'Stands off at', `${ps.pref} u`) + (ps.pd ? box(ICON.fire, 'Point defence', plural(ps.pd, 'gun')) : '') : '') + (t.missiles ? box(ICON.speed, 'Missiles', t.missiles) : '') + (t.drones ? box(ICON.gantry, 'Drones', `${t.drones}, ${t.airCap} in the air at once`, !t.airCap) : '');
+  }
   let travel = '';
   if (isShip) travel += box(ICON.speed, 'Battle speed', fmt(t.speed) + ' u/s') + box(ICON.speed, 'Turns', `${Math.round(t.turn)}°/s — half a turn in ${Math.round(180 / Math.max(1, t.turn))} s`) + box(ICON.evasion, 'Evasion', Math.round(t.evasion) + '%');
   if (t.klass === 'starship') travel += box(ICON.drive, 'Star drive', `moves ${fmt(t.lift)} of ${fmt(t.volume)} volume ${t.underDriven ? '✗' : '✓'}`, t.underDriven) + box(ICON.stars, 'Between stars', `reach ${shipRange(t, c.warp).toFixed(1)} light years · ${(VOY.speed * c.warp).toFixed(1)} ly a turn`, !t.underDriven && shipRange(t, c.warp) < 3);
@@ -767,13 +801,15 @@ function renderDesign(c) {
   if (isShip && !best) warns.push('None of your colonies has a space dock, so this cannot be built anywhere. Build a Space dock first.');
   else if (isShip && !whole) warns.push(`Too big for any gantry you have (${t.squares} squares against ${best.cap}). The dock would cut it into ${best.sections} sections and build those: ${extraCost(best)}. Take something out, turn the reactor down, or build a dock with a bigger gantry.`);
   if (t.fireFactor < 1) warns.push(`The weapons computer runs ${num(t.mounts, 1)} mounts and the guns need ${num(t.mountsUsed, 1)}: they fire at ${pct(t.fireFactor)}. Turn it up, add one, or carry fewer guns.`);
+  if (t.drones && !t.airCap) warns.push('No drone can fly: the weapons computer has no mounts left over for them.');
   if (t.dock) tips.push(`Whatever fits inside the gantry is built whole. A bigger hull is cut into gantry-sized sections, and every extra section adds ${Math.round(Math.min(...t.gantries.map(s => s.overhead)))}% to its cost and ${plural(T.sectionEons, 'eon')} of joining to the build. The dock works for the colony it stands at${isShip ? ', or wherever it is parked' : ''}.`);
   if (isShip && t.housing) tips.push(`It carries people, so it is a colony ship: up to ${peopleWord(t.housing * SCALE.shipHousing)} go aboard when it is built (a ship's habitat holds a thousandth of a world's), and it can settle any world it can land on — landed, the ship is an outpost: its fabricators and labs work at a hundredth.`);
   if (isShip && t.research) tips.push('It has a lab: parked in orbit of a place, it studies that place.');
   const arm = DS.mods.find(m => m.kind === 'armor'); if (arm && arm.n > 1) tips.push(`Armour layers ring outward: ${arm.n} layers give ${arm.n}× the points for ${(arm.n + 0.2 * arm.n * (arm.n - 1)).toFixed(1)}× the bulk of one. Once the armour is gone, every hull point lost slows the ship and its guns.`);
-  $('dSummary').innerHTML = (warns.length ? `<div class="probs"><b>Problems</b>${warns.map(w => `<div>⚠ ${w}</div>`).join('')}${chip ? '' : '<div class="tiny" style="margin-top:4px">⚙ Auto-fit (top of the Systems column) sizes the reactor, the star drive and the weapons computer, and adds shields.</div>'}</div>` : '')
-    + sec('Build', build) + sec('Hull', hull) + sec('Power', power) + sec('Travel', travel) + sec('Civilian', civ)
+  const html = (warns.length ? `<div class="probs"><b>Problems</b>${warns.map(w => `<div>⚠ ${w}</div>`).join('')}${chip ? '' : '<div class="tiny" style="margin-top:4px">⚙ Auto-fit (top of the Systems column) sizes the reactor, the star drive and the weapons computer, and adds shields.</div>'}</div>` : '')
+    + sec('Build', build) + sec('Hull', hull) + sec('Firepower', fire) + sec('Power', power) + sec('Travel', travel) + sec('Civilian', civ)
     + (tips.length ? `<div class="notes tiny">${tips.map(w => `<div>· ${w}</div>`).join('')}</div>` : '');
+  $(chip ? 'dStats' : 'dSummary').innerHTML = html; $(chip ? 'dSummary' : 'dStats').innerHTML = '';   // a ship's numbers on the right, a structure's under its plan
 }
 
 // guns on the hull: click one to open its weapon, drag it to slide the whole group along the hull,
