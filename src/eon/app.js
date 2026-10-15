@@ -2,7 +2,8 @@
 // Star system (the places of one system, colonies, ships), Design (modules as pieces on a board).
 import { $, clamp, fmt, signed, esc } from '../util.js';
 import { DOMAINS } from '../data/properties.js';
-import { XS, X_INFO, T, FIELD_IDS, newState, compute, endEon, uid, isIntegrated, cloneDesign, giveAttention, sendShip, recallShip, settle, starEons, sysDistance } from './model.js';
+import { XS, X_INFO, T, FIELD_IDS, newState, compute, endEon, uid, isIntegrated, cloneDesign, giveAttention, sendShip, recallShip, settle, starEons, sysDistance,
+  LY, VOY, SCALE, shipRange, forecast, fleetRange, sendFleet, lyBetween, peopleWord, upgrade } from './model.js';
 import { KINDS, KIND_IDS, CLASS_NAME, GANTRY, GUN, PRESETS, applyPreset, allCapsules, designStats, isRelevant, dockFit, reachBand, fitModule, autoFit, traverseOf } from './modules.js';
 import { GALAXY, STARS } from './galaxy.js';
 import { createTetra } from './tetra.js';
@@ -20,8 +21,11 @@ let curDesign = S.designs[0]?.id || null, selMod = null, openBt = new Set(), not
 let HULLS = loadHulls(); setUserHulls(HULLS);
 let selSys = S.homeSys, selPlace = 'home', hoverPlace = null, DS = null, LAST = null;
 let gSel = S.homeSys, gHover = null, gField = null, seedDraft = null;
+const fleetPick = new Set();                                                       // starships ticked to leave together as one fleet
+// the reach of your best starship resting at a star (for the galaxy map's rings); 0 when none rests there
+const ringR = sysId => { const c = LAST; if (!c) return 0; return Math.max(0, ...c.ships.filter(s => !s.u.dest && placeOf(s.u.at)?.sys === sysId).map(s => s.range || 0)); };
 
-function load() { try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (s && s.version === 8) return s; } catch (e) { /* new game */ } return newState(); }
+function load() { try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (s && (s.version === 8 || s.version === 9)) return upgrade(s); } catch (e) { /* new game */ } return newState(); }
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* ignore */ } }
 function loadHulls() { try { return JSON.parse(localStorage.getItem(HULL_KEY) || '[]') || []; } catch (e) { return []; } }
 function saveHulls() { try { localStorage.setItem(HULL_KEY, JSON.stringify(HULLS)); } catch (e) { /* ignore */ } setUserHulls(HULLS); }
@@ -64,9 +68,9 @@ const tetra = createTetra($('eTetra'), {
 function renderTop(c) {
   const cell = (label, val, sub = '', neg = false) => `<div class="r"><span>${label}</span><b>${val}</b>${sub ? ` <small class="${neg ? 'neg' : ''}">${sub}</small>` : ''}</div>`;
   const dPeople = c.colonies.reduce((a, p) => a + p.dPeople, 0), dCoh = c.cohesionGain - c.moveCost;
-  $('eStats').innerHTML = cell('Eon', S.eon) + cell('People', fmt(c.people), signed(dPeople), dPeople < 0)
+  $('eStats').innerHTML = cell('Eon', S.eon) + cell('People', peopleWord(c.people), (dPeople < 0 ? '−' : '+') + peopleWord(Math.abs(dPeople)), dPeople < 0)
     + cell('Research', fmt(c.research)) + cell('Cohesion', fmt(S.cohesion), signed(dCoh), dCoh < 0)
-    + cell('Focus steady', plural(S.steady || 0, 'eon')) + cell('Between stars', fmt(T.starSpeed * c.warp) + '/eon');
+    + cell('Focus steady', plural(S.steady || 0, 'eon')) + cell('Between stars', (VOY.speed * c.warp).toFixed(1) + ' ly/eon');
 }
 
 const starRow = v => { const n = Math.round(v); return `<span class="stars">${'★'.repeat(n)}<i>${'★'.repeat(10 - n)}</i></span>`; };
@@ -127,11 +131,21 @@ function drawGalaxy(c) {
   gr.addColorStop(0, 'rgba(150,170,255,.11)'); gr.addColorStop(0.7, 'rgba(120,140,255,.04)'); gr.addColorStop(1, 'rgba(120,140,255,0)');
   g.fillStyle = gr; g.beginPath(); g.arc(G.cx, G.cy, R, 0, 7); g.fill();
   g.strokeStyle = 'rgba(170,210,255,.12)'; g.setLineDash([2, 6]); g.beginPath(); g.arc(G.cx, G.cy, R * 0.98, 0, 7); g.stroke(); g.setLineDash([]);
+  // the REACH of your best starship resting at the chosen star (STAR TRAVEL): its range, then a ring a light year apart —
+  // green 90 %, yellow 70 %, orange 40 %, red 10 %
+  const reachR = ringR(gSel);
+  if (reachR > 0 && G.pos[gSel]) {
+    const p = G.pos[gSel], cols = ['#4da3ff', '#7ef3b0', '#ffd26a', '#ffb347', '#ff7979'];
+    cols.forEach((col, i) => { g.strokeStyle = col; g.globalAlpha = i ? 0.55 : 0.8; g.lineWidth = i ? 1 : 1.6; g.setLineDash(i ? [3, 5] : []); g.beginPath(); g.arc(p.x, p.y, (reachR + i) * LY * G.k, 0, 7); g.stroke(); });
+    g.globalAlpha = 1; g.lineWidth = 1; g.setLineDash([]);
+  }
+  // derelicts, where they broke down
+  for (const w of S.derelicts || []) { const a = G.pos[w.A], b = G.pos[w.B]; if (!a || !b) continue; const x = a.x + (b.x - a.x) * w.pos, y = a.y + (b.y - a.y) * w.pos; g.strokeStyle = '#8a93a8'; g.lineWidth = 1.5; g.beginPath(); g.moveTo(x - 4, y - 4); g.lineTo(x + 4, y + 4); g.moveTo(x + 4, y - 4); g.lineTo(x - 4, y + 4); g.stroke(); g.lineWidth = 1; }
   // ships crossing between stars
   for (const { u } of c.ships) {
     if (!u.dest) continue;
-    const a = G.pos[placeOf(u.at).sys], b = G.pos[placeOf(u.dest).sys]; if (a === b) continue;
-    const k = clamp(1 - u.eta / (u.trip || u.eta || 1), 0.06, 1), x = a.x + (b.x - a.x) * k, y = a.y + (b.y - a.y) * k;
+    const V = u.voy, a = V ? G.pos[V.A] : G.pos[placeOf(u.at).sys], b = V ? G.pos[V.B] : G.pos[placeOf(u.dest).sys]; if (!a || !b || a === b) continue;
+    const k = V ? clamp(V.pos ?? 0, 0.02, 1) : clamp(1 - u.eta / (u.trip || u.eta || 1), 0.06, 1), x = a.x + (b.x - a.x) * k, y = a.y + (b.y - a.y) * k;
     g.setLineDash([4, 5]); g.strokeStyle = 'rgba(126,243,176,.5)'; g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke(); g.setLineDash([]);
     g.fillStyle = '#7ef3b0'; g.beginPath(); g.arc(x, y, 3.5, 0, 7); g.fill();
   }
@@ -183,11 +197,11 @@ function renderGalaxy(c) {
     <div>${FIELD_IDS.map(f => `<button class="x ${gField === f ? 'go' : ''}" data-gfield="${f}" style="margin:0 4px 4px 0">${DOMAINS[f].name}</button>`).join('')}</div>
     <div class="tiny">${gField ? `The bigger the purple halo, the more ${DOMAINS[gField].name} there is to find in that system. Click the field again to switch it off.` : 'Pick a field and the map marks the systems worth going to for it.'}</div>
     <h2 style="margin-top:14px">${esc(s.name)} <span class="tiny" style="text-transform:none;letter-spacing:0">· ${STARS[s.type].name}${s.home ? ' · your home' : ''}</span></h2>
-    <div class="tiny" style="margin-bottom:6px">${s.home ? 'Where your people come from.' : `${d.toFixed(0)} from Home — ${plural(starEons(d, c.warp), 'eon')} by star drive.`}${have ? ` You have ${have} here.` : ''}</div>
+    <div class="tiny" style="margin-bottom:6px">${s.home ? 'Where your people come from.' : `${(d / LY).toFixed(1)} light years from Home — about ${plural(starEons(d, c.warp), 'eon')} for a plain star drive.`}${have ? ` You have ${have} here.` : ''}</div>
     ${here.map(pl => `<div class="shiprow" data-gplace="${pl.id}" style="cursor:pointer"><div class="n"><span><i class="dot" style="background:${lookOf(pl).color}"></i>${esc(pl.name)}${pl.cool ? ' <span title="a remarkable place" style="color:var(--time)">✦</span>' : ''}</span><span class="tiny">${KIND_WORD[pl.kind]}${pl.colony ? ' · settled' : pl.landable ? ' · can be settled' : ' · orbit only'}</span></div>
       <div class="tiny">${topFields(pl).filter(x => x[2] > 0.06).map(x => `${DOMAINS[x[0]].name} <b>${pct(x[1])}</b>`).join(' · ')}</div></div>`).join('')}
     <button class="go" data-opensys="${s.id}" style="margin-top:4px">Open the ${esc(s.name)} system ▸</button>
-    <div class="tiny" style="margin-top:8px">Click a star to look at it; double-click to open it. A green ring is a colony of yours, a green triangle a ship.</div>`;
+    <div class="tiny" style="margin-top:8px">Click a star to look at it; double-click to open it. A green ring is a colony of yours, a green triangle a ship, a grey × a derelict.${ringR(s.id) ? ` <b>The coloured rings</b> are the reach of your best ship here (${ringR(s.id).toFixed(1)} light years): inside the <span style="color:#4da3ff">blue</span> one a crossing is a stroll; past it a ship crawls and wears — <span style="color:#7ef3b0">green</span> 90 %, <span style="color:#ffd26a">yellow</span> 70 %, <span style="color:#ffb347">orange</span> 40 %, <span style="color:#ff7979">red</span> 10 %; beyond the red, few arrive.` : ''}</div>`;
 }
 function openSystem(id, placeId) {
   selSys = gSel = id;
@@ -294,10 +308,10 @@ function renderSystem(c) {
     const P = pc.P, w = P.split, mx = w[0] * PT[0].x + w[1] * PT[1].x + w[2] * PT[2].x, my = w[0] * PT[0].y + w[1] * PT[1].y + w[2] * PT[2].y;
     const queue = pc.queue.filter(q => !q.gone).map(q => `<div class="dcard" style="cursor:default"><div class="n"><span>${esc(q.d.name)}</span><button class="x" data-unq="${q.item.id}" data-planet="${pl.id}">✕</button></div>
       <div class="prog"><div style="width:${100 * Math.min(1, (q.item.progress + q.spend) / q.cost)}%;background:var(--cost)"></div></div>
-      <div class="tiny">${q.noDock ? '<b class="up">waiting — there is no space dock here to put it together in</b>' : `${fmt(q.item.progress)} / ${fmt(q.cost)} · ${q.finishes ? '<b class="down">finished this eon</b>' : q.joining ? `paid for — joining the sections, ${plural(q.joinLeft, 'eon')} left` : Number.isFinite(q.eta) ? 'ready in ' + plural(q.eta, 'eon') : 'nobody in industry'}`}${q.sections > 1 ? ` · <b class="up">too big for the ${q.fit.w} × ${q.fit.h} gantry: built in ${q.sections} sections, ${extraCost(q.fit)}</b>` : ''}${q.ds.klass !== 'structure' && q.ds.housing > 0 ? ` · takes ${fmt(Math.min(q.ds.housing, P.people - 5))} people aboard` : ''}</div></div>`).join('');
+      <div class="tiny">${q.noDock ? '<b class="up">waiting — there is no space dock here to put it together in</b>' : `${fmt(q.item.progress)} / ${fmt(q.cost)} · ${q.finishes ? '<b class="down">finished this eon</b>' : q.joining ? `paid for — joining the sections, ${plural(q.joinLeft, 'eon')} left` : Number.isFinite(q.eta) ? 'ready in ' + plural(q.eta, 'eon') : 'nobody in industry'}`}${q.sections > 1 ? ` · <b class="up">too big for the ${q.fit.w} × ${q.fit.h} gantry: built in ${q.sections} sections, ${extraCost(q.fit)}</b>` : ''}${q.ds.klass !== 'structure' && q.ds.housing > 0 ? ` · takes ${peopleWord(Math.max(0, Math.min(q.ds.housing * SCALE.shipHousing, P.people - 5)))} people aboard` : ''}</div></div>`).join('');
     const slips = pc.gantries.slice().sort((a, b) => b.w * b.h - a.w * a.h);
     h += `<h3>The colony</h3>
-      <div class="tiny">${fmt(P.people)} people of ${fmt(pc.housing)} housing <b class="${pc.dPeople < 0 ? 'up' : 'down'}">${signed(pc.dPeople)}</b>${pc.full ? ' · <b class="up">housing is full — build habitats</b>' : ''} · happiness ${Math.round(P.happiness)} · food ${signed(pc.surplus)}</div>
+      <div class="tiny">${peopleWord(P.people)} people of ${peopleWord(pc.housing)} room <b class="${pc.dPeople < 0 ? 'up' : 'down'}">${pc.dPeople < 0 ? '−' : '+'}${peopleWord(Math.abs(pc.dPeople))}</b>${pc.full ? ' · <b class="up">housing is full — build habitats</b>' : ''} · happiness ${Math.round(P.happiness)} · food ${signed(pc.surplus)}</div>
       <svg class="ptri" data-planet="${pl.id}" width="200" height="150" viewBox="0 0 200 150">
         <polygon points="100,16 22,134 178,134" fill="rgba(255,255,255,.03)" stroke="rgba(255,255,255,.35)"/>
         <text x="100" y="11" text-anchor="middle" fill="#ffb347" font-size="10" font-weight="700">INDUSTRY</text>
@@ -314,19 +328,27 @@ function renderSystem(c) {
       <h3>Structures</h3>${P.structures.map(u => `<span class="chip" style="border-color:var(--line)">${esc(u.name)}</span>`).join('') || '<span class="tiny">none</span>'}`;
   }
 
-  // ships
-  const here = c.ships.filter(s => !s.u.dest && s.u.at === pl.id), coming = c.ships.filter(s => s.u.dest === pl.id), leaving = c.ships.filter(s => s.u.dest && s.u.at === pl.id);
+  // ships. Between stars a VOYAGE (model.js, STAR TRAVEL): every starship shows its reach and its stamina; every other star in
+  // the list says how far, how long, how likely and the stamina it would come in with. Tick several and they leave as ONE
+  // FLEET, sharing a reach (their ranges weighted by their bulk).
+  const here = c.ships.filter(s => !s.u.dest && s.u.at === pl.id), coming = c.ships.filter(s => s.u.dest === pl.id), leaving = c.ships.filter(s => s.u.dest && s.u.at === pl.id && s.u.dest !== pl.id);
   const local = placesIn(pl.sys).filter(p => p.id !== pl.id).map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
-  const others = S.systems.filter(s => s.id !== pl.sys).map(s => [s, sysDistance(S, pl.sys, s.id)]).sort((a, b) => a[1] - b[1]);
-  const dests = (u, t) => (local ? `<optgroup label="In this system — ${plural(T.travel[u.klass], 'eon')}">${local}</optgroup>` : '')
-    + (u.klass === 'starship' ? `<optgroup label="Another star">${others.map(([s, d]) => `<option value="${s.star}">${esc(s.name)} — ${plural(starEons(d, c.warp), 'eon')}</option>`).join('')}</optgroup>` : '');
-  const whereTo = u => { const to = placeOf(u.dest); return esc(to.name) + (to.sys !== pl.sys && to.kind !== 'star' ? ` (${esc(sysOf(to.sys).name)})` : ''); };
-  h += `<h3>In orbit here</h3>` + (here.map(({ u, t }) => `<div class="shiprow"><div class="n"><span>${esc(u.name)}</span><span class="badge ${u.klass}">${CLASS_NAME[u.klass]}</span></div>
-      <div class="tiny">${[t.research ? `lab ${fmt(t.research)}` : '', u.people ? `${fmt(u.people)} people aboard` : '', t.dps ? `${fmt(t.dps)} damage/s` : '', t.dock ? `dock, gantry ${t.gantries.map(s => `${s.w} × ${s.h}`).join(', ')}` : '', u.sections > 1 ? `built in ${u.sections} sections` : ''].filter(Boolean).join(' · ') || 'no lab, no people'} ·${u.klass === 'starship' ? (t.underDriven ? '<b class="up">star drive too small for its bulk: it cannot leave the system</b>' : 'next eon to any place in this system; other stars take longer') : `thrusters only: ${T.travel.platform} eons to any place in this system, and it cannot leave it`}</div>
-      <div class="acts"><select data-dest="${u.id}">${dests(u, t)}</select><button data-send="${u.id}">Send</button>
+  const others = S.systems.filter(s => s.id !== pl.sys).map(s => [s, lyBetween(S, pl.sys, s.id)]).sort((a, b) => a[1] - b[1]);
+  const odds = (R, ly, st) => { const f = forecast(R, ly, c.warp, 0, st); return `${plural(f.eons, 'eon')} · ${Math.round(f.chance * 100)} %${f.chance < 1 ? ` · in at ~${Math.round(f.expected)} %${f.lost ? ' — it could be lost' : ` (worst ${Math.round(f.worst)} %)`}` : ''}`; };
+  const starOpts = (R, st) => R > 0 ? `<optgroup label="Another star — reach ${R.toFixed(1)} light years">${others.map(([s, d]) => `<option value="${s.star}">${esc(s.name)} — ${d.toFixed(1)} ly · ${odds(R, d, st)}</option>`).join('')}</optgroup>` : '';
+  const localOpts = u => local ? `<optgroup label="In this system — ${plural(T.travel[u.klass], 'eon')}">${local}</optgroup>` : '';
+  const voyWord = u => { const V = u.voy; if (!V) return ''; const past = V.travelled > V.range; return ` · ${V.left.toFixed(1)} ly to go · stamina <b class="${(u.st ?? 100) < 50 ? 'up' : ''}">${Math.round(u.st ?? 100)} %</b>${past ? ` · <b class="up">${(V.travelled - V.range).toFixed(1)} ly past its reach — crawling, wearing</b>` : ''}${V.back ? ' · turned back' : ''}${V.fleet ? ' · in a fleet' : ''}`; };
+  for (const id of [...fleetPick]) if (!here.some(s => s.u.id === id && s.u.klass === 'starship')) fleetPick.delete(id);
+  const ticked = here.filter(s => fleetPick.has(s.u.id));
+  if (ticked.length >= 2) { const R = fleetRange(S, ticked.map(s => s.u)), st = Math.min(...ticked.map(s => s.u.st ?? 100)); h += `<div class="okbox" style="margin:6px 0">Fleet of ${ticked.length}: reach <b>${R.toFixed(1)} light years</b> (by bulk) · the weakest at ${Math.round(st)} % stamina
+      <div class="acts" style="margin-top:4px"><select data-fleetdest style="flex:1">${starOpts(R, st)}</select><button class="go" data-fleetsend>Send them together</button></div></div>`; }
+  h += `<h3>In orbit here</h3>` + (here.map(({ u, t, range }) => `<div class="shiprow"><div class="n"><span>${u.klass === 'starship' ? `<input type="checkbox" data-fpick="${u.id}" ${fleetPick.has(u.id) ? 'checked' : ''} title="tick two or more to send them as one fleet"> ` : ''}${esc(u.name)}</span><span class="badge ${u.klass}">${CLASS_NAME[u.klass]}</span></div>
+      <div class="tiny">${[t.research ? `lab ${fmt(t.research)}` : '', u.people ? `${peopleWord(u.people)} people aboard` : '', t.dps ? `${fmt(t.dps)} damage/s` : '', t.dock ? `dock, gantry ${t.gantries.map(s => `${s.w} × ${s.h}`).join(', ')}` : '', u.sections > 1 ? `built in ${u.sections} sections` : ''].filter(Boolean).join(' · ') || 'no lab, no people'} · ${u.klass === 'starship' ? (t.underDriven ? '<b class="up">star drive too small for its bulk: it cannot leave the system</b>' : `reach <b>${range.toFixed(1)} ly</b> · stamina <b class="${(u.st ?? 100) < 50 ? 'up' : ''}">${Math.round(u.st ?? 100)} %</b>${(u.st ?? 100) < 100 ? ' (coming back while it rests here)' : ''}`) : `thrusters only: ${T.travel.platform} eons to any place in this system, and it cannot leave it`}</div>
+      <div class="acts"><select data-dest="${u.id}">${localOpts(u)}${u.klass === 'starship' && !t.underDriven ? starOpts(range, u.st ?? 100) : ''}</select><button data-send="${u.id}">Send</button>
         ${u.people > 0 && pl.landable && !pl.colony ? `<button class="go" data-settle="${u.id}">Settle ${esc(pl.name)}</button>` : ''}</div></div>`).join('') || '<div class="tiny">Nothing.</div>');
-  if (coming.length) h += `<h3>On the way here</h3>` + coming.map(({ u }) => `<div class="shiprow"><div class="n"><span>${esc(u.name)}</span><span class="tiny">arrives in ${plural(u.eta, 'eon')}</span></div></div>`).join('');
-  if (leaving.length) h += `<h3>Leaving</h3>` + leaving.map(({ u }) => `<div class="shiprow"><div class="n"><span>${esc(u.name)} → ${whereTo(u)} <span class="tiny">· ${plural(u.eta, 'eon')}</span></span><button class="x" data-recall="${u.id}">call back</button></div></div>`).join('');
+  const whereTo = u => { const to = placeOf(u.dest); return esc(to.name) + (to.sys !== pl.sys && to.kind !== 'star' ? ` (${esc(sysOf(to.sys).name)})` : ''); };
+  if (coming.length) h += `<h3>On the way here</h3>` + coming.map(({ u }) => `<div class="shiprow"><div class="n"><span>${esc(u.name)}</span><span class="tiny">arrives in ${plural(u.eta, 'eon')}</span></div>${u.voy ? `<div class="tiny">${voyWord(u).slice(3)}</div>` : ''}</div>`).join('');
+  if (leaving.length) h += `<h3>Leaving</h3>` + leaving.map(({ u }) => `<div class="shiprow"><div class="n"><span>${esc(u.name)} → ${whereTo(u)} <span class="tiny">· ${plural(u.eta, 'eon')}</span></span><button class="x" data-recall="${u.id}" title="${u.voy ? 'the fleet turns round: the way back counts on the same voyage' : 'it stays here'}">call back</button></div>${u.voy ? `<div class="tiny">${voyWord(u).slice(3)}</div>` : ''}</div>`).join('');
   if (!pc && pl.landable) h += `<div class="tiny" style="margin-top:8px">To settle ${esc(pl.name)}: build a ship that has a habitat (the people go aboard when it is built), send it here, and press Settle. The ship becomes the colony's first building.</div>`;
   $('sPanel').innerHTML = h;
 }
@@ -459,9 +481,9 @@ function renderDesign(c) {
   if (t.powerFactor < 1) power += box(ICON.runs, 'Runs at', pct(t.powerFactor), true);
   let travel = '';
   if (isShip) travel += box(ICON.speed, 'Battle speed', fmt(t.speed) + ' u/s') + box(ICON.speed, 'Turns', `${Math.round(t.turn)}°/s — half a turn in ${Math.round(180 / Math.max(1, t.turn))} s`) + box(ICON.evasion, 'Evasion', Math.round(t.evasion) + '%');
-  if (t.klass === 'starship') travel += box(ICON.drive, 'Star drive', `moves ${fmt(t.lift)} of ${fmt(t.volume)} volume ${t.underDriven ? '✗' : '✓'}`, t.underDriven) + box(ICON.stars, 'Between stars', `${fmt(T.starSpeed * c.warp)} per eon · the whole fleet`);
+  if (t.klass === 'starship') travel += box(ICON.drive, 'Star drive', `moves ${fmt(t.lift)} of ${fmt(t.volume)} volume ${t.underDriven ? '✗' : '✓'}`, t.underDriven) + box(ICON.stars, 'Between stars', `reach ${shipRange(t, c.warp).toFixed(1)} light years · ${(VOY.speed * c.warp).toFixed(1)} ly a turn`, !t.underDriven && shipRange(t, c.warp) < 3);
   let civ = '';
-  if (t.housing) civ += box(ICON.house, isShip ? 'Carries' : 'Houses', fmt(t.housing) + ' people');
+  if (t.housing) civ += box(ICON.house, isShip ? 'Carries' : 'Houses', peopleWord(t.housing * (isShip ? SCALE.shipHousing : 1)) + ' people');
   if (t.research) civ += box(ICON.research, isShip ? 'Lab (studies where parked)' : 'Research', '+' + fmt(t.research));
   if (t.industry) civ += box(ICON.industry, 'Industry', '+' + fmt(t.industry) + '/eon');
   if (t.social) civ += box(ICON.social, 'Social', '+' + fmt(t.social) + '/eon');
@@ -475,7 +497,7 @@ function renderDesign(c) {
   else if (isShip && !whole) warns.push(`Too big for any gantry you have (${t.squares} squares against ${best.cap}). The dock would cut it into ${best.sections} sections and build those: ${extraCost(best)}. Take something out, turn the reactor down, or build a dock with a bigger gantry.`);
   if (t.fireFactor < 1) warns.push(`The weapons computer runs ${num(t.mounts, 1)} mounts and the guns need ${num(t.mountsUsed, 1)}: they fire at ${pct(t.fireFactor)}. Turn it up, add one, or carry fewer guns.`);
   if (t.dock) tips.push(`Whatever fits inside the gantry is built whole. A bigger hull is cut into gantry-sized sections, and every extra section adds ${Math.round(Math.min(...t.gantries.map(s => s.overhead)))}% to its cost and ${plural(T.sectionEons, 'eon')} of joining to the build. The dock works for the colony it stands at${isShip ? ', or wherever it is parked' : ''}.`);
-  if (isShip && t.housing) tips.push(`It carries people, so it is a colony ship: up to ${fmt(t.housing)} go aboard when it is built, and it can settle any world it can land on.`);
+  if (isShip && t.housing) tips.push(`It carries people, so it is a colony ship: up to ${peopleWord(t.housing * SCALE.shipHousing)} go aboard when it is built (a ship's habitat holds a thousandth of a world's), and it can settle any world it can land on — landed, the ship is an outpost: its fabricators and labs work at a hundredth.`);
   if (isShip && t.research) tips.push('It has a lab: parked in orbit of a place, it studies that place.');
   const arm = DS.mods.find(m => m.kind === 'armor'); if (arm && arm.n > 1) tips.push(`Armour layers ring outward: ${arm.n} layers give ${arm.n}× the points for ${(arm.n + 0.2 * arm.n * (arm.n - 1)).toFixed(1)}× the bulk of one. Once the armour is gone, every hull point lost slows the ship and its guns.`);
   $('dSummary').innerHTML = (warns.length ? `<div class="probs"><b>Problems</b>${warns.map(w => `<div>⚠ ${w}</div>`).join('')}<div class="tiny" style="margin-top:4px">⚙ Auto-fit (top of the Systems column) sizes the reactor, the star drive and the weapons computer, and adds shields.</div></div>` : '')
@@ -559,6 +581,7 @@ document.addEventListener('click', e => {
   if ((t = q('[data-add]'))) return enqueue(t.dataset.add, document.querySelector(`[data-addsel="${t.dataset.add}"]`).value);
   if ((t = q('[data-send]'))) { toastErr(sendShip(S, t.dataset.send, document.querySelector(`[data-dest="${t.dataset.send}"]`).value)); save(); return refresh(); }
   if ((t = q('[data-recall]'))) { recallShip(S, t.dataset.recall); save(); return refresh(); }
+  if ((t = q('[data-fleetsend]'))) { const ids = [...fleetPick]; toastErr(sendFleet(S, ids, document.querySelector('[data-fleetdest]').value)); fleetPick.clear(); save(); return refresh(); }
   if ((t = q('[data-settle]'))) { toastErr(settle(S, t.dataset.settle)); save(); return refresh(); }
   if ((t = q('[data-hull]'))) { const d = design(); if (!d) return; d.hull = t.dataset.hull; save(); return refresh(); }
   if ((t = q('[data-hulldraw]'))) return hullEd.open({ klass: DS?.t.hullClass || 'starship' });
@@ -576,7 +599,8 @@ document.addEventListener('click', e => {
   if ((t = q('[data-btopen]'))) { openBt.has(t.dataset.btopen) ? openBt.delete(t.dataset.btopen) : openBt.add(t.dataset.btopen); return refresh(); }
   if ((t = q('[data-cap]'))) { if (t.classList.contains('used')) return; if (!selMod) return say('Open a system or a weapon first'); return applyCap(selMod, t.dataset.cap); }
 });
-document.addEventListener('change', e => { if (e.target.id === 'dPick') { curDesign = e.target.value; selMod = null; return refresh(); }
+document.addEventListener('change', e => { if (e.target.matches?.('[data-fpick]')) { const id = e.target.dataset.fpick; if (e.target.checked) fleetPick.add(id); else fleetPick.delete(id); return refresh(); }
+  if (e.target.id === 'dPick') { curDesign = e.target.value; selMod = null; return refresh(); }
   if (e.target.closest?.('[data-preset]')) { const m = design()?.modules.find(x => x.id === selMod); if (!m) return; if (e.target.value === 'custom') m.preset = 'custom'; else applyPreset(m, e.target.value); save(); return refresh(); }
   const t = e.target.closest?.('[data-syspick]'); if (t) { selSys = gSel = t.value; selPlace = (placesIn(selSys).find(p => p.colony) || placeOf(sysOf(selSys).star)).id; refresh(); } });
 document.addEventListener('input', e => { if (e.target.id === 'gSeed') seedDraft = e.target.value; });

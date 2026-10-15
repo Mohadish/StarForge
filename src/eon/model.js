@@ -18,6 +18,7 @@
 import { PROPERTIES, DOMAINS, CHANNEL_X, RARITY } from '../data/properties.js';
 import { designStats, allCapsules, passiveOf, dockFit, fleetWarp } from './modules.js';
 import { generateGalaxy } from './galaxy.js';
+import { sizeFatigue } from './battle.js';
 
 export const XS = ['expand', 'exploit', 'explore', 'exterminate'];
 export const X_INFO = {
@@ -44,9 +45,44 @@ export const T = {
   reinforce: 5,            // % added to an older capsule when a later find carries the same boost
   startIntegrated: 20,     // % already integrated in what you start the game knowing
   travel: { starship: 1, platform: 4 },   // eons between two places of one system
-  starSpeed: 12,           // distance a plain star drive covers between stars in one eon (the galaxy is 200 across)
+  starSpeed: 5.4,          // map distance a plain star drive covers between stars in one eon = 1.2 light years (VOY.speed × LY; was 12)
   sectionEons: 1,          // a hull too big for the gantry: eons spent joining it, for every extra section
+  // a NEW COLONY's natural room (millions of people) before any habitat is built: a living world takes many, a harsh one few
+  room: { living: 60, ocean: 30, other: 5 },
 };
+// PEOPLE are counted in MILLIONS on a world. A habitat on a SHIP holds a thousandth of a planet's (his call, 2026-10-15: "a
+// habitat on a planet, one unit is a million people; on a ship, a thousand"); a ship that LANDS as a colony's first building
+// works at an outpost's scale — its fabricators and labs at a hundredth, its habitats at a thousandth — and at the GRADE it
+// arrived in (the stamina it had left: a hard crossing lands people and equipment worn).
+export const SCALE = { shipHousing: 1 / 1000, landed: { industry: 1 / 100, research: 1 / 100, social: 1 / 100, housing: 1 / 1000 } };
+const WORLD_BY_COLOR = { '#5fc48a': 'living', '#4fa3ff': 'ocean' };
+export const worldOf = pl => WORLD_BY_COLOR[pl.color] || 'other';
+
+// STAR TRAVEL (his design, 2026-10-15). Distances between stars in LIGHT YEARS (LY map units each — a neighbouring star is
+// about 3–4). Every starship has a RANGE: its drive's margin over its bulk (√, up to ×2), shorter the bigger and dearer it
+// is (the battle's size fatigue), longer with drive breakthroughs. A FLEET sent together shares one range: the mass-weighted
+// average of its ships — a big capable ship carries the others, a big weak one drags them. Within range a crossing is a stroll
+// (its CHANCE is range ÷ distance, 140 % and up). Past it the chance falls — 90 % one light year out, 70 % two, 40 % three,
+// 10 % four, 1 % beyond — and the ship CRAWLS (speed × 1 − (out/5)²). Every eon spent past its range, each ship rolls:
+// it loses (100 − the chance where it is) × (1 − the roll) of its STAMINA — a perfect roll costs nothing, the worst costs it
+// all. At 0 stamina the ship is a DERELICT where it stands. People aboard die with the stamina they lose. A fleet can be
+// called back at any time: the way back counts on the same voyage, so past halfway turning round is as dear as going on.
+// Stamina comes back only in a star system, never in between: a little a turn, more with a fabricator aboard, more again
+// where you have a colony.
+export const LY = 4.5;
+export const VOY = { range: 4, speed: 1.2, fall: 0.1, pow: 1.585, floor: 0.01, slow: 5, minSpeed: 0.1, rest: 5, restFab: 15, restColony: 10, marginMax: 4 };
+export const shipRange = (t, warp = 1) => t.klass !== 'starship' || t.underDriven ? 0 : VOY.range * Math.sqrt(clampN(t.lift / Math.max(1, t.volume), 1, VOY.marginMax)) * (1 - sizeFatigue(t.cost)) * warp;
+// the chance at `x` light years travelled on a range of `R` (above 1 = a stroll); the speed there, as a share of full
+export const chanceAt = (x, R) => x <= R ? (R > 0 ? R / Math.max(x, 0.01) : 0) : Math.max(VOY.floor, 1 - VOY.fall * Math.pow(x - R, VOY.pow));
+export const speedAt = (x, R) => x <= R ? 1 : Math.max(VOY.minSpeed, 1 - Math.pow((x - R) / VOY.slow, 2));
+// what a crossing will be like, before it is made: eons, the chance at the far end, stamina left on the way in — expected
+// (every roll a middling one) and at worst (every roll the worst)
+export function forecast(R, left, warp = 1, travelled = 0, st = 100) {
+  let x = travelled, need = left, eons = 0, exp = 0, worst = 0;
+  while (need > 1e-9 && eons < 400) { const step = Math.min(need, VOY.speed * warp * speedAt(x, R)); x += step; need -= step; eons++; const F = 100 * Math.max(0, 1 - chanceAt(x, R)); exp += F / 2; worst += F; }
+  return { eons, chance: chanceAt(x, R), expected: Math.max(0, st - exp), worst: Math.max(0, st - worst), lost: worst >= st };
+}
+const clampN = (v, a, b) => Math.max(a, Math.min(b, v));
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 let seq = 0;
 export const uid = p => `${p}${Date.now().toString(36)}${(seq++).toString(36)}`;
@@ -86,7 +122,7 @@ export const cloneDesign = d => ({ id: d.id, name: d.name, hull: d.hull, modules
 export function newState(seed = 7) {
   const G = generateGalaxy(seed);                       // the same seed always gives the same galaxy
   const S = {
-    version: 8, seed, rolls: 0, eon: 1,
+    version: 9, seed, rolls: 0, eon: 1, derelicts: [],
     focus: [...CENTER], focusStart: [...CENTER], cohesion: 6, steady: 0,
     attention: perField(0), steps: perField(0), found: perField(0),
     breakthroughs: [], report: [], ships: [],
@@ -180,7 +216,11 @@ export function compute(S) {
     const P = pl.colony, [si, sr, ss] = P.split, mp = P.people, factor = clamp(0.5 + P.happiness / 120, 0.5, 1.25);
     const flat = { industry: 0, research: 0, social: 0, upkeep: 0, housing: 0 }, gantries = [];
     // the gantries here: the colony's own docks, and any dock of yours parked in orbit
-    for (const u of P.structures) { const t = designStats(S, u.design, caps).t; for (const k in flat) flat[k] += t[k] || 0; for (const gt of t.gantries) gantries.push({ ...gt, of: u.name, at: pl.name }); }
+    for (const u of P.structures) {
+      const t = designStats(S, u.design, caps).t, L = u.landed ? SCALE.landed : null, grade = u.landed ? clamp(u.grade ?? 1, 0.05, 1) : 1;   // a landed ship works at an outpost's scale and its arrival grade
+      for (const k in flat) flat[k] += (t[k] || 0) * (L ? (L[k] ?? 1) * grade : 1);
+      for (const gt of t.gantries) gantries.push({ ...gt, of: u.name, at: pl.name });
+    }
     for (const { u, t } of ships) if (!u.dest && u.at === pl.id) for (const gt of t.gantries) gantries.push({ ...gt, of: u.name, at: pl.name });
     const people = { industry: mp * si, research: mp * sr, social: mp * ss };
     const industry = Math.max(0, people.industry * factor + flat.industry - flat.upkeep);
@@ -239,41 +279,87 @@ export function compute(S) {
   const moved = moveDist > 0.005, steadyNext = moved ? 0 : (S.steady || 0) + 1;
   const setback = Math.floor(moveDist * T.focusSetback);
   const speed = T.integrate * (1 + Math.min(steadyNext, 10) * T.steadyBonus) * clamp(Math.sqrt(research / 33), 0.5, 3);
+  for (const s of ships) s.range = shipRange(s.t, fleetWarp(passive));               // STAR TRAVEL: each ship's reach between stars, light years
   return { colonies, ships, studied, research, sysResearch, fields, points, warp: fleetWarp(passive), free: T.attention - points, cohesionGain, moveDist, moveCost, moved, steadyNext, setback, speed,
     people: colonies.reduce((a, c) => a + c.P.people, 0) + S.ships.reduce((a, u) => a + (u.people || 0), 0), passive, caps };
 }
 
 // ---------------- orders ----------------
-// eons a star drive needs to cross between two stars
-export const starEons = (dist, warp = 1) => Math.max(2, Math.ceil(dist / (T.starSpeed * Math.max(0.1, warp))));
+// eons a plain star drive (full range) needs to cross between two stars — for the screens that show a place, not a ship
+export const starEons = (dist, warp = 1) => forecast(VOY.range * warp, dist / LY, warp).eons;
 export function sysDistance(S, a, b) { const A = S.systems.find(s => s.id === a), B = S.systems.find(s => s.id === b); return A && B ? Math.hypot(A.x - B.x, A.y - B.y) : 0; }
-// Inside a system: a star drive arrives next eon, thrusters crawl. Between stars: star drives only, by distance.
-export function sendShip(S, shipId, placeId) {
-  const u = S.ships.find(x => x.id === shipId), to = S.places.find(p => p.id === placeId);
-  if (!u || !to || u.at === placeId) return 'It is already there';
-  const from = S.places.find(p => p.id === u.at);
-  let eta = T.travel[u.klass];
-  if (from.sys !== to.sys) {
-    if (u.klass !== 'starship') return 'Only a star drive can leave the system';
-    if (shipStats(S, u).underDriven) return 'Its star drive is too small for its bulk: it cannot leave the system';
-    eta = starEons(sysDistance(S, from.sys, to.sys), fleetWarp(passiveOf(allCapsules(S))));   // the same speed for the whole fleet
+export const lyBetween = (S, a, b) => sysDistance(S, a, b) / LY;
+// the range a group of ships shares: their reaches weighted by their bulk (STAR TRAVEL)
+export function fleetRange(S, ships, caps = allCapsules(S)) {
+  const warp = fleetWarp(passiveOf(caps)); let m = 0, r = 0;
+  for (const u of ships) { const t = shipStats(S, u, caps); m += t.volume; r += t.volume * shipRange(t, warp); }
+  return m ? r / m : 0;
+}
+// Inside a system: a star drive arrives next eon, thrusters crawl. Between stars: star drives only — a VOYAGE (STAR TRAVEL).
+// Ships sent together leave as one FLEET: one shared range, one speed, each ship rolling its own fate.
+export function sendFleet(S, shipIds, placeId) {
+  const to = S.places.find(p => p.id === placeId), ships = shipIds.map(id => S.ships.find(x => x.id === id)).filter(Boolean);
+  if (!to || !ships.length) return 'Nowhere to go';
+  const at = ships[0].at, from = S.places.find(p => p.id === at);
+  if (ships.some(u => u.at !== at || u.dest)) return 'They must be together and at rest to leave as one fleet';
+  if (at === placeId) return 'It is already there';
+  if (from.sys === to.sys) {                                                       // inside a system: as before, ship by ship
+    for (const u of ships) { const eta = T.travel[u.klass]; if (!eta) return `${u.name} has no engine`; u.dest = placeId; u.eta = eta; u.trip = eta; }
+    return null;
   }
-  if (!eta) return 'It has no engine';
-  u.dest = placeId; u.eta = eta; u.trip = eta;
+  const caps = allCapsules(S), warp = fleetWarp(passiveOf(caps));
+  for (const u of ships) {
+    if (u.klass !== 'starship') return `${u.name} has no star drive: it cannot leave the system`;
+    if (shipStats(S, u, caps).underDriven) return `${u.name}'s star drive is too small for its bulk: it cannot leave the system`;
+  }
+  const R = fleetRange(S, ships, caps), dist = lyBetween(S, from.sys, to.sys), fid = ships.length > 1 ? uid('f') : null;
+  for (const u of ships) {
+    u.st = u.st ?? 100;
+    u.voy = { from: at, to: placeId, travelled: 0, left: dist, total: dist, range: R, fleet: fid, back: false, A: from.sys, B: to.sys, D: dist, pos: 0 };   // A → B, pos 0…1: where it is on the line between the two stars
+    u.dest = placeId; u.eta = u.trip = forecast(R, dist, warp, 0, u.st).eons;
+  }
   return null;
 }
-export function recallShip(S, shipId) { const u = S.ships.find(x => x.id === shipId); if (u) { u.dest = null; u.eta = 0; } }
-// A ship that carries people founds a colony where it lands: the ship itself becomes the first building.
+export const sendShip = (S, shipId, placeId) => sendFleet(S, [shipId], placeId);
+// Call back: inside a system the ship simply stays; between stars the whole fleet turns round — the way back is what it has
+// covered, on the same voyage (the light years keep adding up: past halfway, turning round is as dear as going on)
+export function recallShip(S, shipId) {
+  const u = S.ships.find(x => x.id === shipId); if (!u || !u.dest) return;
+  if (!u.voy) { u.dest = null; u.eta = 0; return; }
+  const mates = u.voy.fleet ? S.ships.filter(x => x.voy && x.voy.fleet === u.voy.fleet) : [u], warp = fleetWarp(passiveOf(allCapsules(S)));
+  for (const x of mates) {
+    const V = x.voy, covered = V.total - V.left;
+    if (covered < 1e-6) { x.dest = null; x.eta = 0; delete x.voy; continue; }     // it had not left yet
+    [V.from, V.to] = [V.to, V.from]; V.total = V.left = covered; V.back = !V.back;
+    x.dest = V.to; x.eta = forecast(V.range, V.left, warp, V.travelled, x.st ?? 100).eons;
+  }
+}
+// A ship that carries people founds a colony where it lands: the ship itself becomes the first building — at an outpost's
+// scale and at the grade it arrived in. The world gives the settlers their first room (a living world much, a harsh one little).
 export function settle(S, shipId) {
   const u = S.ships.find(x => x.id === shipId), pl = u && S.places.find(p => p.id === u.at);
   if (!u || u.dest || !pl) return 'The ship is not there yet';
   if (!pl.landable) return `Nothing can land on ${pl.name}`;
   if (pl.colony) return `${pl.name} is already settled`;
   if (!(u.people > 0)) return 'There are no people on board';
-  pl.colony = newColony(u.people, 0);
-  pl.colony.structures.push({ id: uid('u'), name: 'Landed ' + u.name, klass: 'structure', design: u.design, eon: S.eon });
+  pl.colony = newColony(u.people, T.room[worldOf(pl)] ?? T.room.other);
+  pl.colony.structures.push({ id: uid('u'), name: 'Landed ' + u.name, klass: 'structure', design: u.design, eon: S.eon, landed: true, grade: Math.max(0.05, (u.st ?? 100) / 100) });
   S.ships = S.ships.filter(x => x !== u);
   return null;
+}
+// people, as a word: millions on a world, thousands on a ship
+export const peopleWord = v => v >= 1 ? `${v >= 100 ? Math.round(v) : v.toFixed(v >= 10 ? 0 : 1)} M` : v > 0 ? `${Math.max(1, Math.round(v * 1000))} k` : '0';
+// an old save (version 8) brought up to date: people aboard ships to a ship's scale, crossings into voyages, landed ships marked
+export function upgrade(S) {
+  if (S.version >= 9) return S;
+  const caps = allCapsules(S);
+  for (const u of S.ships) {
+    u.st = u.st ?? 100; if (u.people) u.people *= SCALE.shipHousing;
+    const from = S.places.find(p => p.id === u.at), to = u.dest && S.places.find(p => p.id === u.dest);
+    if (from && to && from.sys !== to.sys) { const dist = lyBetween(S, from.sys, to.sys), covered = dist * clamp(1 - u.eta / (u.trip || u.eta || 1), 0, 1); u.voy = { from: u.at, to: u.dest, travelled: covered, left: dist - covered, total: dist, range: fleetRange(S, [u], caps), fleet: null, back: false, A: from.sys, B: to.sys, D: dist, pos: dist ? covered / dist : 0 }; }
+  }
+  for (const pl of S.places) if (pl.colony) for (const u of pl.colony.structures) if (/^Landed /.test(u.name)) { u.landed = true; u.grade = u.grade ?? 1; }
+  S.derelicts = S.derelicts || []; S.version = 9; return S;
 }
 
 // ---------------- end the eon ----------------
@@ -287,12 +373,12 @@ export function endEon(S) {
       if (sections > 1) unit.sections = sections;                 // put together from sections — the hull remembers
       if (ds.klass === 'structure') P.structures.push(unit);
       else {
-        unit.at = pc.pl.id; unit.dest = null; unit.eta = 0;
-        unit.people = ds.housing > 0 ? Math.max(0, Math.min(ds.housing, P.people - 5)) : 0;     // settlers leave with the ship
+        unit.at = pc.pl.id; unit.dest = null; unit.eta = 0; unit.st = 100;
+        unit.people = ds.housing > 0 ? Math.max(0, Math.min(ds.housing * SCALE.shipHousing, P.people - 5)) : 0;     // settlers leave with the ship — a ship's habitat holds a thousandth of a world's
         P.people -= unit.people;
         S.ships.push(unit);
       }
-      rep.push({ kind: 'build', text: `${name}: built ${d.name}` + (sections > 1 ? ` in ${sections} sections` : '') + (unit.people ? ` — ${Math.round(unit.people)} people went aboard` : '') });
+      rep.push({ kind: 'build', text: `${name}: built ${d.name}` + (sections > 1 ? ` in ${sections} sections` : '') + (unit.people ? ` — ${peopleWord(unit.people)} people went aboard` : '') });
     }
     const doneIds = new Set(pc.done.map(x => x.item.id));
     P.queue = P.queue.filter(q => !doneIds.has(q.id) && S.designs.some(d => d.id === q.designId));
@@ -303,10 +389,33 @@ export function endEon(S) {
     P.happiness = pc.happiness;
   }
 
-  // ships under way
-  for (const u of S.ships) {
-    if (!u.dest) continue;
-    if (--u.eta <= 0) { u.at = u.dest; u.dest = null; rep.push({ kind: 'move', text: `${u.name} arrived at ${S.places.find(p => p.id === u.at).name}` }); }
+  // ships: at rest they get their stamina back (only in a star system); under way inside a system they count down; between
+  // stars they sail the voyage, rolling for every eon spent past their range (STAR TRAVEL)
+  const statsOf = new Map(c.ships.map(s => [s.u.id, s.t])), sysOf = id => (S.places.find(p => p.id === id) || {}).sys, placeName = id => (S.places.find(p => p.id === id) || {}).name || '?';
+  S.derelicts = S.derelicts || [];
+  for (const u of [...S.ships]) {
+    if (!u.dest) {
+      const t = statsOf.get(u.id) || {}, colonyHere = S.places.some(p => p.sys === sysOf(u.at) && p.colony);
+      if ((u.st ?? 100) < 100) u.st = Math.min(100, (u.st ?? 100) + VOY.rest + (t.industry > 0 ? VOY.restFab : 0) + (colonyHere ? VOY.restColony : 0));
+      continue;
+    }
+    if (!u.voy) { if (--u.eta <= 0) { u.at = u.dest; u.dest = null; rep.push({ kind: 'move', text: `${u.name} arrived at ${placeName(u.at)}` }); } continue; }
+    const V = u.voy, step = Math.min(V.left, VOY.speed * c.warp * speedAt(V.travelled, V.range));
+    V.travelled += step; V.left -= step; if (V.D) V.pos = clamp((V.pos ?? 0) + (V.back ? -1 : 1) * step / V.D, 0, 1);
+    const F = 100 * Math.max(0, 1 - chanceAt(V.travelled, V.range));
+    if (F > 0) {                                                                    // past its range: the roll
+      const st0 = u.st ?? 100, loss = F * (1 - rand(S)); u.st = st0 - loss;
+      if (u.people) u.people *= Math.max(0, u.st) / st0;                           // people aboard die with the stamina lost
+      if (u.st <= 0) {                                                              // a derelict where it stands
+        S.derelicts.push({ id: u.id, name: u.name, design: u.design, A: V.A, B: V.B, pos: V.pos ?? 0, eon: S.eon });
+        S.ships = S.ships.filter(x => x !== u);
+        rep.push({ kind: 'bad', text: `${u.name} broke down between ${placeName(V.from)} and ${placeName(V.to)}, ${(V.travelled - V.range).toFixed(1)} light years past its range — a derelict now` });
+        continue;
+      }
+      if (loss >= 1) rep.push({ kind: 'bad', text: `${u.name}: a hard eon past its range — stamina ${Math.round(st0)} → ${Math.round(u.st)} %${u.people ? ` (${peopleWord(u.people)} people left aboard)` : ''}` });
+    }
+    if (V.left <= 1e-9) { u.at = V.to; u.dest = null; delete u.voy; rep.push({ kind: 'move', text: `${u.name} arrived at ${placeName(u.at)}${(u.st ?? 100) < 99.5 ? ` with ${Math.round(u.st)} % stamina` : ''}` }); }
+    else u.eta = forecast(V.range, V.left, c.warp, V.travelled, u.st ?? 100).eons;
   }
 
   // integration
