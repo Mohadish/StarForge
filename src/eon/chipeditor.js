@@ -79,6 +79,7 @@ export function createChipEditor({ palette, tray, info, sheet, dropZones = [] },
   ensure(); tray.classList.add('ce-tray'); info.classList.add('ce-info'); sheet.classList.add('ce-sheet'); info.hidden = true;
   let stacks = [], sel = null, open = null, nextId = 1, ship = null;
   const LIST = { weapon: CHIPS.weapon, role: CHIPS.role, trait: [...CHIPS.trait, ...((extra && extra.trait) || [])] }, nameOf = (type, key) => (LIST[type] || []).find(c => c[0] === key)?.[1] || key;
+  if (extra && extra.names) for (const t in LIST) LIST[t] = LIST[t].map(([k, l]) => [k, extra.names[k] || l]);   // a page's own names for some chips (the game calls "Fast" Thrusters)
   const emit = () => { render(); if (onChange) onChange(stacks); };
   palette.innerHTML = ['weapon', 'role', 'trait'].map(type => `<div class="ce-prow" data-prow="${type}"><span class="tiny">${(labels && labels[type]) || { weapon: 'Weapons', role: 'Roles', trait: 'Traits' }[type]}</span>${LIST[type].map(([k, l]) => `<span class="chipb ${type}" data-chip="${type}:${k}" style="--c:${CHIPC[k] || '#ffd26a'}" title="drag it into the tray (or onto a stack), or tap it">${l}</span>`).join('')}</div>`).join('');
   const label = s => nameOf(s.type || (CHIPS.weapon.some(c => c[0] === s.kind) ? 'weapon' : 'trait'), s.kind);

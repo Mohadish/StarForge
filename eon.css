@@ -104,12 +104,12 @@
 .shiprow select{flex:1;min-width:0}
 .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px}
 /* the Design tab as the painter (2026-10-15): the ship big in the middle, the chip piles over the left of its stage, the numbers on the right */
-#dMain.chip{display:flex;flex-direction:column;min-height:0}
-#dMain.chip #dSummary{display:none}
+#dMain.chipmode{display:flex;flex-direction:column;min-height:0}
+#dMain.chipmode #dSummary{display:none}
 #cTray.ce-tray{position:absolute;left:8px;top:8px;bottom:8px;width:196px;margin:0;padding:4px;border:0;border-radius:10px;background:transparent;display:flex;flex-direction:column;flex-wrap:nowrap;align-items:stretch;justify-content:flex-start;gap:6px;overflow:auto}
 #cTray.ce-tray.over{outline:1px dashed var(--good);background:rgba(126,243,176,.05)}
 #cTray.ce-tray .stack{font-size:14px;padding:9px 10px;justify-content:space-between}
 #cTray.ce-tray .stack b{flex:1}
-#cTray.ce-tray .ce-grp{margin:8px 0 0}
+#cTray.ce-tray .ce-grp{flex-basis:auto;margin:8px 0 0}
 #dStats .sum{grid-template-columns:1fr}
 #dStats .sec:first-child{margin-top:0;padding-top:0;border-top:0}

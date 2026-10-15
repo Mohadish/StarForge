@@ -17,7 +17,7 @@ import { createChipEditor, CIVIL, vsLayers } from './chipeditor.js';
 import { chipsOfDesign } from './shipcode.js';
 import { createShapeEditor, GW, GH } from './shapeedit.js';
 import { createDialog, saveFlow } from './hullui.js';
-import { paintHull, recipeWith } from './paint.js';
+import { paintHull, recipeWith, RECIPE } from './paint.js';
 import { STYLES, loadStyle } from './styles.js';
 import { buildPlan } from './fleetplan.js';
 mountNav('eon', { into: document.getElementById('topbar') });
@@ -147,42 +147,71 @@ const SHEETS = new Map();                           // a style's sheets for the 
 function sheetsFor(styleId, onReady) {
   const st = STYLES[styleId] && STYLES[styleId].ribbon ? STYLES[styleId] : STYLES.greeble1, k = st.id, had = SHEETS.get(k); if (had) return had === 'loading' ? null : had;
   SHEETS.set(k, 'loading');
-  Promise.all([loadStyle(st), st.deco ? Promise.all(st.deco.sheets.map(s => loadStyle({ sheet: s }).catch(() => null))) : null]).then(([img, deco]) => { SHEETS.set(k, { st, img, deco }); if (onReady) onReady(); }).catch(() => SHEETS.set(k, { st, img: null, deco: null }));
+  Promise.all([loadStyle(st), st.deco ? Promise.all(st.deco.sheets.map(s => loadStyle({ sheet: s }).catch(() => null))) : null, st.turrets ? loadStyle({ sheet: st.turrets.sheet }).catch(() => null) : null]).then(([img, deco, tur]) => { SHEETS.set(k, { st, img, deco, tur }); if (onReady) onReady(); }).catch(() => SHEETS.set(k, { st, img: null, deco: null, tur: null }));
   return null;
 }
 const scaleInfo = (poly, volume) => { const a0 = areaOf(poly) || 1, b = bboxOf(poly); return { s: Math.sqrt(Math.max(volume / HULL_VOLUME, 0.5) / a0), cx: (b.minx + b.maxx) / 2, cy: (b.miny + b.maxy) / 2 }; };
 // the guns as the painter places them by rule — while the outline is being reshaped the game's own hard points are stale
 const gunsOf = () => { const out = new Map(); for (const m of DS.mods) if (m.K.mount && !m.K.orbital) { const size = m.volume / m.K.volume, key = m.kind + '|' + size.toFixed(2), e = out.get(key) || { kind: m.kind, n: 0, size }; e.n += m.n; out.set(key, e); } return [...out.values()]; };
 // the STAGE (his layout, 2026-10-15): the chip piles float over the left of the canvas (#cTray, TRAY_W wide), the systems the
-// design sizes for itself sit behind the stern (AUTO_W of room), the ship fills the rest — a hull REF_BW squares wide fills it,
-// a bigger one is fitted in, a small one stays small. The price and the size, big, above the ship.
-const TRAY_W = 210, REF_BW = 9;
+// design sizes for itself sit behind the stern (autoW of room), the ship takes a share of the rest by its width (shipShare).
+// The price and the size, big, above the ship.
+const TRAY_W = 210;
 function stageGeo() {
   const cv = $('dPaint'), W = cv.clientWidth || 900, H = cv.clientHeight || 440; if (cv.width !== W) cv.width = W; if (cv.height !== H) cv.height = H;
   const autoW = clamp((W - TRAY_W) * 0.22, 100, 150), x0 = TRAY_W + autoW, w = Math.max(160, W - 16 - x0); return { W, H, x0, w, X: x0 + w / 2, autoW };   // a narrow stage gives the stern chips less room
+}
+// how much of the stage a hull takes, by its width in squares: a corvette (3 across) a third, a 15-across cruiser two thirds,
+// 30 across fills it (his call, 2026-10-15: a 5.8k ship must not fill the screen; a capital one may)
+const shipShare = bw => clamp(Math.sqrt(bw / 30), 0.25, 0.95);
+const pxFor = (G, bw, bh) => Math.min(shipShare(bw) * G.w / bw, G.H * 0.76 / bh);
+const TCELL = { weapon_energy: 0, weapon_kinetic: 1, weapon_missile: 2 };   // a style's turret cells: beam, gun, missile (lab.js draws the same)
+// the battle's own hard points, the mount of a weapon KIND one size across the ship (his ask: eight lasers all the same size)
+function gameHardpoints() {
+  const big = {}; for (const m of DS.mounts) big[m.kind] = Math.max(big[m.kind] || 0, m.size || 1);
+  return DS.mounts.filter(m => m.kind !== 'weapon_orbital').map(m => ({ kind: m.kind, x: m.x, y: m.y, size: big[m.kind] }));
+}
+function drawTurrets(g, hps, sheets) {              // the turrets on their mounts, facing forward — the lab aims the same cells
+  for (const h of hps) { const T = sheets.st.turrets.cells[TCELL[h.kind]]; if (!T || !h.r) continue; const [sx, sy, sw, sh, px, py, body] = T, kq = 2 * h.r * RECIPE.turret / body; g.drawImage(sheets.tur, sx, sy, sw, sh, h.x - px * kq, h.y - py * kq, sw * kq, sh * kq); }
+}
+// the fittings (−40 … f0) at which every mount sits whole on the hull and clear of its neighbours. A mount's size goes as
+// (1 + f/100)² — the engines and the mounts both scale with the fittings (paint.js recipeWith) — so each constraint caps that
+// square; the tightest wins. Never up: the dial stays his; it only comes down when the piles change and the guns no longer fit.
+function fittingsToFit(R, px, f0) {
+  const hps = R.hardpoints, k0 = 1 + f0 / 100, sq = R.mountSq * px; if (!hps.length || !sq) return f0;
+  const r0 = h => sq * Math.sqrt(h.size || 1) / 2; let kk = Infinity;                      // r0: the mount's radius at f0 before the hull's width capped it
+  for (const h of hps) if (h.r < r0(h) * 0.98) kk = Math.min(kk, h.r / r0(h));
+  for (let i = 0; i < hps.length; i++) for (let j = i + 1; j < hps.length; j++) { const a = hps[i], b = hps[j], dd = Math.hypot(a.x - b.x, a.y - b.y), need = (r0(a) + r0(b)) * 0.95; if (dd < need) kk = Math.min(kk, dd / need); }
+  if (kk === Infinity) return f0;
+  return Math.max(-40, Math.floor(100 * (k0 * Math.sqrt(kk) - 1) / 5) * 5);
 }
 function paintMain(d) {
   const cv = $('dPaint'); if (!cv || !DS || d.klass === 'structure') return;
   const G = stageGeo(), g = cv.getContext('2d'), lk = myLook(), sheets = sheetsFor(lk.style.id, () => { if (tab === 'design' && design() === d) paintMain(d); }), hull = DS.hull, editing = outEd.editing, shift = G.X - G.W / 2;
   let poly, px, center, hp, sternX;
   if (editing) { const L = outLock || (outLock = outlineLock()), f = outEd.fullPoly(); poly = f.length >= 3 ? f.map(([x, y]) => [(x - L.cx) * L.s, (y - L.cy) * L.s]) : hull.poly; px = L.S; center = [-shift / px, 0]; hp = { guns: gunsOf() }; sternX = G.X + bboxOf(poly).minx * px; }
-  else { const b = hull.box; poly = hull.poly; px = Math.min(G.w * 0.92 / REF_BW, G.w * 0.92 / hull.bw, G.H * 0.76 / hull.bh); center = [(b.minx + b.maxx) / 2 - shift / px, (b.miny + b.maxy) / 2]; hp = { hardpoints: DS.mounts.filter(m => m.kind !== 'weapon_orbital').map(m => ({ kind: m.kind, x: m.x, y: m.y, size: m.size || 1 })) }; sternX = G.X - hull.bw / 2 * px; }
-  if (sheets && sheets.img && poly.length >= 3) paintHull(cv, poly, sheets.img, sheets.st, { ...recipeWith(DS.t.volume, d.paint || {}), px, center, ...hp, wash: lk.wash, washA: lk.washA, washB: lk.washB, lights: lk.lights, lightColor: lk.lightColor, background: '#04070f' }, sheets.deco);
+  else { const b = hull.box; poly = hull.poly; px = pxFor(G, hull.bw, hull.bh); center = [(b.minx + b.maxx) / 2 - shift / px, (b.miny + b.maxy) / 2]; hp = { hardpoints: gameHardpoints() }; sternX = G.X - hull.bw / 2 * px; }
+  let R = null;
+  if (sheets && sheets.img && poly.length >= 3) R = paintHull(cv, poly, sheets.img, sheets.st, { ...recipeWith(DS.t.volume, d.paint || {}), px, center, ...hp, wash: lk.wash, washA: lk.washA, washB: lk.washB, lights: lk.lights, lightColor: lk.lightColor, background: '#04070f' }, sheets.deco);
   else {                                             // the plain plate until the sheets are in
     g.fillStyle = '#04070f'; g.fillRect(0, 0, G.W, G.H);
     if (poly.length >= 3) { const ox = G.W / 2 - center[0] * px, oy = G.H / 2 - center[1] * px; g.beginPath(); poly.forEach(([x, y], i) => i ? g.lineTo(ox + x * px, oy + y * px) : g.moveTo(ox + x * px, oy + y * px)); g.closePath(); g.fillStyle = lk.washA; g.globalAlpha = 0.35; g.fill('evenodd'); g.globalAlpha = 1; }
   }
+  if (R && sheets.tur && sheets.st.turrets) drawTurrets(g, R.hardpoints, sheets);
+  cv._paint = { turrets: !!(R && sheets.tur && sheets.st.turrets), hardpoints: R ? R.hardpoints.length : 0, px };   // what the last paint did (a probe for tests)
   if (editing) outEd.draw(g);
   drawSternChips(g, G, sternX);
   const t = DS.t;                                    // the two numbers that matter most, big: the price and the size
   g.textAlign = 'center'; g.font = 'bold 30px sans-serif'; g.fillStyle = '#ffd26a'; g.fillText(`${ICON.cost} ${fmt(t.cost)}`, G.X, 42);
   g.font = '15px sans-serif'; g.fillStyle = '#e8f0ff'; g.fillText(`${ICON.volume} ${plural(t.squares, 'square')} · ${fmt(t.volume)} volume`, G.X, 66);
   g.textAlign = 'right'; g.font = '11px sans-serif'; g.fillStyle = '#6b7a99'; g.fillText(editing ? 'drag a point · double-tap the line to add one, a point to remove it · Done or Save as… below' : 'double-click the ship to reshape its outline', G.W - 12, G.H - 10); g.textAlign = 'left';
+  // the guns must fit: after the piles changed, the fittings come down until every mount sits whole on the hull and clear of the next
+  if (R && !editing && fitGunsFor === d.id) { fitGunsFor = null; const f0 = d.paint?.fittings || 0, f = fittingsToFit(R, px, f0); if (f < f0) { d.paint = { plating: 0, seed: 0, ...(d.paint || {}), fittings: f }; save(); syncPaintCtl(d); paintMain(d); } }
 }
 // the systems the design sizes for itself — the reactor, the star drive or the thrusters, the weapons computer, shields added
 // for cover — as chips behind the stern: not added by hand, they grow (×size) and multiply (×n) with what the piles ask for
 function drawSternChips(g, G, sternX) {
-  const auto = DS.mods.filter(m => !m.mod.src); if (!auto.length) return;
+  const auto = DS.mods.filter(m => !m.mod.src || m.kind === 'thruster'); if (!auto.length) return;   // the thrusters too: "Fast" is thrusters, and they belong at the stern
   const wMax = G.autoW - 12, rows = auto.map(m => { const k = m.K.scale ? m.k || 1 : 1; return { m, w: clamp(118 + 14 * (k - 1), Math.min(118, wMax), wMax), h: clamp(34 + 8 * (k - 1), 34, 56) }; });
   const total = rows.reduce((a, r) => a + r.h + 6, -6); let y = G.H / 2 - total / 2; const right = sternX - 12;
   g.save(); g.textAlign = 'left'; g.textBaseline = 'middle';
@@ -205,7 +234,7 @@ function syncPaintCtl(d) {
 // which designer shows: a ship's (chips on the painted ship) or a structure's (modules one by one, under the plan)
 function showMode(chip) {
   const sh = (id, on, disp = '') => { $(id).style.display = on ? disp : 'none'; };
-  $('dMain').classList.toggle('chip', chip);
+  $('dMain').classList.toggle('chipmode', chip);     // (not "chip": that is the capsule's class — it rounded the whole column into an egg, 2026-10-15)
   sh('dChipBox', chip); sh('dOldSys', !chip); sh('dHull', !chip, 'block'); sh('dStage', chip, 'block'); sh('dPaintCtl', chip, 'flex'); sh('pCoat', chip); sh('dOldNote', !chip); sh('dStats', chip); sh('dOldWeap', !chip);
   if (!chip) leaveOutline();
 }
@@ -609,15 +638,16 @@ const hullEd = createHullEditor($('hullEd'), {
 // ---- the CHIPS (chipeditor.js — the Fleet Generator's and the Painter's) on a ship design: the stacks become the modules
 // (battle.js designFromStacks) and the price and the bulk follow — a capital gun is a given size, two of them twice that
 const gameChips = createChipEditor({ palette: $('cPalette'), tray: $('cTray'), info: $('cInfo'), sheet: $('cSheet'), dropZones: ['#dPaint'] },
-  { extra: CIVIL, onChange: chipsChanged, infoExtra: capsuleHtml, onInfoClick: capsuleClick, labels: { weapon: 'Military', role: 'Roles', trait: 'Utilities' }, groupBy: s => s.type === 'weapon' ? 'Military' : 'Utilities', groupOrder: ['Utilities', 'Military'] });
-let chipsFor = null;                                 // the design whose chips are in the editor
+  { extra: { ...CIVIL, names: { fast: 'Thrusters' } }, onChange: chipsChanged, infoExtra: capsuleHtml, onInfoClick: capsuleClick, labels: { weapon: 'Military', role: 'Roles', trait: 'Utilities' },
+    groupBy: s => s.kind === 'fast' ? 'Energy' : s.type === 'weapon' ? 'Military' : 'Utilities', groupOrder: ['Energy', 'Utilities', 'Military'] });   // "Fast" is the thrusters here (his call)
+let chipsFor = null, fitGunsFor = null;              // the design whose chips are in the editor · the design whose guns must be fitted on the next paint (its piles changed)
 const stacksOut = () => gameChips.stacks.map(s => ({ id: s.id, type: s.type, kind: s.kind, h: s.h, role: s.role, ...(s.dials ? { dials: { ...s.dials } } : {}), ...(s.caps && s.caps.length ? { caps: s.caps.slice() } : {}) }));
 function rebuildFromChips(d, c) {
   d.chips = stacksOut();
   const made = designFromStacks(S, d.chips, { klass: d.klass, name: d.name, hull: d.hull || undefined, id: d.id, caps: c ? c.caps : allCapsules(S) });
   d.modules = made.modules; if (!d.hull) d.hull = made.hull;
 }
-function chipsChanged() { const d = design(); if (!d || chipsFor !== d.id || d.klass === 'structure') return; rebuildFromChips(d, LAST); save(); refresh(); }
+function chipsChanged() { const d = design(); if (!d || chipsFor !== d.id || d.klass === 'structure') return; rebuildFromChips(d, LAST); fitGunsFor = d.id; save(); refresh(); }
 // breakthrough CAPSULES on a stack (one use per design, as on a module): under the stack's details
 function capsuleHtml(stack, mods) {
   const c = LAST, d = design(); if (!c || !d) return '';
@@ -639,7 +669,7 @@ let outLock = null, outDirty = false, outFor = null;
 function outlineLock() {                             // the frame while the outline is edited: the ship held still, at its volume
   const G = stageGeo(), vol = DS ? DS.t.volume : 300, f = outEd.fullPoly(), raw = f.length >= 3 && outEd.valid() ? f : (hullDef(DS ? DS.hull.id : 'dart') || hullDef('dart')).poly;
   const { s, cx, cy } = scaleInfo(raw, vol), b = bboxOf(raw);
-  return { s, cx, cy, X: G.X, S: Math.min(G.w * 0.92 / REF_BW, G.w * 0.92 / ((b.maxx - b.minx) * s || 1), G.H * 0.76 / ((b.maxy - b.miny) * s || 1)) };
+  return { s, cx, cy, X: G.X, S: pxFor(G, (b.maxx - b.minx) * s || 1, (b.maxy - b.miny) * s || 1) };
 }
 const outEd = createShapeEditor($('dPaint'), {
   frame() { const L = outLock || (outLock = outlineLock()), cv = $('dPaint'); return { toPx: ([gx, gy]) => [L.X + (gx - GW / 2 - L.cx) * L.s * L.S, cv.height / 2 + (gy - GH / 2 - L.cy) * L.s * L.S], fromPx: ([px, py]) => [(px - L.X) / (L.s * L.S) + L.cx + GW / 2, (py - cv.height / 2) / (L.s * L.S) + L.cy + GH / 2] }; },
@@ -906,7 +936,7 @@ document.addEventListener('click', e => {
     selMod = null; save(); return refresh();
   }
   if ((t = q('[data-settle]'))) { toastErr(settle(S, t.dataset.settle)); save(); return refresh(); }
-  if ((t = q('[data-hull]'))) { const d = design(); if (!d) return; d.hull = t.dataset.hull; save(); return refresh(); }
+  if ((t = q('[data-hull]'))) { const d = design(); if (!d) return; d.hull = t.dataset.hull; fitGunsFor = d.id; save(); return refresh(); }
   if ((t = q('[data-hulldraw]'))) return hullEd.open({ klass: DS?.t.hullClass || 'starship' });
   if ((t = q('[data-hulledit]'))) return hullEd.open({ hull: t.dataset.hulledit });
   if ((t = q('[data-addmod]'))) { const d = design(); if (!d) return; if (KINDS[t.dataset.addmod].engine && DS && DS.t.klass === 'structure' && shipDesignCount() >= MAX_SHIP_DESIGNS) return say(`${MAX_SHIP_DESIGNS} ship designs at most — delete one first (refits come later)`); const m = { id: uid('m'), kind: t.dataset.addmod, caps: [], n: 1 }; d.modules.push(m); selMod = m.id; save(); return refresh(); }

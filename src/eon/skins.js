@@ -68,7 +68,8 @@ function paint(ship, look, img, deco, tur) {
   const hull = ship.ds.hull, b = hull.box, bw = hull.bw, bh = hull.bh, midx = (b.minx + b.maxx) / 2;
   const S = Math.max(20, Math.min(72, 640 / bw)), m = 1.5 + 0.35 * bh;    // px a square; a margin in squares for engine plumes, greebles over the edge and barrels
   const cv = new OffscreenCanvas(Math.ceil((bw + 2 * m) * S), Math.ceil((bh + 2 * m) * S));
-  const guns = ship.guns.map(g => ({ kind: g.kind, x: g.mx / B.unit + midx, y: g.my / B.unit, size: g.size || 1 }));          // the battle's own hard points, back in hull squares
+  const big = {}; for (const g of ship.guns) big[g.kind] = Math.max(big[g.kind] || 0, g.size || 1);                            // one mount size per weapon KIND across the ship (his ask, 2026-10-15: eight lasers all the same size)
+  const guns = ship.guns.map(g => ({ kind: g.kind, x: g.mx / B.unit + midx, y: g.my / B.unit, size: big[g.kind] }));          // the battle's own hard points, back in hull squares
   const bays = (ship.ds.mounts || []).filter(mt => mt.kind === 'hangar').map(mt => ({ kind: 'hangar', x: mt.x, y: mt.y, size: mt.size || 1 }));
   // a design's own plating / fittings / seed (design.paint, the game's designer) and a coat's own wash and lights strengths, when it has them
   const r = paintHull(cv, hull.poly, img, look.style, { ...(ship.design.paint ? recipeWith(ship.ds.t.volume, ship.design.paint) : recipeFor(ship.ds.t.volume)), px: S, center: [midx, 0], hardpoints: [...guns, ...bays], wash: look.wash ?? 0.6, washA: look.washA, washB: look.washB, lights: look.lights ?? 0.5, lightColor: look.lightColor }, deco);
