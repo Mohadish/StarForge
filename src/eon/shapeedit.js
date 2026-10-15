@@ -30,6 +30,9 @@ export function createShapeEditor(cv, host) {
     return [x, y];
   };
   const mirrorPt = ([x, y]) => st.sym === 'y' ? [x, 2 * axisY - y] : st.sym === 'x' ? [2 * axisX - x, y] : [x, y];
+  // with symmetry on, the first and the last point ARE the axis crossings (the mirrored half joins them): they stay on it
+  const onAxis = ([x, y]) => st.sym === 'y' ? [x, axisY] : st.sym === 'x' ? [axisX, y] : [x, y];
+  const isEnd = i => st.sym && (i === 0 || i === st.pts.length - 1);
   const pxOf = e => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * cv.width / r.width, (e.clientY - r.top) * cv.height / r.height]; };
   const handleAt = px => { const F = host.frame(); return st.pts.findIndex(p => { const q = F.toPx(p); return Math.hypot(q[0] - px[0], q[1] - px[1]) < 11; }); };
   const segDist = ([px, py], [ax, ay], [bx, by]) => { const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy || 1e-9, t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2)); return Math.hypot(px - ax - dx * t, py - ay - dy * t); };
@@ -81,7 +84,7 @@ export function createShapeEditor(cv, host) {
     const i = handleAt(px);
     if (i >= 0) { st.pts.splice(i, 1); host.changed('edit'); return; }
     const seg = segmentAt(px), gp = host.frame().fromPx(px), p = clampPt(seg && seg.ghost ? mirrorPt(gp) : gp);
-    if (seg) st.pts.splice(seg.i + 1, 0, p); else st.pts.push(p);
+    if (seg) st.pts.splice(seg.i + 1, 0, p); else st.pts.push(st.sym ? onAxis(p) : p);
     host.changed('edit');
   };
   cv.addEventListener('pointerdown', e => {
@@ -94,13 +97,13 @@ export function createShapeEditor(cv, host) {
     if (downAt && Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 4) moved = true;
     if (!editing) return;
     const px = pxOf(e);
-    if (drag >= 0) { if (moved) { st.pts[drag] = clampPt(host.frame().fromPx(px)); host.changed('drag'); } return; }
+    if (drag >= 0) { if (moved) { const p = clampPt(host.frame().fromPx(px)); st.pts[drag] = isEnd(drag) ? onAxis(p) : p; host.changed('drag'); } return; }
     const i = handleAt(px); if (i !== hover) { hover = i; cv.style.cursor = i >= 0 ? 'grab' : 'crosshair'; host.changed('hover'); }
   });
   const up = e => {
     if (downAt && !moved && e.type === 'pointerup') {
       const now = performance.now();
-      if (lastTap && now - lastTap.t < 350 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 14) { lastTap = null; doubleTap(pxOf(e)); }
+      if (lastTap && now - lastTap.t < 450 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 14) { lastTap = null; doubleTap(pxOf(e)); }   // 450 ms: a repaint between the taps must not break the pair
       else lastTap = { t: now, x: e.clientX, y: e.clientY };
     }
     downAt = null;

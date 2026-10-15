@@ -68,9 +68,8 @@
     <div id="dKlass" style="display:flex;gap:4px;margin-bottom:10px"></div>
     <!-- a SHIP (starship or platform): the chip menus — the same chips as the Fleet Generator's and the Painter's; they pile up at the ship's side -->
     <div id="dChipBox" style="display:none">
-      <div class="tiny" style="margin-bottom:6px">Tap a chip, or drag it onto the ship: it piles up at the ship's side. + / − on a pile adds one or takes one off; a role dropped on a weapon gives it that role. Double-click a pile for its details, its dials and the breakthroughs that fit it. The reactor, the drive and the weapons computer size themselves — watch them grow behind the stern.</div>
+      <div class="tiny" style="margin-bottom:6px">Tap a chip, or drag it onto the ship: it piles up at the ship's side. + / − on a pile adds one or takes one off; a role dropped on a weapon gives it that role. Click a pile: its details, its dials and the breakthroughs that fit it open beside it. The reactor, the drive and the weapons computer size themselves — watch them grow behind the stern.</div>
       <div id="cPalette"></div>
-      <div id="cInfo"></div>
     </div>
     <!-- a STRUCTURE: the modules one by one, as before -->
     <div id="dOldSys">
@@ -98,9 +97,10 @@
     <div id="dStage" style="display:none;position:relative;flex:1;min-height:340px;background:#04070f;border:1px solid var(--line);border-radius:10px;overflow:hidden">
       <canvas id="dPaint" width="900" height="440" style="position:absolute;inset:0;width:100%;height:100%;touch-action:none" title="double-click the ship to reshape its outline"></canvas>
       <div id="cTray"></div>
+      <div id="cInfo"></div>
     </div>
     <div id="dOutBar" style="display:none;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px;padding:6px 8px;border:1px solid var(--good);border-radius:10px;flex:none">
-      <b id="dOutWho" class="tiny" style="color:var(--text)"></b><select id="dOutSym"><option value="y">mirror across the spine</option><option value="x">mirror left / right</option><option value="">no symmetry</option></select><button id="dOutUndo" class="x">undo point</button><span style="flex:1"></span><button id="dOutSave" class="x">Save as…</button><button id="dOutDone" class="go">Done</button>
+      <b id="dOutWho" class="tiny" style="color:var(--text)"></b><select id="dOutSym"><option value="y">mirror across the spine</option><option value="x">mirror left / right</option><option value="">no symmetry</option></select><button id="dOutUndo" class="x">undo point</button><button id="dOutDel" class="x" style="display:none" title="delete this silhouette of yours">Delete</button><span style="flex:1"></span><button id="dOutSave" class="x">Save as…</button><button id="dOutDone" class="go">Done</button>
       <span class="tiny" style="flex-basis:100%">Drag a point; double-tap the line to add one, a point to remove it. Done keeps it (one of yours is overwritten, a built-in one becomes yours); Save as… keeps it under a new name.</span>
     </div>
     <details id="pCoat" style="flex:none;margin-top:6px"><summary class="tiny" style="cursor:pointer">Your coat — style, colours, wash, lights (every ship of yours wears it)</summary>

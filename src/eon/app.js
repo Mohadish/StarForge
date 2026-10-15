@@ -151,19 +151,17 @@ function sheetsFor(styleId, onReady) {
   return null;
 }
 const scaleInfo = (poly, volume) => { const a0 = areaOf(poly) || 1, b = bboxOf(poly); return { s: Math.sqrt(Math.max(volume / HULL_VOLUME, 0.5) / a0), cx: (b.minx + b.maxx) / 2, cy: (b.miny + b.maxy) / 2 }; };
-// the guns as the painter places them by rule — while the outline is being reshaped the game's own hard points are stale
-const gunsOf = () => { const out = new Map(); for (const m of DS.mods) if (m.K.mount && !m.K.orbital) { const size = m.volume / m.K.volume, key = m.kind + '|' + size.toFixed(2), e = out.get(key) || { kind: m.kind, n: 0, size }; e.n += m.n; out.set(key, e); } return [...out.values()]; };
 // the STAGE (his layout, 2026-10-15): the chip piles float over the left of the canvas (#cTray, TRAY_W wide), the systems the
 // design sizes for itself sit behind the stern (autoW of room), the ship takes a share of the rest by its width (shipShare).
 // The price and the size, big, above the ship.
-const TRAY_W = 210;
+const TRAY_W = 230;
 function stageGeo() {
   const cv = $('dPaint'), W = cv.clientWidth || 900, H = cv.clientHeight || 440; if (cv.width !== W) cv.width = W; if (cv.height !== H) cv.height = H;
   const autoW = clamp((W - TRAY_W) * 0.22, 100, 150), x0 = TRAY_W + autoW, w = Math.max(160, W - 16 - x0); return { W, H, x0, w, X: x0 + w / 2, autoW };   // a narrow stage gives the stern chips less room
 }
 // how much of the stage a hull takes, by its width in squares: a corvette (3 across) a third, a 15-across cruiser two thirds,
 // 30 across fills it (his call, 2026-10-15: a 5.8k ship must not fill the screen; a capital one may)
-const shipShare = bw => clamp(Math.sqrt(bw / 30), 0.25, 0.95);
+const shipShare = bw => clamp(0.7 * Math.sqrt(bw / 30), 0.2, 0.66);   // a third smaller again (his call: a 24k ship filled the screen — "you're never going to see the ship that big anyway")
 const pxFor = (G, bw, bh) => Math.min(shipShare(bw) * G.w / bw, G.H * 0.76 / bh);
 const TCELL = { weapon_energy: 0, weapon_kinetic: 1, weapon_missile: 2 };   // a style's turret cells: beam, gun, missile (lab.js draws the same)
 // the battle's own hard points, the mount of a weapon KIND one size across the ship (his ask: eight lasers all the same size)
@@ -189,7 +187,7 @@ function paintMain(d) {
   const cv = $('dPaint'); if (!cv || !DS || d.klass === 'structure') return;
   const G = stageGeo(), g = cv.getContext('2d'), lk = myLook(), sheets = sheetsFor(lk.style.id, () => { if (tab === 'design' && design() === d) paintMain(d); }), hull = DS.hull, editing = outEd.editing, shift = G.X - G.W / 2;
   let poly, px, center, hp, sternX;
-  if (editing) { const L = outLock || (outLock = outlineLock()), f = outEd.fullPoly(); poly = f.length >= 3 ? f.map(([x, y]) => [(x - L.cx) * L.s, (y - L.cy) * L.s]) : hull.poly; px = L.S; center = [-shift / px, 0]; hp = { guns: gunsOf() }; sternX = G.X + bboxOf(poly).minx * px; }
+  if (editing) { const L = outLock || (outLock = outlineLock()), f = outEd.fullPoly(); poly = f.length >= 3 ? f.map(([x, y]) => [(x - L.cx) * L.s, (y - L.cy) * L.s]) : hull.poly; px = L.S; center = [-shift / px, 0]; hp = {}; sternX = G.X + bboxOf(poly).minx * px; }   // no guns while the outline is reshaped (his call: placing them on every change made it crawl); they come back at Done
   else { const b = hull.box; poly = hull.poly; px = pxFor(G, hull.bw, hull.bh); center = [(b.minx + b.maxx) / 2 - shift / px, (b.miny + b.maxy) / 2]; hp = { hardpoints: gameHardpoints() }; sternX = G.X - hull.bw / 2 * px; }
   let R = null;
   if (sheets && sheets.img && poly.length >= 3) R = paintHull(cv, poly, sheets.img, sheets.st, { ...recipeWith(DS.t.volume, d.paint || {}), px, center, ...hp, wash: lk.wash, washA: lk.washA, washB: lk.washB, lights: lk.lights, lightColor: lk.lightColor, background: '#04070f' }, sheets.deco);
@@ -199,12 +197,14 @@ function paintMain(d) {
   }
   if (R && sheets.tur && sheets.st.turrets) drawTurrets(g, R.hardpoints, sheets);
   cv._paint = { turrets: !!(R && sheets.tur && sheets.st.turrets), hardpoints: R ? R.hardpoints.length : 0, px };   // what the last paint did (a probe for tests)
-  if (editing) outEd.draw(g);
   drawSternChips(g, G, sternX);
   const t = DS.t;                                    // the two numbers that matter most, big: the price and the size
   g.textAlign = 'center'; g.font = 'bold 30px sans-serif'; g.fillStyle = '#ffd26a'; g.fillText(`${ICON.cost} ${fmt(t.cost)}`, G.X, 42);
   g.font = '15px sans-serif'; g.fillStyle = '#e8f0ff'; g.fillText(`${ICON.volume} ${plural(t.squares, 'square')} · ${fmt(t.volume)} volume`, G.X, 66);
   g.textAlign = 'right'; g.font = '11px sans-serif'; g.fillStyle = '#6b7a99'; g.fillText(editing ? 'drag a point · double-tap the line to add one, a point to remove it · Done or Save as… below' : 'double-click the ship to reshape its outline', G.W - 12, G.H - 10); g.textAlign = 'left';
+  // while the outline is reshaped the painting is KEPT (outSnap): a drag or a hover only redraws the overlay over it (the full paint
+  // on every pointer move was the lag); the paint itself follows on dragend
+  if (editing) { if (!outSnap || outSnap.width !== G.W || outSnap.height !== G.H) outSnap = new OffscreenCanvas(G.W, G.H); outSnap.getContext('2d').drawImage(cv, 0, 0); outEd.draw(g); cv._handles = outEd.state().pts.map(outFrame().toPx); } else { outSnap = null; cv._handles = null; }
   // the guns must fit: after the piles changed, the fittings come down until every mount sits whole on the hull and clear of the next
   if (R && !editing && fitGunsFor === d.id) { fitGunsFor = null; const f0 = d.paint?.fittings || 0, f = fittingsToFit(R, px, f0); if (f < f0) { d.paint = { plating: 0, seed: 0, ...(d.paint || {}), fittings: f }; save(); syncPaintCtl(d); paintMain(d); } }
 }
@@ -639,7 +639,14 @@ const hullEd = createHullEditor($('hullEd'), {
 // (battle.js designFromStacks) and the price and the bulk follow — a capital gun is a given size, two of them twice that
 const gameChips = createChipEditor({ palette: $('cPalette'), tray: $('cTray'), info: $('cInfo'), sheet: $('cSheet'), dropZones: ['#dPaint'] },
   { extra: { ...CIVIL, names: { fast: 'Thrusters' } }, onChange: chipsChanged, infoExtra: capsuleHtml, onInfoClick: capsuleClick, labels: { weapon: 'Military', role: 'Roles', trait: 'Utilities' },
-    groupBy: s => s.kind === 'fast' ? 'Energy' : s.type === 'weapon' ? 'Military' : 'Utilities', groupOrder: ['Energy', 'Utilities', 'Military'] });   // "Fast" is the thrusters here (his call)
+    groupBy: s => s.kind === 'fast' ? 'Energy' : s.type === 'weapon' ? 'Military' : 'Utilities', groupOrder: ['Energy', 'Utilities', 'Military'], openOnClick: true, onRender: placeInfo });   // "Fast" is the thrusters here (his call)
+// the details panel floats over the stage beside the pile it belongs to (his ask, 2026-10-15: "on the right side of the element")
+function placeInfo(openId) {
+  const info = $('cInfo'); if (openId == null || info.hidden) return;
+  const pile = $('cTray').querySelector(`[data-stack="${openId}"]`), st = $('dStage'); if (!pile || !st) return;
+  const top = pile.getBoundingClientRect().top - st.getBoundingClientRect().top;
+  info.style.top = clamp(top, 8, Math.max(8, st.clientHeight - info.offsetHeight - 8)) + 'px';
+}
 let chipsFor = null, fitGunsFor = null;              // the design whose chips are in the editor · the design whose guns must be fitted on the next paint (its piles changed)
 const stacksOut = () => gameChips.stacks.map(s => ({ id: s.id, type: s.type, kind: s.kind, h: s.h, role: s.role, ...(s.dials ? { dials: { ...s.dials } } : {}), ...(s.caps && s.caps.length ? { caps: s.caps.slice() } : {}) }));
 function rebuildFromChips(d, c) {
@@ -665,18 +672,21 @@ function capsuleClick(e, stack) {
 }
 // ---- the OUTLINE, on the painted ship (shapeedit.js, the Painter's): double-click it, drag the points, Done — or Save as… under a name
 const hdlg = createDialog();
-let outLock = null, outDirty = false, outFor = null;
+let outLock = null, outDirty = false, outFor = null, outSnap = null;
+function lightPaint(d) { const cv = $('dPaint'), g = cv.getContext('2d'); if (outSnap) g.drawImage(outSnap, 0, 0); else { g.fillStyle = '#04070f'; g.fillRect(0, 0, cv.width, cv.height); } outEd.draw(g); cv._handles = outEd.state().pts.map(outFrame().toPx); }   // the kept painting + the overlay (_handles: a probe for tests)
 function outlineLock() {                             // the frame while the outline is edited: the ship held still, at its volume
   const G = stageGeo(), vol = DS ? DS.t.volume : 300, f = outEd.fullPoly(), raw = f.length >= 3 && outEd.valid() ? f : (hullDef(DS ? DS.hull.id : 'dart') || hullDef('dart')).poly;
   const { s, cx, cy } = scaleInfo(raw, vol), b = bboxOf(raw);
   return { s, cx, cy, X: G.X, S: pxFor(G, (b.maxx - b.minx) * s || 1, (b.maxy - b.miny) * s || 1) };
 }
+const outFrame = () => { const L = outLock || (outLock = outlineLock()), cv = $('dPaint'); return { toPx: ([gx, gy]) => [L.X + (gx - GW / 2 - L.cx) * L.s * L.S, cv.height / 2 + (gy - GH / 2 - L.cy) * L.s * L.S], fromPx: ([px, py]) => [(px - L.X) / (L.s * L.S) + L.cx + GW / 2, (py - cv.height / 2) / (L.s * L.S) + L.cy + GH / 2] }; };
 const outEd = createShapeEditor($('dPaint'), {
-  frame() { const L = outLock || (outLock = outlineLock()), cv = $('dPaint'); return { toPx: ([gx, gy]) => [L.X + (gx - GW / 2 - L.cx) * L.s * L.S, cv.height / 2 + (gy - GH / 2 - L.cy) * L.s * L.S], fromPx: ([px, py]) => [(px - L.X) / (L.s * L.S) + L.cx + GW / 2, (py - cv.height / 2) / (L.s * L.S) + L.cy + GH / 2] }; },
+  frame: outFrame,
   changed(what) {
     const d = design(); if (!d || !DS) return;
     if (what === 'start') { outEd.load(hullDef(DS.hull.id) || hullDef('dart')); outLock = outlineLock(); outDirty = false; outFor = d.id; syncOutBar(true); }
-    if (what === 'end') { outLock = null; if (outDirty && outFor === d.id && outEd.valid()) commitOutline(null, false); outDirty = false; outFor = null; syncOutBar(false); return refresh(); }
+    if (what === 'end') { outLock = null; outSnap = null; if (outDirty && outFor === d.id && outEd.valid()) commitOutline(null, false); outDirty = false; outFor = null; syncOutBar(false); return refresh(); }
+    if (what === 'drag' || what === 'hover' || what === 'dragstart') return lightPaint(d);
     if (what === 'edit' || what === 'dragend') { outLock = outlineLock(); outDirty = true; }
     paintMain(d);
   },
@@ -686,8 +696,15 @@ function leaveOutline() { if (outEd.editing) { outDirty = false; outEd.editing =
 function syncOutBar(on) {
   $('dOutBar').style.display = on ? 'flex' : 'none'; if (!on) return;
   const st = outEd.state(), mine = ownHull(st);
-  $('dOutWho').textContent = mine ? `Reshaping “${st.name}” (yours)` : `Reshaping “${st.name}” — Done makes it yours`; $('dOutSym').value = st.sym || '';
+  $('dOutWho').textContent = mine ? `Reshaping “${st.name}” (yours)` : `Reshaping “${st.name}” — Done makes it yours`; $('dOutSym').value = st.sym || ''; $('dOutDel').style.display = mine ? '' : 'none';
 }
+// delete a silhouette of yours (the bar's Delete, or ✕ on its thumbnail): designs wearing it fall back to a built-in of their class
+async function deleteHull(id) {
+  const h = HULLS.find(x => x.id === id); if (!h || !(await hdlg.confirmDelete(h))) return;
+  if (outEd.editing) { outDirty = false; outEd.editing = false; }
+  HULLS = HULLS.filter(x => x.id !== id); saveHulls(); say(`Deleted “${h.name}”`);
+}
+$('dOutDel').onclick = () => { const st = outEd.state(); if (ownHull(st)) deleteHull(st.id); };
 function commitOutline(name, asNew) {                // the outline becomes this design's silhouette: one of yours overwritten (unless asNew), anything else a new one
   const d = design(), st = outEd.state(), mine = ownHull(st), h = outEd.build(name || st.name);
   if (!mine || asNew) { h.id = 'u' + Math.random().toString(36).slice(2, 9); if (!name) h.name = d.name + ' outline'; } h.klass = DS.t.hullClass;
@@ -776,7 +793,7 @@ function renderDesign(c) {
   const best = isShip ? dockFit(c.colonies.flatMap(p => p.gantries), t.hull.area) : null, whole = fits.some(f => f.fit?.sections === 1);
   FIT = best && { area: t.hull.area, cap: best.cap, sections: best.sections, label: best.sections === 1 ? `${best.at} space dock: ${t.squares} of ${best.cap} squares — it fits` : `${best.at} space dock holds ${best.cap} squares: ${t.squares} → cut into ${best.sections} sections` };
   const cur = hullDef(DS.hull.id);
-  $('dHullPick').innerHTML = `<span class="tiny">Silhouette</span>` + hullsFor(t.hullClass).map(h => `<button class="tpl ${DS.hull.id === h.id ? 'on' : ''}" data-hull="${h.id}" title="${esc(h.name)}${h.user ? ' (yours)' : ''}">${tplIcon(h, DS.hull.id === h.id)}</button>`).join('')
+  $('dHullPick').innerHTML = `<span class="tiny">Silhouette</span>` + hullsFor(t.hullClass).map(h => `<button class="tpl ${DS.hull.id === h.id ? 'on' : ''}" data-hull="${h.id}" title="${esc(h.name)}${h.user ? ' (yours)' : ''}">${tplIcon(h, DS.hull.id === h.id)}</button>${chip && h.user ? `<button class="x" data-hulldel="${h.id}" title="delete “${esc(h.name)}”" style="padding:0 5px;margin-left:-3px">✕</button>` : ''}`).join('')
     + (chip ? '' : `<button class="x" data-hulldraw title="draw a new silhouette">✎ Draw…</button>${cur?.user ? `<button class="x" data-hulledit="${cur.id}" title="edit this silhouette">✎ edit</button>` : ''}`)
     + (chip ? '<span class="tiny">· double-click the ship to reshape it</span>' : `<span class="tiny">· ${plural(t.squares, 'square')} now · shape is looks, size is what the dock counts</span>`);
   let ps = null;
@@ -937,6 +954,7 @@ document.addEventListener('click', e => {
   }
   if ((t = q('[data-settle]'))) { toastErr(settle(S, t.dataset.settle)); save(); return refresh(); }
   if ((t = q('[data-hull]'))) { const d = design(); if (!d) return; d.hull = t.dataset.hull; fitGunsFor = d.id; save(); return refresh(); }
+  if ((t = q('[data-hulldel]'))) return deleteHull(t.dataset.hulldel);
   if ((t = q('[data-hulldraw]'))) return hullEd.open({ klass: DS?.t.hullClass || 'starship' });
   if ((t = q('[data-hulledit]'))) return hullEd.open({ hull: t.dataset.hulledit });
   if ((t = q('[data-addmod]'))) { const d = design(); if (!d) return; if (KINDS[t.dataset.addmod].engine && DS && DS.t.klass === 'structure' && shipDesignCount() >= MAX_SHIP_DESIGNS) return say(`${MAX_SHIP_DESIGNS} ship designs at most — delete one first (refits come later)`); const m = { id: uid('m'), kind: t.dataset.addmod, caps: [], n: 1 }; d.modules.push(m); selMod = m.id; save(); return refresh(); }

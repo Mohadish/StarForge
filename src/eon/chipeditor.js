@@ -75,7 +75,8 @@ const DRONE_ROLES = ['standard', 'sniper', 'capital', 'antiarmor', 'antishield',
 // extra: more chips for this page ({ trait: [[key, label]…] } — the game's CIVIL ones) · infoExtra(stack, mods) → html added to a stack's
 // details (the game's breakthrough capsules) · onInfoClick(e, stack) → true when it handled a click there (the editor then rebuilds)
 // labels: the palette rows' names ({ weapon, role, trait }) · groupBy(stack) → a group's name, groupOrder [names]: the tray in groups under headers (the game)
-export function createChipEditor({ palette, tray, info, sheet, dropZones = [] }, { onChange, extra = null, infoExtra = null, onInfoClick = null, labels = null, groupBy = null, groupOrder = [] } = {}) {
+// openOnClick: a click on a stack opens its details (no ▾ needed) · onRender(openId): after every render (the game places the details panel)
+export function createChipEditor({ palette, tray, info, sheet, dropZones = [] }, { onChange, extra = null, infoExtra = null, onInfoClick = null, labels = null, groupBy = null, groupOrder = [], openOnClick = false, onRender = null } = {}) {
   ensure(); tray.classList.add('ce-tray'); info.classList.add('ce-info'); sheet.classList.add('ce-sheet'); info.hidden = true;
   let stacks = [], sel = null, open = null, nextId = 1, ship = null;
   const LIST = { weapon: CHIPS.weapon, role: CHIPS.role, trait: [...CHIPS.trait, ...((extra && extra.trait) || [])] }, nameOf = (type, key) => (LIST[type] || []).find(c => c[0] === key)?.[1] || key;
@@ -94,6 +95,7 @@ export function createChipEditor({ palette, tray, info, sheet, dropZones = [] },
     tray.innerHTML = html || '<span class="tiny">Empty. Tap or drag chips from above; drop a chip on a stack to pile it up; drop a role on a weapon to give it that role. Double-click a stack for its details.</span>';
     palette.querySelector('[data-prow="role"]')?.classList.toggle('off', !stacks.some(isWeapon));   // a role wants a weapon to sit on
     renderInfo();
+    if (onRender) onRender(open);
   }
   function drop(type, key, onStack) {
     const s = onStack != null ? stacks.find(x => x.id === onStack) : null;
@@ -125,7 +127,7 @@ export function createChipEditor({ palette, tray, info, sheet, dropZones = [] },
     const up = e.target.closest('[data-stackup]'); if (up) { const s = stacks.find(x => x.id === +up.dataset.stackup); if (s) { s.h++; sel = s.id; } return emit(); }
     const u = e.target.closest('[data-unstack]'); if (u) { const s = stacks.find(x => x.id === +u.dataset.unstack); if (s) { s.h--; if (s.h <= 0) { stacks = stacks.filter(x => x !== s); if (open === s.id) open = null; } } return emit(); }
     const o = e.target.closest('[data-sopen]'); if (o) { const id = +o.dataset.sopen; open = open === id ? null : id; sel = id; return render(); }
-    const st = e.target.closest('[data-stack]'); if (st) { sel = +st.dataset.stack; if (open !== null) open = sel; render(); }
+    const st = e.target.closest('[data-stack]'); if (st) { sel = +st.dataset.stack; if (openOnClick || open !== null) open = sel; render(); }
   });
   tray.addEventListener('dblclick', e => { const st = e.target.closest('[data-stack]'); if (!st) return; const id = +st.dataset.stack; open = open === id ? null : id; sel = id; render(); });
 
