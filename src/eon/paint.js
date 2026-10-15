@@ -36,6 +36,13 @@ export const autoRibbonPct = v => Math.max(0, RECIPE.ribPct - 3 * Math.max(0, v 
 export const autoEngines = v => Math.max(1, Math.round(v / 280));                                   // one engine per ~280 of volume
 export const pct = (p, [lo, hi]) => lo + Math.max(0, Math.min(100, p)) / 100 * (hi - lo);
 export const recipeFor = v => ({ ribbon: pct(autoRibbonPct(v), RECIPE.ribRange), centre: RECIPE.centre, spineW: RECIPE.spine, innerFat: RECIPE.fat, engineSize: RECIPE.engine, engineN: autoEngines(v), greebleSize: RECIPE.greeble, mountSize: RECIPE.mount });
+// the recipe with the painter's two MASTERS (plating %, fittings %) and the greeble SEED on top — a design keeps these
+// (design.paint), so the game's designer and every painted ship of that design look the same
+export const recipeWith = (v, { plating = 0, fittings = 0, seed = 0 } = {}) => {
+  const kP = 1 + plating / 100, kF = 1 + fittings / 100;
+  return { ...recipeFor(v), ribbon: pct(autoRibbonPct(v) * kP, RECIPE.ribRange), centre: Math.max(0.1, RECIPE.centre * kP), spineW: Math.max(0.1, RECIPE.spine * kP), innerFat: Math.max(1, RECIPE.fat * kP),
+    engineSize: Math.max(0.3, RECIPE.engine * kF), greebleSize: Math.max(0.3, RECIPE.greeble * kF), mountSize: Math.max(0.3, RECIPE.mount * kF), seed };
+};
 // ribbon: the OUTER ring's width in hull squares · centre: the core ring's width as a share of the hull's half width ·
 // spineW: the spine ribbon's width, same share · innerFat: inner rings are drawn this much fatter than their band ·
 // power: how the width rises with depth · pitch: the next ring sits this far in (× the ring's width); 1 = edge to edge ·

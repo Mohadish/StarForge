@@ -36,6 +36,9 @@ export function chipsOfDesign(design) {
     else if (m.kind === 'shield') add('trait', 'shield', Math.max(1, Math.round(n / 2)));
     else if (m.kind === 'thruster') add('trait', 'fast', Math.max(1, Math.round(n / 2)));
     else if (m.kind === 'works') add('trait', 'fab', n);
+    else if (m.kind === 'lab') add('trait', 'lab', n);                            // the game's civil chips
+    else if (m.kind === 'habitat') add('trait', 'habitat', n);
+    else if (m.kind === 'gantry') add('trait', 'gantry', n);
   }
   return out;
 }

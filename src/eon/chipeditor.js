@@ -13,7 +13,9 @@ export const CHIPS = {
   role: [['sniper', 'Sniper'], ['capital', 'Capital'], ['pd', 'Point defence'], ['antishield', 'Anti-shield'], ['antiarmor', 'Anti-armour']],
   trait: [['armor', 'Armoured'], ['shield', 'Shielded'], ['fast', 'Fast'], ['fab', 'Fabricator']],
 };
-export const CHIPC = { weapon_energy: '#5fe3d0', weapon_kinetic: '#ffb347', weapon_missile: '#ff8a6b', hangar: '#ffe08a', armor: '#c9d4e8', shield: '#cf89ff', fast: '#7ef3b0', fab: '#ffb347' };
+export const CHIPC = { weapon_energy: '#5fe3d0', weapon_kinetic: '#ffb347', weapon_missile: '#ff8a6b', hangar: '#ffe08a', armor: '#c9d4e8', shield: '#cf89ff', fast: '#7ef3b0', fab: '#ffb347', lab: '#6db7ff', habitat: '#f5a3c7', gantry: '#e8c56b' };
+// the GAME's civil chips (a page passes them as `extra`): a lab, a habitat, a dock
+export const CIVIL = { trait: [['lab', 'Lab'], ['habitat', 'Habitat'], ['gantry', 'Dock']] };
 const CSS = `
 .chipb { display: inline-block; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--c); color: var(--c); font-size: 12px; font-weight: 700; cursor: grab; user-select: none; -webkit-user-select: none; touch-action: none; background: rgba(255,255,255,.03) }
 .chipb.role { border-style: dashed }
@@ -68,15 +70,18 @@ const DRONE_ROLES = ['standard', 'sniper', 'capital', 'antiarmor', 'antishield',
 
 // el: { palette, tray, info, sheet } (elements) · dropZones: selectors that also take a dropped chip (the Painter's ship) ·
 // onChange(stacks) after every change the player makes
-export function createChipEditor({ palette, tray, info, sheet, dropZones = [] }, { onChange } = {}) {
+// extra: more chips for this page ({ trait: [[key, label]…] } — the game's CIVIL ones) · infoExtra(stack, mods) → html added to a stack's
+// details (the game's breakthrough capsules) · onInfoClick(e, stack) → true when it handled a click there (the editor then rebuilds)
+export function createChipEditor({ palette, tray, info, sheet, dropZones = [] }, { onChange, extra = null, infoExtra = null, onInfoClick = null } = {}) {
   ensure(); tray.classList.add('ce-tray'); info.classList.add('ce-info'); sheet.classList.add('ce-sheet'); info.hidden = true;
   let stacks = [], sel = null, open = null, nextId = 1, ship = null;
+  const LIST = { weapon: CHIPS.weapon, role: CHIPS.role, trait: [...CHIPS.trait, ...((extra && extra.trait) || [])] }, nameOf = (type, key) => (LIST[type] || []).find(c => c[0] === key)?.[1] || key;
   const emit = () => { render(); if (onChange) onChange(stacks); };
-  palette.innerHTML = ['weapon', 'role', 'trait'].map(type => `<div class="ce-prow"><span class="tiny">${{ weapon: 'Weapons', role: 'Roles', trait: 'Traits' }[type]}</span>${CHIPS[type].map(([k, l]) => `<span class="chipb ${type}" data-chip="${type}:${k}" style="--c:${CHIPC[k] || '#ffd26a'}" title="drag it into the tray (or onto a stack), or tap it">${l}</span>`).join('')}</div>`).join('');
-  const label = s => chipName(s.type || (CHIPS.weapon.some(c => c[0] === s.kind) ? 'weapon' : 'trait'), s.kind);
+  palette.innerHTML = ['weapon', 'role', 'trait'].map(type => `<div class="ce-prow"><span class="tiny">${{ weapon: 'Weapons', role: 'Roles', trait: 'Traits' }[type]}</span>${LIST[type].map(([k, l]) => `<span class="chipb ${type}" data-chip="${type}:${k}" style="--c:${CHIPC[k] || '#ffd26a'}" title="drag it into the tray (or onto a stack), or tap it">${l}</span>`).join('')}</div>`).join('');
+  const label = s => nameOf(s.type || (CHIPS.weapon.some(c => c[0] === s.kind) ? 'weapon' : 'trait'), s.kind);
   const isWeapon = s => CHIPS.weapon.some(c => c[0] === s.kind);
   function render() {
-    tray.innerHTML = stacks.map(s => `<span class="stack ${s.id === sel ? 'sel' : ''}" data-stack="${s.id}" style="--c:${CHIPC[s.kind]}" title="double-click: its details and dials"><b>${label(s)}</b>${s.h > 1 ? `<i class="hh">×${s.h}</i>` : ''}${s.role ? `<small>${chipName('role', s.role)}</small>` : ''}${s.dials && Object.keys(s.dials).length ? '<span class="tuned" title="its dials are turned">⚙</span>' : ''}<button class="x" data-sopen="${s.id}" title="its details and dials">${open === s.id ? '▴' : '▾'}</button><button class="x" data-unstack="${s.id}" title="one off">−</button></span>`).join('')
+    tray.innerHTML = stacks.map(s => `<span class="stack ${s.id === sel ? 'sel' : ''}" data-stack="${s.id}" style="--c:${CHIPC[s.kind]}" title="double-click: its details and dials"><b>${label(s)}</b>${s.h > 1 ? `<i class="hh">×${s.h}</i>` : ''}${s.role ? `<small>${nameOf('role', s.role)}</small>` : ''}${s.caps && s.caps.length ? `<span class="tuned" title="breakthrough capsules on it">✦${s.caps.length}</span>` : ''}${s.dials && Object.keys(s.dials).length ? '<span class="tuned" title="its dials are turned">⚙</span>' : ''}<button class="x" data-sopen="${s.id}" title="its details and dials">${open === s.id ? '▴' : '▾'}</button><button class="x" data-unstack="${s.id}" title="one off">−</button></span>`).join('')
       || '<span class="tiny">Empty. Tap or drag chips from above; drop a chip on a stack to pile it up; drop a role on a weapon to give it that role. Double-click a stack for its details.</span>';
     renderInfo();
   }
@@ -146,13 +151,18 @@ export function createChipEditor({ palette, tray, info, sheet, dropZones = [] },
         if (x.kind === 'shield') html += `<div>${n} shields: <b>${fmt(v.capacity * n)}</b> capacity, +${fmt(v.recovery * n)}/s · cover ${pct(t.cover)} · cost ${fmt(x.cost * n)}</div><div class="muted">the field always grows to cover the whole ship; more shields make it stronger — every hit loses ${SHIELD.hard} on it, and it pauses ${SHIELD.delay} s after a hit</div>`;
         if (x.kind === 'thruster') html += `<div>${n} thrusters: +${fmt(v.thrust * n)} thrust, +${fmt(v.evasion * n)} agility · cost ${fmt(x.cost * n)}</div><div class="muted">speed, turning and evasion — a big ship needs many to dance</div>`;
         if (x.kind === 'works') html += `<div>${n} fabricator${n > 1 ? 's' : ''}: ${fmt(v.industry * n)} industry, stock ${fmt(x.volume * n * 4)} · cost ${fmt(x.cost * n)}</div><div class="muted">reloads missiles, rebuilds drones and mends hull and armour — all paid from its stock</div>`;
+        if (x.kind === 'lab') html += `<div>${n} lab${n > 1 ? 's' : ''}: research ${fmt(v.research * n)} · cost ${fmt(x.cost * n)}</div><div class="muted">parked in orbit, it studies that place (and every lab in a system studies its star)</div>`;
+        if (x.kind === 'habitat') html += `<div>${n} habitat${n > 1 ? 's' : ''}: room for ${fmt(v.housing * n)} · cost ${fmt(x.cost * n)}</div><div class="muted">on a ship it carries a thousandth of that — settlers, who found a colony where they land</div>`;
+        if (x.kind === 'gantry') html += `<div>${n} gantr${n > 1 ? 'ies' : 'y'} ${x.rect ? x.rect.join(' × ') : '4 × 2'} · cost ${fmt(x.cost * n)}</div><div class="muted">a space dock: ships that fit inside it are built whole wherever it is parked</div>`;
       }
     }
     if (!mods.length) html += `<div class="muted">${ship ? 'nothing of it made it into the ship at this price' : 'build the ship to see what it does'}</div>`;
+    if (infoExtra) html += infoExtra(s, mods) || '';
     info.innerHTML = html;
   }
   info.addEventListener('click', e => {
     const s = stacks.find(x => x.id === open); if (!s) return;
+    if (onInfoClick && onInfoClick(e, s)) return emit();
     if (e.target.closest('[data-sclose]')) { open = null; return render(); }
     if (e.target.closest('[data-sreset]')) { delete s.dials; return emit(); }
     const b = e.target.closest('[data-dial]'); if (!b) return;
@@ -185,7 +195,9 @@ export function createChipEditor({ palette, tray, info, sheet, dropZones = [] },
   render(); renderSheet();
   return {
     get stacks() { return stacks; },
-    set(list) { stacks = (list || []).map(s => ({ ...s, id: nextId++, ...(s.dials ? { dials: { ...s.dials } } : {}) })); sel = stacks.length ? stacks[0].id : null; open = null; render(); },
+    set(list) { stacks = (list || []).map(s => ({ ...s, id: nextId++, ...(s.dials ? { dials: { ...s.dials } } : {}), ...(s.caps ? { caps: s.caps.slice() } : {}) })); sel = stacks.length ? stacks[0].id : null; open = null; render(); },
+    get openId() { return open; },
+    reopen(i) { const s = stacks[i]; if (s) { open = s.id; sel = s.id; render(); } },
     showShip(s, warn = []) { ship = s; renderInfo(); renderSheet(warn); },
     clear() { stacks = []; sel = null; open = null; render(); },
   };

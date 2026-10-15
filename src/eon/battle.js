@@ -543,6 +543,33 @@ export function designFromChips(S, stacks, budget, rng = rng32(1), caps = allCap
   return trimToBudget(S, d, budget, rng, caps, false) || d;
 }
 
+// A design from the SHIP EDITOR's chips in the GAME (his call, 2026-10-15: "the size and price driven by the elements you throw
+// into it … a gun is size X, another one ×2, the computer and all cumulative"). The chips AS THEY ARE, no price to meet: a CLASS
+// (a starship with its star drive, a platform on thrusters, a structure on the ground), weapons and roles with their dials,
+// traits, and the game's civil chips — lab, habitat, dock (a 4 × 2 gantry a chip). Each stack's breakthrough CAPSULES go on the
+// modules it makes (miniaturization makes them smaller, and so on). The reactor, the weapons computer and the drive are fitted to
+// what the rest needs, the shields grown to cover the hull; the price and the bulk are what all that comes to.
+export function designFromStacks(S, stacks, { klass = 'starship', name = '', hull = 'dart', id = null, caps = allCapsules(S) } = {}) {
+  const d = { id: id || uid(), name, hull, modules: [] };
+  if (klass === 'starship') d.modules.push({ id: uid(), kind: 'stardrive', caps: [], n: 1, k: 1 });
+  const tune = (m, dl) => { if (!dl) return; for (const k of ['dmg', 'rof', 'rng', 'chg']) if (dl[k]) m[k] = dl[k]; };
+  for (const s of stacks) {
+    const h = Math.max(1, s.h || 1), dl = s.dials || null, cp = (s.caps || []).slice(), add = m => { m.caps = cp.slice(); m.src = s.id; d.modules.push(m); };
+    if (s.kind === 'hangar') add(hangarFor(4 * h, (dl && dl.sz) || 1, s.role));
+    else if (KINDS[s.kind]?.mount) { const m = { id: uid(), kind: s.kind, n: 2 * h }; applyPreset(m, s.role && PRESETS[s.role] ? s.role : 'standard'); tune(m, dl); add(m); }
+    else if (s.kind === 'armor') add({ id: uid(), kind: 'armor', n: 4 * h });
+    else if (s.kind === 'shield') add({ id: uid(), kind: 'shield', n: 2 * h });
+    else if (s.kind === 'fast') add({ id: uid(), kind: 'thruster', n: 2 * h });
+    else if (s.kind === 'fab') add({ id: uid(), kind: 'works', n: h });
+    else if (s.kind === 'lab') add({ id: uid(), kind: 'lab', n: h });
+    else if (s.kind === 'habitat') add({ id: uid(), kind: 'habitat', n: h });
+    else if (s.kind === 'gantry') add({ id: uid(), kind: 'gantry', n: h, w: 4, h: 2 });
+  }
+  if (klass === 'platform' && !d.modules.some(m => m.kind === 'thruster')) d.modules.push({ id: uid(), kind: 'thruster', caps: [], n: 1 });   // a platform crawls on thrusters
+  autoFit(S, d, caps);
+  return d;
+}
+
 // A ship from words: "2 beams sniper + missiles + drones + armoured + fabricator". Each part names a
 // weapon (beam / gun / missile / drone), an optional count and preset; the rest are traits.
 const WORDS = {

@@ -64,30 +64,62 @@
 <!-- DESIGN: systems on the left, the silhouette in the middle, weapons on the right with lines to their guns -->
 <main id="tab-design" class="eon-des hidden" style="position:relative">
   <section id="dSys">
-    <div style="display:flex;gap:4px;margin-bottom:10px"><select id="dPick" style="flex:1;min-width:0"></select><button id="dNew" title="new design">＋</button><button id="dCopy" title="copy this design">⧉</button><button id="dDel" class="x" title="delete this design">✕</button></div>
-    <div class="grp">Add a system</div>
-    <div id="dSysAdd" class="palette"></div>
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px"><h2 style="margin:0">Systems</h2><button id="dAuto" class="go" title="size the reactor, the star drive and the weapons computer to the need, add shields until the hull is covered">⚙ Auto-fit</button></div>
-    <div id="dSysList"></div>
+    <div style="display:flex;gap:4px;margin-bottom:10px"><select id="dPick" style="flex:1;min-width:0"></select><button id="dNew" title="new ship design">＋</button><button id="dCopy" title="copy this design">⧉</button><button id="dDel" class="x" title="delete this design">✕</button></div>
+    <div id="dKlass" style="display:flex;gap:4px;margin-bottom:10px"></div>
+    <!-- a SHIP (starship or platform): the chips, the same as the Fleet Generator's and the Painter's — drag them onto the ship -->
+    <div id="dChipBox" style="display:none">
+      <div class="tiny" style="margin-bottom:6px">Drag the chips onto the ship (or into the tray), or tap them. The same chip again piles up; a role dropped on a weapon gives it that role. Double-click a stack for its details, its dials and the breakthroughs that fit it.</div>
+      <div id="cPalette"></div>
+      <div id="cTray"></div>
+      <div id="cInfo"></div>
+    </div>
+    <!-- a STRUCTURE: the modules one by one, as before -->
+    <div id="dOldSys">
+      <div class="grp">Add a system</div>
+      <div id="dSysAdd" class="palette"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px"><h2 style="margin:0">Systems</h2><button id="dAuto" class="go" title="size the reactor, the star drive and the weapons computer to the need, add shields until the hull is covered">⚙ Auto-fit</button></div>
+      <div id="dSysList"></div>
+    </div>
   </section>
   <section id="dMain">
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
       <input type="text" id="dName" style="width:200px">
       <span id="dClass"></span>
     </div>
-    <div id="dCoat" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px"></div>
     <div id="dHullPick" style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-bottom:6px"></div>
     <canvas id="dHull" width="900" height="400" style="display:block;width:100%;background:#04070f;border:1px solid var(--line);border-radius:10px"></canvas>
-    <canvas id="dPaint" width="900" height="230" style="display:block;width:100%;margin-top:6px;background:#04070f;border:1px solid var(--line);border-radius:10px" title="the ship painted in your coat"></canvas>
-    <div class="tiny" style="margin:6px 0 8px">the silhouette grows with what is inside it · purple rings are the shields' fields, red hull is outside every field · the bar is how much of your space dock's room it takes · the open weapon's guns are lit yellow — drag a gun to move its group along the hull, double-click it to put the group back</div>
+    <canvas id="dPaint" width="900" height="440" style="display:block;width:100%;background:#04070f;border:1px solid var(--line);border-radius:10px;touch-action:none" title="double-click the ship to reshape its outline"></canvas>
+    <div id="dOutBar" style="display:none;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px;padding:6px 8px;border:1px solid var(--good);border-radius:10px">
+      <b id="dOutWho" class="tiny" style="color:var(--text)"></b><select id="dOutSym"><option value="y">mirror across the spine</option><option value="x">mirror left / right</option><option value="">no symmetry</option></select><button id="dOutUndo" class="x">undo point</button><span style="flex:1"></span><button id="dOutSave" class="x">Save as…</button><button id="dOutDone" class="go">Done</button>
+      <span class="tiny" style="flex-basis:100%">Drag a point; double-tap the line to add one, a point to remove it. Done keeps it (one of yours is overwritten, a built-in one becomes yours); Save as… keeps it under a new name.</span>
+    </div>
+    <div id="dPaintCtl" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:8px 0">
+      <label class="tiny">Plating <input type="range" id="pPlat" min="-40" max="40" step="1" value="0" style="vertical-align:middle"> <b id="pPlatV"></b></label>
+      <label class="tiny">Fittings <input type="range" id="pFit" min="-40" max="40" step="1" value="0" style="vertical-align:middle"> <b id="pFitV"></b></label>
+      <label class="tiny">Greeble seed <input type="range" id="pSeed" min="0" max="999" step="1" value="0" style="vertical-align:middle"> <b id="pSeedV"></b> <button id="pSeedNext" class="x" title="the next seed">+1</button></label>
+      <details id="pCoat" style="flex-basis:100%"><summary class="tiny" style="cursor:pointer">Your coat — style, colours, wash, lights (every ship of yours wears it)</summary>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:6px">
+          <label class="tiny">Style <select id="cStyle"></select></label>
+          <label class="tiny">Wash <input type="color" id="cColA" title="at the outline"> <input type="color" id="cColB" title="at the core"></label>
+          <label class="tiny">strength <input type="range" id="cWash" min="0" max="100" step="1" value="60" style="vertical-align:middle"></label>
+          <label class="tiny">Lights <input type="color" id="cLight"></label>
+          <label class="tiny">strength <input type="range" id="cLights" min="0" max="100" step="1" value="50" style="vertical-align:middle"></label>
+        </div>
+      </details>
+    </div>
+    <div id="dOldNote" class="tiny" style="margin:6px 0 8px">the silhouette grows with what is inside it · purple rings are the shields' fields, red hull is outside every field · the bar is how much of your space dock's room it takes · the open weapon's guns are lit yellow — drag a gun to move its group along the hull, double-click it to put the group back</div>
     <div id="dSummary"></div>
   </section>
   <section id="dWeap">
-    <div class="grp">Add a weapon</div>
-    <div id="dWeapAdd" class="palette"></div>
-    <h2 style="margin-top:10px">Weapons</h2>
-    <div id="dFire"></div>
-    <div id="dWeapList"></div>
+    <!-- a ship: its character sheet -->
+    <div id="dSheetBox" style="display:none"><div id="cSheet"></div></div>
+    <div id="dOldWeap">
+      <div class="grp">Add a weapon</div>
+      <div id="dWeapAdd" class="palette"></div>
+      <h2 style="margin-top:10px">Weapons</h2>
+      <div id="dFire"></div>
+      <div id="dWeapList"></div>
+    </div>
   </section>
 </main>
 <!-- the silhouette editor, over everything -->
