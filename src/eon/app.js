@@ -152,12 +152,12 @@ function sheetsFor(styleId, onReady) {
 }
 const scaleInfo = (poly, volume) => { const a0 = areaOf(poly) || 1, b = bboxOf(poly); return { s: Math.sqrt(Math.max(volume / HULL_VOLUME, 0.5) / a0), cx: (b.minx + b.maxx) / 2, cy: (b.miny + b.maxy) / 2 }; };
 // the STAGE (his layout, 2026-10-15): the chip piles float over the left of the canvas (#cTray, TRAY_W wide), the systems the
-// design sizes for itself sit behind the stern (autoW of room), the ship takes a share of the rest by its width (shipShare).
+// design sizes for itself show among them (autoChips), the ship takes a share of the rest by its width (shipShare).
 // The price and the size, big, above the ship.
 const TRAY_W = 230;
 function stageGeo() {
   const cv = $('dPaint'), W = cv.clientWidth || 900, H = cv.clientHeight || 440; if (cv.width !== W) cv.width = W; if (cv.height !== H) cv.height = H;
-  const autoW = clamp((W - TRAY_W) * 0.22, 100, 150), x0 = TRAY_W + autoW, w = Math.max(160, W - 16 - x0); return { W, H, x0, w, X: x0 + w / 2, autoW };   // a narrow stage gives the stern chips less room
+  const x0 = TRAY_W + 16, w = Math.max(160, W - 16 - x0); return { W, H, x0, w, X: x0 + w / 2 };
 }
 // how much of the stage a hull takes, by its width in squares: a corvette (3 across) a third, a 15-across cruiser two thirds,
 // 30 across fills it (his call, 2026-10-15: a 5.8k ship must not fill the screen; a capital one may)
@@ -186,9 +186,9 @@ function fittingsToFit(R, px, f0) {
 function paintMain(d) {
   const cv = $('dPaint'); if (!cv || !DS || d.klass === 'structure') return;
   const G = stageGeo(), g = cv.getContext('2d'), lk = myLook(), sheets = sheetsFor(lk.style.id, () => { if (tab === 'design' && design() === d) paintMain(d); }), hull = DS.hull, editing = outEd.editing, shift = G.X - G.W / 2;
-  let poly, px, center, hp, sternX;
-  if (editing) { const L = outLock || (outLock = outlineLock()), f = outEd.fullPoly(); poly = f.length >= 3 ? f.map(([x, y]) => [(x - L.cx) * L.s, (y - L.cy) * L.s]) : hull.poly; px = L.S; center = [-shift / px, 0]; hp = {}; sternX = G.X + bboxOf(poly).minx * px; }   // no guns while the outline is reshaped (his call: placing them on every change made it crawl); they come back at Done
-  else { const b = hull.box; poly = hull.poly; px = pxFor(G, hull.bw, hull.bh); center = [(b.minx + b.maxx) / 2 - shift / px, (b.miny + b.maxy) / 2]; hp = { hardpoints: gameHardpoints() }; sternX = G.X - hull.bw / 2 * px; }
+  let poly, px, center, hp;
+  if (editing) { const L = outLock || (outLock = outlineLock()), f = outEd.fullPoly(); poly = f.length >= 3 ? f.map(([x, y]) => [(x - L.cx) * L.s, (y - L.cy) * L.s]) : hull.poly; px = L.S; center = [-shift / px, 0]; hp = {}; }   // no guns while the outline is reshaped (his call: placing them on every change made it crawl); they come back at Done
+  else { const b = hull.box; poly = hull.poly; px = pxFor(G, hull.bw, hull.bh); center = [(b.minx + b.maxx) / 2 - shift / px, (b.miny + b.maxy) / 2]; hp = { hardpoints: gameHardpoints() }; }
   let R = null;
   if (sheets && sheets.img && poly.length >= 3) R = paintHull(cv, poly, sheets.img, sheets.st, { ...recipeWith(DS.t.volume, d.paint || {}), px, center, ...hp, wash: lk.wash, washA: lk.washA, washB: lk.washB, lights: lk.lights, lightColor: lk.lightColor, background: '#04070f' }, sheets.deco);
   else {                                             // the plain plate until the sheets are in
@@ -197,7 +197,6 @@ function paintMain(d) {
   }
   if (R && sheets.tur && sheets.st.turrets) drawTurrets(g, R.hardpoints, sheets);
   cv._paint = { turrets: !!(R && sheets.tur && sheets.st.turrets), hardpoints: R ? R.hardpoints.length : 0, px };   // what the last paint did (a probe for tests)
-  drawSternChips(g, G, sternX);
   const t = DS.t;                                    // the two numbers that matter most, big: the price and the size
   g.textAlign = 'center'; g.font = 'bold 30px sans-serif'; g.fillStyle = '#ffd26a'; g.fillText(`${ICON.cost} ${fmt(t.cost)}`, G.X, 42);
   g.font = '15px sans-serif'; g.fillStyle = '#e8f0ff'; g.fillText(`${ICON.volume} ${plural(t.squares, 'square')} · ${fmt(t.volume)} volume`, G.X, 66);
@@ -207,22 +206,6 @@ function paintMain(d) {
   if (editing) { if (!outSnap || outSnap.width !== G.W || outSnap.height !== G.H) outSnap = new OffscreenCanvas(G.W, G.H); outSnap.getContext('2d').drawImage(cv, 0, 0); outEd.draw(g); cv._handles = outEd.state().pts.map(outFrame().toPx); } else { outSnap = null; cv._handles = null; }
   // the guns must fit: after the piles changed, the fittings come down until every mount sits whole on the hull and clear of the next
   if (R && !editing && fitGunsFor === d.id) { fitGunsFor = null; const f0 = d.paint?.fittings || 0, f = fittingsToFit(R, px, f0); if (f < f0) { d.paint = { plating: 0, seed: 0, ...(d.paint || {}), fittings: f }; save(); syncPaintCtl(d); paintMain(d); } }
-}
-// the systems the design sizes for itself — the reactor, the star drive or the thrusters, the weapons computer, shields added
-// for cover — as chips behind the stern: not added by hand, they grow (×size) and multiply (×n) with what the piles ask for
-function drawSternChips(g, G, sternX) {
-  const auto = DS.mods.filter(m => !m.mod.src || m.kind === 'thruster'); if (!auto.length) return;   // the thrusters too: "Fast" is thrusters, and they belong at the stern
-  const wMax = G.autoW - 12, rows = auto.map(m => { const k = m.K.scale ? m.k || 1 : 1; return { m, w: clamp(118 + 14 * (k - 1), Math.min(118, wMax), wMax), h: clamp(34 + 8 * (k - 1), 34, 56) }; });
-  const total = rows.reduce((a, r) => a + r.h + 6, -6); let y = G.H / 2 - total / 2; const right = sternX - 12;
-  g.save(); g.textAlign = 'left'; g.textBaseline = 'middle';
-  for (const { m, w, h } of rows) {
-    const x = right - w, col = m.K.color, tag = `${m.K.scale ? 'size ×' + m.k : ''}${m.n > 1 ? `${m.K.scale ? ' · ' : ''}×${m.n}` : ''}`;
-    g.beginPath(); g.roundRect(x, y, w, h, 9); g.fillStyle = 'rgba(255,255,255,.05)'; g.fill(); g.strokeStyle = col; g.lineWidth = 1; g.stroke();
-    g.fillStyle = col; g.font = `bold ${w < 112 ? 10 : 11}px sans-serif`; g.fillText(m.K.name, x + 8, y + 12);
-    if (tag) { g.fillStyle = '#ffd26a'; g.font = '11px sans-serif'; g.fillText(tag, x + 9, y + h - 11); }
-    y += h + 6;
-  }
-  g.restore();
 }
 // the paint dials (the design's) and the coat tab (yours), from the design and the coat
 function syncPaintCtl(d) {
@@ -639,7 +622,21 @@ const hullEd = createHullEditor($('hullEd'), {
 // (battle.js designFromStacks) and the price and the bulk follow — a capital gun is a given size, two of them twice that
 const gameChips = createChipEditor({ palette: $('cPalette'), tray: $('cTray'), info: $('cInfo'), sheet: $('cSheet'), dropZones: ['#dPaint'] },
   { extra: { ...CIVIL, names: { fast: 'Thrusters' } }, onChange: chipsChanged, infoExtra: capsuleHtml, onInfoClick: capsuleClick, labels: { weapon: 'Military', role: 'Roles', trait: 'Utilities' },
-    groupBy: s => s.kind === 'fast' ? 'Energy' : s.type === 'weapon' ? 'Military' : 'Utilities', groupOrder: ['Energy', 'Utilities', 'Military'], openOnClick: true, onRender: placeInfo });   // "Fast" is the thrusters here (his call)
+    groupBy: s => s.kind === 'fast' ? 'Energy & thrust' : s.type === 'weapon' ? 'Military' : 'Utilities', groupOrder: ['Energy & thrust', 'Utilities', 'Military'], openOnClick: true, onRender: placeInfo, autoChips });   // "Fast" is the thrusters here (his call)
+// the systems the design sizes for itself — not chips, but shown among them (his ask, 2026-10-15): the reactor, the star drive and
+// the thrusters under Energy & thrust, the weapons computer first under Military, shields added for cover under Utilities; each
+// with its size (×k) and count (×n), which grow with what the piles ask for
+const ENERGY = ['reactor', 'stardrive', 'thruster'];
+function autoChips(group) {
+  if (!DS) return [];
+  const item = m => ({ label: m.K.name, sub: `${m.K.scale ? 'size ×' + m.k : ''}${m.n > 1 ? `${m.K.scale ? ' · ' : ''}×${m.n}` : ''}`, color: m.K.color, title: 'sized by the design itself — it grows with what you add; not a chip' });
+  const auto = DS.mods.filter(m => !m.mod.src);
+  if (group === 'Energy & thrust') return auto.filter(m => ENERGY.includes(m.kind)).map(item);
+  if (group === 'Military') return auto.filter(m => m.kind === 'weapon_system').map(item);
+  if (group === 'Utilities') return auto.filter(m => !ENERGY.includes(m.kind) && m.kind !== 'weapon_system').map(item);
+  return [];
+}
+document.addEventListener('click', e => { if (gameChips.openId == null || !e.target.isConnected || e.target.closest('#cInfo, [data-stack], .hdlg')) return; gameChips.close(); });   // a click anywhere else closes a pile's details (his ask); a click that re-rendered its own target (a pile, its + / −) is not "elsewhere"
 // the details panel floats over the stage beside the pile it belongs to (his ask, 2026-10-15: "on the right side of the element")
 function placeInfo(openId) {
   const info = $('cInfo'); if (openId == null || info.hidden) return;

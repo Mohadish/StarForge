@@ -28,6 +28,8 @@ const CSS = `
 .ce-tray.over { border-color: var(--good, #7ef3b0); background: rgba(126,243,176,.06) }
 .ce-tray .stack { position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--c); background: rgba(255,255,255,.05); color: var(--c); font-size: 13px; cursor: pointer; user-select: none; -webkit-user-select: none }
 .ce-tray .stack.sel { outline: 2px solid var(--warn, #ffd26a) }
+.ce-tray .stack.auto { cursor: default; border-style: dotted; background: rgba(255,255,255,.03) }
+.ce-tray .stack.auto small { color: var(--warn, #ffd26a) }
 .ce-tray .stack.over { background: rgba(126,243,176,.18); border-color: var(--good, #7ef3b0) }
 .ce-tray .stack .hh { font-style: normal; font-weight: 800; color: var(--warn, #ffd26a) }
 .ce-tray .stack small { color: var(--fg, #e8f0ff); font-size: 11px }
@@ -76,7 +78,8 @@ const DRONE_ROLES = ['standard', 'sniper', 'capital', 'antiarmor', 'antishield',
 // details (the game's breakthrough capsules) · onInfoClick(e, stack) → true when it handled a click there (the editor then rebuilds)
 // labels: the palette rows' names ({ weapon, role, trait }) · groupBy(stack) → a group's name, groupOrder [names]: the tray in groups under headers (the game)
 // openOnClick: a click on a stack opens its details (no ▾ needed) · onRender(openId): after every render (the game places the details panel)
-export function createChipEditor({ palette, tray, info, sheet, dropZones = [] }, { onChange, extra = null, infoExtra = null, onInfoClick = null, labels = null, groupBy = null, groupOrder = [], openOnClick = false, onRender = null } = {}) {
+// autoChips(group) → [{ label, sub, color, title }]: chips shown first in that group that are not stacks (the game's reactor, drive, weapons computer)
+export function createChipEditor({ palette, tray, info, sheet, dropZones = [] }, { onChange, extra = null, infoExtra = null, onInfoClick = null, labels = null, groupBy = null, groupOrder = [], openOnClick = false, onRender = null, autoChips = null } = {}) {
   ensure(); tray.classList.add('ce-tray'); info.classList.add('ce-info'); sheet.classList.add('ce-sheet'); info.hidden = true;
   let stacks = [], sel = null, open = null, nextId = 1, ship = null;
   const LIST = { weapon: CHIPS.weapon, role: CHIPS.role, trait: [...CHIPS.trait, ...((extra && extra.trait) || [])] }, nameOf = (type, key) => (LIST[type] || []).find(c => c[0] === key)?.[1] || key;
@@ -88,9 +91,13 @@ export function createChipEditor({ palette, tray, info, sheet, dropZones = [] },
   function render() {
     const chip = s => `<span class="stack ${s.id === sel ? 'sel' : ''}" data-stack="${s.id}" style="--c:${CHIPC[s.kind]}" title="double-click: its details and dials"><b>${label(s)}</b>${s.h > 1 ? `<i class="hh">×${s.h}</i>` : ''}${s.role ? `<small>${nameOf('role', s.role)}</small>` : ''}${s.caps && s.caps.length ? `<span class="tuned" title="breakthrough capsules on it">✦${s.caps.length}</span>` : ''}${s.dials && Object.keys(s.dials).length ? '<span class="tuned" title="its dials are turned">⚙</span>' : ''}<button class="x" data-sopen="${s.id}" title="its details and dials">${open === s.id ? '▴' : '▾'}</button><button class="x" data-stackup="${s.id}" title="one more">+</button><button class="x" data-unstack="${s.id}" title="one off">−</button></span>`;
     let html;
-    if (groupBy) {                                     // in groups, each under its header, the groups in the order given
-      const gi = s => { const i = groupOrder.indexOf(groupBy(s)); return i < 0 ? 99 : i; }; let last = null;
-      html = stacks.map((s, i) => [s, i]).sort((a, b) => gi(a[0]) - gi(b[0]) || a[1] - b[1]).map(([s]) => { const g = groupBy(s), head = g !== last ? `<div class="ce-grp">${esc(g)}</div>` : ''; last = g; return head + chip(s); }).join('');
+    if (groupBy) {                                     // in groups, each under its header, the groups in the order given; a group's AUTO chips (the ship's own systems, not added by hand) come first in it
+      const by = new Map(); for (const s of stacks) { const g = groupBy(s); (by.get(g) || by.set(g, []).get(g)).push(s); }
+      const names = [...groupOrder, ...[...by.keys()].filter(g => !groupOrder.includes(g))];
+      html = names.map(g => {
+        const autos = (autoChips && autoChips(g)) || [], list = by.get(g) || []; if (!autos.length && !list.length) return '';
+        return `<div class="ce-grp">${esc(g)}</div>` + autos.map(a => `<span class="stack auto" style="--c:${a.color || '#9eb3d8'}" title="${esc(a.title || '')}"><b>${esc(a.label)}</b>${a.sub ? `<small>${esc(a.sub)}</small>` : ''}</span>`).join('') + list.map(chip).join('');
+      }).join('');
     } else html = stacks.map(chip).join('');
     tray.innerHTML = html || '<span class="tiny">Empty. Tap or drag chips from above; drop a chip on a stack to pile it up; drop a role on a weapon to give it that role. Double-click a stack for its details.</span>';
     palette.querySelector('[data-prow="role"]')?.classList.toggle('off', !stacks.some(isWeapon));   // a role wants a weapon to sit on
@@ -211,7 +218,8 @@ export function createChipEditor({ palette, tray, info, sheet, dropZones = [] },
     set(list) { stacks = (list || []).map(s => ({ ...s, id: nextId++, ...(s.dials ? { dials: { ...s.dials } } : {}), ...(s.caps ? { caps: s.caps.slice() } : {}) })); sel = stacks.length ? stacks[0].id : null; open = null; render(); },
     get openId() { return open; },
     reopen(i) { const s = stacks[i]; if (s) { open = s.id; sel = s.id; render(); } },
-    showShip(s, warn = []) { ship = s; renderInfo(); renderSheet(warn); },
+    showShip(s, warn = []) { ship = s; if (autoChips) render(); else renderInfo(); renderSheet(warn); },   // the auto chips follow the ship: the tray is redrawn with it
+    close() { if (open === null) return; open = null; render(); },
     clear() { stacks = []; sel = null; open = null; render(); },
   };
 }
