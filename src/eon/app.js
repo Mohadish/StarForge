@@ -11,6 +11,9 @@ import { drawHull } from './hullview.js';
 import { hullDef, hullsFor, setUserHulls, bboxOf } from './hull.js';
 import { createHullEditor } from './hulledit.js';
 import { mountNav } from './nav.js';
+import { lookOf as fleetLook, lookFromColors, styleChoices, spriteOf, thumbOf } from './skins.js';
+import { shipFromDesign } from './battle.js';
+import { buildPlan } from './fleetplan.js';
 mountNav('eon', { into: document.getElementById('topbar') });
 
 const KEY = 'forge.eon.v8';
@@ -21,7 +24,128 @@ let curDesign = S.designs[0]?.id || null, selMod = null, openBt = new Set(), not
 let HULLS = loadHulls(); setUserHulls(HULLS);
 let selSys = S.homeSys, selPlace = 'home', hoverPlace = null, DS = null, LAST = null;
 let gSel = S.homeSys, gHover = null, gField = null, seedDraft = null;
-const fleetPick = new Set();                                                       // starships ticked to leave together as one fleet
+// FLEETS, Master of Orion's way (his ask, 2026-10-15): your ships at a star are STACKS by design — "Corvette ×30" — each with a
+// count to send. Pick some, then click where they go: a star on the galaxy map (only ships that can cross between stars are
+// offered there), a place on the system map. At most MAX_SHIP_DESIGNS ship designs (structures do not count).
+const MAX_SHIP_DESIGNS = 12;
+let picks = new Map(), pickScope = null, sendTo = null;   // design id → how many of it are picked · { kind: 'galaxy', sys } | { kind: 'system', place } · the destination clicked (a system, or a place)
+const shipDesignCount = () => S.designs.filter(d => designStats(S, d, LAST ? LAST.caps : allCapsules(S)).t.klass !== 'structure').length;
+// THE LOOK: every ship of yours wears your coat (a plating style and two colours, chosen in Design); a hostile fleet wears one of
+// its own, drawn from its name
+const myLook = () => lookFromColors(S.look?.style || styleChoices()[0].id, S.look?.colA || '#7fb3ff', S.look?.colB || '#ffb347');
+const hashS = str => { let h = 2166136261; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36); };
+const paintedShips = new Map();
+function paintedShip(design, caps) {               // a design as the battle builds it, for its painted picture (the id carries the modules: an edit paints afresh)
+  const key = design.id + ':' + hashS(design.hull + JSON.stringify(design.modules.map(m => [m.kind, m.n, m.k, m.dmg, m.rof, m.rng, m.chg, m.cnt, m.sz, m.preset, m.w, m.h])));
+  let s = paintedShips.get(key); if (!s) { s = shipFromDesign(S, { ...design, id: key }, caps); paintedShips.set(key, s); } return s;
+}
+const thumbShips = new Map(), thumbCache = new Map();
+function fillThumbs(root) {                         // every <canvas data-thumb> under root gets its ship's painted picture
+  for (const cv of root.querySelectorAll('canvas[data-thumb]')) {
+    const ship = thumbShips.get(cv.dataset.thumb); if (!ship) continue;
+    const lk = cv.dataset.foe ? fleetLook(cv.dataset.foe) : myLook(), key = ship.design.id + '|' + lk.key;
+    const draw = img => { const g = cv.getContext('2d'); g.clearRect(0, 0, cv.width, cv.height); const q = Math.min(cv.width / img.width, cv.height / img.height); g.drawImage(img, (cv.width - img.width * q) / 2, (cv.height - img.height * q) / 2, img.width * q, img.height * q); };
+    const had = thumbCache.get(key); if (had) { draw(had); continue; }
+    thumbOf(ship, lk, 120).then(img => { if (!img) return; thumbCache.set(key, img); if (cv.isConnected) draw(img); });
+  }
+}
+// stacks: ships at rest grouped by design, the freshest first inside each
+function groupsOf(list) {
+  const m = new Map();
+  for (const s of list) { const k = s.u.design.id; let g = m.get(k); if (!g) { g = { key: k, name: s.u.name, ships: [], t: s.t, klass: s.u.klass }; m.set(k, g); } g.ships.push(s); }
+  for (const g of m.values()) { g.ships.sort((a, b) => (b.u.st ?? 100) - (a.u.st ?? 100)); g.range = Math.min(...g.ships.map(s => s.range || 0)); }
+  return [...m.values()].sort((a, b) => b.t.cost - a.t.cost);
+}
+const canLeave = s => s.u.klass === 'starship' && !s.t.underDriven;
+const picked = groups => groups.flatMap(g => g.ships.slice(0, Math.min(g.ships.length, picks.get(g.key) || 0)));
+const pickCount = () => [...picks.values()].reduce((a, n) => a + n, 0);
+function setScope(scope) {
+  const same = pickScope && pickScope.kind === scope.kind && pickScope.sys === scope.sys && pickScope.place === scope.place;
+  if (!same) { picks = new Map(); sendTo = null; } pickScope = scope;
+}
+// the stacks of the current scope (what the send buttons act on)
+function scopeGroups(c) {
+  if (!pickScope) return [];
+  if (pickScope.kind === 'galaxy') return groupsOf(c.ships.filter(s => !s.u.dest && placeOf(s.u.at)?.sys === pickScope.sys && canLeave(s)));
+  return groupsOf(c.ships.filter(s => !s.u.dest && s.u.at === pickScope.place));
+}
+function stackRow(g, { send = true, settleAt = null, foe = null } = {}) {
+  const n = picks.get(g.key) || 0, total = g.ships.length, tid = (foe ? 'f' : 'm') + g.key;
+  thumbShips.set(tid, foe ? g.ship : paintedShip(g.ships[0].u.design, LAST.caps));
+  let line;
+  if (foe) line = `${esc(g.ship.arch ? g.ship.arch.label : '')} · worth ${fmt(g.ship.cost)} each · ${fmt(g.ship.dps)} dmg/s`;
+  else {
+    const sts = g.ships.map(s => s.u.st ?? 100), lo = Math.min(...sts), hi = Math.max(...sts), people = g.ships.reduce((a, s) => a + (s.u.people || 0), 0);
+    line = [`worth ${fmt(g.t.cost)} each`, g.t.dps ? `${fmt(g.t.dps)} dmg/s` : '', g.t.research ? `lab ${fmt(g.t.research)}` : '', g.klass === 'starship' && !g.t.underDriven ? `reach ${g.range.toFixed(1)} ly` : g.klass === 'starship' ? '<b class="up">drive too small to leave</b>' : 'thrusters only',
+      `stamina ${Math.round(lo) === Math.round(hi) ? Math.round(lo) : `${Math.round(lo)}–${Math.round(hi)}`} %${lo < 100 ? ' (coming back while they rest)' : ''}`, people ? `${peopleWord(people)} people aboard` : ''].filter(Boolean).join(' · ');
+  }
+  const settler = !foe && settleAt && g.ships.find(s => s.u.people > 0);
+  return `<div class="shiprow"><div class="n"><span style="display:flex;align-items:center;gap:8px"><canvas data-thumb="${tid}" ${foe ? `data-foe="${esc(foe)}"` : ''} width="96" height="56" style="width:64px;height:38px;border-radius:6px;background:#04070f;flex:none"></canvas><b>${esc(g.name)}</b><b style="color:var(--time)">×${total}</b></span>
+    ${send ? `<span class="stepper" title="how many of them to send"><button data-gpick="${g.key}" data-max="${total}" data-d="-1">−</button><b>${n}</b><button data-gpick="${g.key}" data-max="${total}" data-d="1">+</button><button class="x" data-gall="${g.key}" data-max="${total}">${n === total ? 'none' : 'all'}</button></span>` : foe ? '' : '<span class="tiny">stays in its system</span>'}</div>
+    <div class="tiny">${line}</div>${settler ? `<div class="acts"><button class="go" data-settle="${settler.u.id}">Settle ${esc(settleAt.name)} with one</button></div>` : ''}</div>`;
+}
+// what is picked, and where it would go
+function sendBar(c, groups) {
+  const ships = picked(groups); if (!ships.length) return '';
+  const names = groups.filter(g => picks.get(g.key)).map(g => `${esc(g.name)} ×${Math.min(picks.get(g.key), g.ships.length)}`).join(', ');
+  if (pickScope.kind === 'galaxy') {
+    const R = fleetRange(S, ships.map(s => s.u)), st = Math.min(...ships.map(s => s.u.st ?? 100)), worth = ships.reduce((a, s) => a + s.t.cost, 0);
+    let h = `<div class="okbox" style="margin:6px 0"><b>${ships.length} picked</b>: ${names} · worth ${fmt(worth)} · reach <b>${R.toFixed(1)} ly</b> (by bulk) · the weakest at ${Math.round(st)} % — <b>click a star on the map to send them</b> <button class="x" data-pclear>clear</button>`;
+    if (sendTo) {
+      const d = lyBetween(S, pickScope.sys, sendTo), f = forecast(R, d, c.warp, 0, st), foe = hostileIn(S, sendTo);
+      h += `<div style="margin-top:6px;padding-top:6px;border-top:1px dashed var(--line)">To <b>${esc(sysOf(sendTo).name)}</b>: ${d.toFixed(1)} ly · ${plural(f.eons, 'eon')} · <b>${Math.round(f.chance * 100)} %</b>${f.chance < 1 ? ` · in at ~${Math.round(f.expected)} %${f.lost ? ' — some could be lost' : ` (worst ${Math.round(f.worst)} %)`}` : ''}${foe ? ` · <b class="up">⚔ ${esc(hostileWord(foe))}</b>` : ''}
+        <div class="acts" style="margin-top:4px"><button class="go" data-psend>Send them</button><button class="x" data-pcancel>pick another star</button></div></div>`;
+    }
+    return h + '</div>';
+  }
+  let h = `<div class="okbox" style="margin:6px 0"><b>${ships.length} picked</b>: ${names} — <b>click a place on the map to send them there</b>${ships.some(canLeave) ? ' · <button class="x" data-ptogalaxy>to another star ▸</button>' : ''} <button class="x" data-pclear>clear</button>`;
+  if (sendTo) { const to = placeOf(sendTo), eta = Math.max(...ships.map(s => T.travel[s.u.klass] || 0)); h += `<div style="margin-top:6px">To <b>${esc(to.name)}</b>: ${plural(eta, 'eon')} <div class="acts" style="margin-top:4px"><button class="go" data-psend>Send them</button><button class="x" data-pcancel>pick another place</button></div></div>`; }
+  return h + '</div>';
+}
+// ships under way, by fleet: who, where to, how long, how worn — and call back
+function movingLines(list) {
+  const m = new Map(); for (const s of list) { const k = (s.u.voy && s.u.voy.fleet) || s.u.id; (m.get(k) || m.set(k, []).get(k)).push(s); }
+  return [...m.values()].map(ss => {
+    const u = ss[0].u, cnt = {}; for (const s of ss) cnt[s.u.name] = (cnt[s.u.name] || 0) + 1;
+    const names = Object.entries(cnt).map(([n, k]) => `${esc(n)} ×${k}`).join(', '), to = placeOf(u.dest), V = u.voy, lo = Math.min(...ss.map(s => s.u.st ?? 100));
+    return `<div class="shiprow"><div class="n"><span>${names} → ${esc(to.name)}${V && to.kind !== 'star' ? ` (${esc(sysOf(to.sys).name)})` : ''} <span class="tiny">· ${plural(u.eta, 'eon')}</span></span><button class="x" data-recall="${u.id}" title="${V ? 'the fleet turns round: the way back counts on the same voyage' : 'they stay where they are'}">call back</button></div>${V ? `<div class="tiny">${V.left.toFixed(1)} ly to go · stamina ${Math.round(lo)} %${V.travelled > V.range ? ` · <b class="up">${(V.travelled - V.range).toFixed(1)} ly past its reach — crawling, wearing</b>` : ''}${V.back ? ' · turned back' : ''}</div>` : ''}</div>`;
+  }).join('');
+}
+// a hostile fleet's ships, built once for its picture and its stacks
+const foeCache = new Map();
+function foeStacks(H) {
+  const key = H.id + ':' + H.plan.ships.length; let built = foeCache.get(key);
+  if (!built) { built = buildPlan({ breakthroughs: [] }, { ...H.plan, ships: H.plan.ships.map(p => ({ ...p })) }).ships; foeCache.set(key, built); }
+  const m = new Map(); for (const s of built) { const k = s.plan.words; let g = m.get(k); if (!g) { g = { key: H.id + hashS(k), name: s.arch ? s.arch.label.split(' · ')[0] : 'Ship', ship: s, ships: [] }; m.set(k, g); } g.ships.push(s); }
+  return [...m.values()];
+}
+
+function galaxyFleetPanel(c, s) {                   // the chosen star's ships: yours as stacks to send, those under way, the hostile one's
+  if (!pickScope || pickScope.kind !== 'galaxy' || pickScope.sys !== s.id) setScope({ kind: 'galaxy', sys: s.id });
+  const rest = c.ships.filter(x => !x.u.dest && placeOf(x.u.at)?.sys === s.id), go = groupsOf(rest.filter(canLeave)), stay = groupsOf(rest.filter(x => !canLeave(x)));
+  const moving = c.ships.filter(x => x.u.dest && x.u.voy && (x.u.voy.A === s.id || x.u.voy.B === s.id)), H = hostileIn(S, s.id);
+  let h = '';
+  if (go.length || stay.length) h += `<h3>Your ships here</h3>` + go.map(g => stackRow(g)).join('') + stay.map(g => stackRow(g, { send: false })).join('') + sendBar(c, go)
+    + (go.length && !pickCount() ? '<div class="tiny">Pick how many of each to send (+ / all), then click the star they should go to.</div>' : '');
+  if (moving.length) h += `<h3>Under way</h3>` + movingLines(moving);
+  if (H) h += `<h3 style="color:var(--bad)">⚔ ${esc(H.plan.name)}</h3>` + foeStacks(H).map(g => stackRow(g, { send: false, foe: H.plan.name })).join('');
+  return h;
+}
+function renderCoat() {                             // Design: the coat every ship of yours wears, and how many ship designs you have
+  const el = $('dCoat'); if (!el) return; const L = S.look || {};
+  if (!el.dataset.ready) { el.dataset.ready = '1'; el.innerHTML = `<span class="tiny">Your coat</span> <select id="dStyle">${styleChoices().map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select> <input type="color" id="dColA" title="the outline colour"> <input type="color" id="dColB" title="the core colour"> <span class="tiny" id="dSlots"></span>`; }
+  $('dStyle').value = L.style || styleChoices()[0].id; $('dColA').value = L.colA || '#7fb3ff'; $('dColB').value = L.colB || '#ffb347';
+  const n = shipDesignCount(); $('dSlots').innerHTML = `· ship designs <b class="${n >= MAX_SHIP_DESIGNS ? 'up' : ''}">${n} / ${MAX_SHIP_DESIGNS}</b>`;
+}
+function paintDesign(d, c) {                        // Design: the ship painted in your coat (the painter's skin), under the plan of it
+  const cv = $('dPaint'); if (!cv || !DS) return; const ship = DS.t.klass !== 'structure';
+  cv.style.display = ship ? 'block' : 'none'; if (!ship) return;
+  if (cv.width !== (cv.clientWidth || 900)) cv.width = cv.clientWidth || 900;
+  const g = cv.getContext('2d'); g.fillStyle = '#04070f'; g.fillRect(0, 0, cv.width, cv.height);
+  const sp = spriteOf(paintedShip(d, c.caps), myLook(), () => { if (tab === 'design' && design() === d) paintDesign(d, c); });
+  if (!sp) { g.fillStyle = '#9eb3d8'; g.font = '12px sans-serif'; g.fillText('painting…', 12, 20); return; }
+  const k = Math.min((cv.width - 20) / sp.w, (cv.height - 20) / sp.h); g.drawImage(sp.cv, (cv.width - sp.w * k) / 2, (cv.height - sp.h * k) / 2, sp.w * k, sp.h * k);
+}
 // the reach of your best starship resting at a star (for the galaxy map's rings); 0 when none rests there
 const ringR = sysId => { const c = LAST; if (!c) return 0; return Math.max(0, ...c.ships.filter(s => !s.u.dest && placeOf(s.u.at)?.sys === sysId).map(s => s.range || 0)); };
 
@@ -122,7 +246,7 @@ function fitCanvas(cv) { const w = cv.clientWidth, h = cv.clientHeight; if (cv.w
 function drawGalaxy(c) {
   const cv = $('gMap'); if (!cv || !cv.clientWidth) return;
   const G = fitCanvas(cv), g = cv.getContext('2d'), mine = presence(c);
-  G.k = (Math.min(G.w, G.h) / 2 - 34) / GALAXY.radius; G.pos = {};
+  G.k = Math.max(20, Math.min(G.w, G.h) / 2 - 34) / GALAXY.radius; G.pos = {};
   for (const s of S.systems) G.pos[s.id] = { x: G.cx + s.x * G.k, y: G.cy + s.y * G.k };
   cv._geo = G;
   g.clearRect(0, 0, G.w, G.h);
@@ -139,6 +263,8 @@ function drawGalaxy(c) {
     cols.forEach((col, i) => { g.strokeStyle = col; g.globalAlpha = i ? 0.55 : 0.8; g.lineWidth = i ? 1 : 1.6; g.setLineDash(i ? [3, 5] : []); g.beginPath(); g.arc(p.x, p.y, (reachR + i) * LY * G.k, 0, 7); g.stroke(); });
     g.globalAlpha = 1; g.lineWidth = 1; g.setLineDash([]);
   }
+  // picked ships, and the star they would go to
+  if (sendTo && pickScope?.kind === 'galaxy' && G.pos[pickScope.sys] && G.pos[sendTo]) { const a = G.pos[pickScope.sys], b = G.pos[sendTo]; g.strokeStyle = '#7ef3b0'; g.lineWidth = 2; g.setLineDash([6, 5]); g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke(); g.setLineDash([]); g.lineWidth = 1; }
   // derelicts, where they broke down
   for (const w of S.derelicts || []) { const a = G.pos[w.A], b = G.pos[w.B]; if (!a || !b) continue; const x = a.x + (b.x - a.x) * w.pos, y = a.y + (b.y - a.y) * w.pos; g.strokeStyle = '#8a93a8'; g.lineWidth = 1.5; g.beginPath(); g.moveTo(x - 4, y - 4); g.lineTo(x + 4, y + 4); g.moveTo(x + 4, y - 4); g.lineTo(x - 4, y + 4); g.stroke(); g.lineWidth = 1; }
   // ships crossing between stars
@@ -160,7 +286,7 @@ function drawGalaxy(c) {
     const foe = hostileIn(S, s.id);                    // a HOSTILE FLEET holds this system: a red ring and its worth
     if (foe) { g.strokeStyle = '#ff5c5c'; g.lineWidth = 1.5; g.setLineDash([3, 3]); g.beginPath(); g.arc(p.x, p.y, size + 6, 0, 7); g.stroke(); g.setLineDash([]); g.lineWidth = 1; g.fillStyle = '#ff7979'; g.font = 'bold 9px sans-serif'; g.fillText('⚔ ' + hostileWorth(foe), p.x, p.y - size - 8); }
     if (here?.colonies) { g.strokeStyle = '#7ef3b0'; g.lineWidth = 2; g.beginPath(); g.arc(p.x, p.y, size + 4, 0, 7); g.stroke(); g.lineWidth = 1; }
-    if (here?.ships) { const x = p.x + size + 9, y = p.y - size - 2; g.fillStyle = '#7ef3b0'; g.beginPath(); g.moveTo(x, y - 4); g.lineTo(x + 4, y + 4); g.lineTo(x - 4, y + 4); g.fill(); }
+    if (here?.ships) { const x = p.x + size + 9, y = p.y - size - 2; g.fillStyle = '#7ef3b0'; g.beginPath(); g.moveTo(x, y - 4); g.lineTo(x + 4, y + 4); g.lineTo(x - 4, y + 4); g.fill(); g.font = 'bold 9px sans-serif'; g.textAlign = 'left'; g.fillText(String(here.ships), x + 6, y + 3); g.textAlign = 'center'; }
     if (s.id === gSel || s.id === gHover) { g.strokeStyle = s.id === gSel ? '#fff' : 'rgba(255,255,255,.5)'; g.lineWidth = 1.5; g.beginPath(); g.arc(p.x, p.y, size + 8, 0, 7); g.stroke(); g.lineWidth = 1; }
     g.fillStyle = s.home || here ? '#e8f0ff' : '#8598bb'; g.font = (s.home || here ? 'bold ' : '') + '10px sans-serif';
     g.fillText(s.home ? s.name + ' · home' : s.name, p.x, p.y + size + 13);
@@ -185,7 +311,7 @@ $('gMap').addEventListener('mousemove', e => {
   $('gHover').innerHTML = id ? sysBlurb(sysOf(id)) : '';
   if (LAST) drawGalaxy(LAST);
 });
-$('gMap').addEventListener('click', e => { const id = sysAt(e); if (id) { gSel = id; refresh(); } });
+$('gMap').addEventListener('click', e => { const id = sysAt(e); if (!id) return; if (pickCount() && pickScope?.kind === 'galaxy' && id !== pickScope.sys) { sendTo = id; return refresh(); } gSel = id; refresh(); });   // ships picked: a click on another star is where they go
 $('gMap').addEventListener('dblclick', e => { const id = sysAt(e); if (id) openSystem(id); });
 
 function renderGalaxy(c) {
@@ -200,10 +326,12 @@ function renderGalaxy(c) {
     <div class="tiny">${gField ? `The bigger the purple halo, the more ${DOMAINS[gField].name} there is to find in that system. Click the field again to switch it off.` : 'Pick a field and the map marks the systems worth going to for it.'}</div>
     <h2 style="margin-top:14px">${esc(s.name)} <span class="tiny" style="text-transform:none;letter-spacing:0">· ${STARS[s.type].name}${s.home ? ' · your home' : ''}</span></h2>
     <div class="tiny" style="margin-bottom:6px">${s.home ? 'Where your people come from.' : `${(d / LY).toFixed(1)} light years from Home — about ${plural(starEons(d, c.warp), 'eon')} for a plain star drive.`}${have ? ` You have ${have} here.` : ''}</div>${hostileIn(S, s.id) ? `<div class="note" style="margin:4px 0 6px">⚔ <b>${esc(hostileWord(hostileIn(S, s.id)))}</b> holds this system. Ships of yours that come to rest here fight it at the end of the eon — every eon, until one side is gone or yours leave.</div>` : ''}
+    ${galaxyFleetPanel(c, s)}
     ${here.map(pl => `<div class="shiprow" data-gplace="${pl.id}" style="cursor:pointer"><div class="n"><span><i class="dot" style="background:${lookOf(pl).color}"></i>${esc(pl.name)}${pl.cool ? ' <span title="a remarkable place" style="color:var(--time)">✦</span>' : ''}</span><span class="tiny">${KIND_WORD[pl.kind]}${pl.colony ? ' · settled' : pl.landable ? ' · can be settled' : ' · orbit only'}</span></div>
       <div class="tiny">${topFields(pl).filter(x => x[2] > 0.06).map(x => `${DOMAINS[x[0]].name} <b>${pct(x[1])}</b>`).join(' · ')}</div></div>`).join('')}
     <button class="go" data-opensys="${s.id}" style="margin-top:4px">Open the ${esc(s.name)} system ▸</button>
     <div class="tiny" style="margin-top:8px">Click a star to look at it; double-click to open it. A green ring is a colony of yours, a green triangle a ship, a grey × a derelict, a red dashed ring a hostile fleet (⚔ its worth — the further from home, the stronger).${ringR(s.id) ? ` <b>The coloured rings</b> are the reach of your best ship here (${ringR(s.id).toFixed(1)} light years): inside the <span style="color:#4da3ff">blue</span> one a crossing is a stroll; past it a ship crawls and wears — <span style="color:#7ef3b0">green</span> 90 %, <span style="color:#ffd26a">yellow</span> 70 %, <span style="color:#ffb347">orange</span> 40 %, <span style="color:#ff7979">red</span> 10 %; beyond the red, few arrive.` : ''}</div>`;
+  fillThumbs($('gPanel'));
 }
 function openSystem(id, placeId) {
   selSys = gSel = id;
@@ -228,7 +356,7 @@ function startGame(text) {
 // STAR SYSTEM — the places of one system
 // =====================================================================
 function mapGeo(cv) {
-  const G = fitCanvas(cv); G.R = Math.min(G.w, G.h) / 2 - 40; G.pos = {};
+  const G = fitCanvas(cv); G.R = Math.max(20, Math.min(G.w, G.h) / 2 - 40); G.pos = {};   // R never negative on a small canvas (it threw and blanked the panel)
   for (const pl of placesIn(selSys)) {
     let x = G.cx + Math.cos(pl.a) * pl.r * G.R, y = G.cy + Math.sin(pl.a) * pl.r * G.R;
     if (pl.moon) { x += 34; y -= 27; }
@@ -283,7 +411,7 @@ $('sMap').addEventListener('mousemove', e => {
   $('sHover').innerHTML = pl ? `<b>${esc(pl.name)}</b> — ${esc(pl.note)}<br>to be learned here: ${topFields(pl).filter(x => x[2] > 0.06).map(x => `${DOMAINS[x[0]].name} ${pct(x[1])}`).join(' · ')}` : '';
   if (LAST) drawMap(LAST);
 });
-$('sMap').addEventListener('click', e => { const id = placeAt(e); if (id) { selPlace = id; refresh(); } });
+$('sMap').addEventListener('click', e => { const id = placeAt(e); if (!id) return; if (pickCount() && pickScope?.kind === 'system' && id !== pickScope.place) { sendTo = id; return refresh(); } selPlace = id; refresh(); });   // ships picked: a click on another place is where they go
 
 const PT = [{ x: 100, y: 16 }, { x: 22, y: 134 }, { x: 178, y: 134 }];   // industry / research / social
 function renderSystem(c) {
@@ -330,29 +458,15 @@ function renderSystem(c) {
       <h3>Structures</h3>${P.structures.map(u => `<span class="chip" style="border-color:var(--line)">${esc(u.name)}</span>`).join('') || '<span class="tiny">none</span>'}`;
   }
 
-  // ships. Between stars a VOYAGE (model.js, STAR TRAVEL): every starship shows its reach and its stamina; every other star in
-  // the list says how far, how long, how likely and the stamina it would come in with. Tick several and they leave as ONE
-  // FLEET, sharing a reach (their ranges weighted by their bulk).
-  const here = c.ships.filter(s => !s.u.dest && s.u.at === pl.id), coming = c.ships.filter(s => s.u.dest === pl.id), leaving = c.ships.filter(s => s.u.dest && s.u.at === pl.id && s.u.dest !== pl.id);
-  const local = placesIn(pl.sys).filter(p => p.id !== pl.id).map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
-  const others = S.systems.filter(s => s.id !== pl.sys).map(s => [s, lyBetween(S, pl.sys, s.id)]).sort((a, b) => a[1] - b[1]);
-  const odds = (R, ly, st) => { const f = forecast(R, ly, c.warp, 0, st); return `${plural(f.eons, 'eon')} · ${Math.round(f.chance * 100)} %${f.chance < 1 ? ` · in at ~${Math.round(f.expected)} %${f.lost ? ' — it could be lost' : ` (worst ${Math.round(f.worst)} %)`}` : ''}`; };
-  const starOpts = (R, st) => R > 0 ? `<optgroup label="Another star — reach ${R.toFixed(1)} light years">${others.map(([s, d]) => `<option value="${s.star}">${esc(s.name)} — ${d.toFixed(1)} ly · ${odds(R, d, st)}${hostileIn(S, s.id) ? ` · ⚔ hostile, worth ${hostileWorth(hostileIn(S, s.id))}` : ''}</option>`).join('')}</optgroup>` : '';
-  const localOpts = u => local ? `<optgroup label="In this system — ${plural(T.travel[u.klass], 'eon')}">${local}</optgroup>` : '';
-  const voyWord = u => { const V = u.voy; if (!V) return ''; const past = V.travelled > V.range; return ` · ${V.left.toFixed(1)} ly to go · stamina <b class="${(u.st ?? 100) < 50 ? 'up' : ''}">${Math.round(u.st ?? 100)} %</b>${past ? ` · <b class="up">${(V.travelled - V.range).toFixed(1)} ly past its reach — crawling, wearing</b>` : ''}${V.back ? ' · turned back' : ''}${V.fleet ? ' · in a fleet' : ''}`; };
-  for (const id of [...fleetPick]) if (!here.some(s => s.u.id === id && s.u.klass === 'starship')) fleetPick.delete(id);
-  const ticked = here.filter(s => fleetPick.has(s.u.id));
-  if (ticked.length >= 2) { const R = fleetRange(S, ticked.map(s => s.u)), st = Math.min(...ticked.map(s => s.u.st ?? 100)); h += `<div class="okbox" style="margin:6px 0">Fleet of ${ticked.length}, worth <b>${fmt(ticked.reduce((a, x) => a + x.t.cost, 0))}</b>: reach <b>${R.toFixed(1)} light years</b> (by bulk) · the weakest at ${Math.round(st)} % stamina
-      <div class="acts" style="margin-top:4px"><select data-fleetdest style="flex:1">${starOpts(R, st)}</select><button class="go" data-fleetsend>Send them together</button></div></div>`; }
-  h += `<h3>In orbit here</h3>` + (here.map(({ u, t, range }) => `<div class="shiprow"><div class="n"><span>${u.klass === 'starship' ? `<input type="checkbox" data-fpick="${u.id}" ${fleetPick.has(u.id) ? 'checked' : ''} title="tick two or more to send them as one fleet"> ` : ''}${esc(u.name)}</span><span class="badge ${u.klass}">${CLASS_NAME[u.klass]}</span></div>
-      <div class="tiny">${[t.research ? `lab ${fmt(t.research)}` : '', u.people ? `${peopleWord(u.people)} people aboard` : '', t.dps ? `${fmt(t.dps)} damage/s` : '', `worth ${fmt(t.cost)}`, t.dock ? `dock, gantry ${t.gantries.map(s => `${s.w} × ${s.h}`).join(', ')}` : '', u.sections > 1 ? `built in ${u.sections} sections` : ''].filter(Boolean).join(' · ') || 'no lab, no people'} · ${u.klass === 'starship' ? (t.underDriven ? '<b class="up">star drive too small for its bulk: it cannot leave the system</b>' : `reach <b>${range.toFixed(1)} ly</b> · stamina <b class="${(u.st ?? 100) < 50 ? 'up' : ''}">${Math.round(u.st ?? 100)} %</b>${(u.st ?? 100) < 100 ? ' (coming back while it rests here)' : ''}`) : `thrusters only: ${T.travel.platform} eons to any place in this system, and it cannot leave it`}</div>
-      <div class="acts"><select data-dest="${u.id}">${localOpts(u)}${u.klass === 'starship' && !t.underDriven ? starOpts(range, u.st ?? 100) : ''}</select><button data-send="${u.id}">Send</button>
-        ${u.people > 0 && pl.landable && !pl.colony ? `<button class="go" data-settle="${u.id}">Settle ${esc(pl.name)}</button>` : ''}</div></div>`).join('') || '<div class="tiny">Nothing.</div>');
-  const whereTo = u => { const to = placeOf(u.dest); return esc(to.name) + (to.sys !== pl.sys && to.kind !== 'star' ? ` (${esc(sysOf(to.sys).name)})` : ''); };
-  if (coming.length) h += `<h3>On the way here</h3>` + coming.map(({ u }) => `<div class="shiprow"><div class="n"><span>${esc(u.name)}</span><span class="tiny">arrives in ${plural(u.eta, 'eon')}</span></div>${u.voy ? `<div class="tiny">${voyWord(u).slice(3)}</div>` : ''}</div>`).join('');
-  if (leaving.length) h += `<h3>Leaving</h3>` + leaving.map(({ u }) => `<div class="shiprow"><div class="n"><span>${esc(u.name)} → ${whereTo(u)} <span class="tiny">· ${plural(u.eta, 'eon')}</span></span><button class="x" data-recall="${u.id}" title="${u.voy ? 'the fleet turns round: the way back counts on the same voyage' : 'it stays here'}">call back</button></div>${u.voy ? `<div class="tiny">${voyWord(u).slice(3)}</div>` : ''}</div>`).join('');
+  // ships, as STACKS by design (FLEETS): pick how many, then click a place on the map — or, for ships that can, a star (▸)
+  if (!pickScope || pickScope.kind !== 'system' || pickScope.place !== pl.id) setScope({ kind: 'system', place: pl.id });
+  const groups = groupsOf(c.ships.filter(s => !s.u.dest && s.u.at === pl.id));
+  const coming = c.ships.filter(s => s.u.dest === pl.id), leaving = c.ships.filter(s => s.u.dest && s.u.at === pl.id && s.u.dest !== pl.id);
+  h += `<h3>In orbit here</h3>` + (groups.map(g => stackRow(g, { settleAt: pl.landable && !pl.colony ? pl : null })).join('') || '<div class="tiny">Nothing.</div>') + sendBar(c, groups);
+  if (coming.length) h += `<h3>On the way here</h3>` + movingLines(coming);
+  if (leaving.length) h += `<h3>Leaving</h3>` + movingLines(leaving);
   if (!pc && pl.landable) h += `<div class="tiny" style="margin-top:8px">To settle ${esc(pl.name)}: build a ship that has a habitat (the people go aboard when it is built), send it here, and press Settle. The ship becomes the colony's first building.</div>`;
-  $('sPanel').innerHTML = h;
+  $('sPanel').innerHTML = h; fillThumbs($('sPanel'));
 }
 
 let triDrag = null;
@@ -458,6 +572,7 @@ function renderDesign(c) {
     + `<button class="x" data-hulldraw title="draw a new silhouette">✎ Draw…</button>${cur?.user ? `<button class="x" data-hulledit="${cur.id}" title="edit this silhouette">✎ edit</button>` : ''}`
     + `<span class="tiny">· ${plural(t.squares, 'square')} now · shape is looks, size is what the dock counts</span>`;
   drawHull($('dHull'), DS, FIT, selMod);
+  renderCoat(); paintDesign(d, c);
 
   // the two columns; a clicked card opens in place with its dials and the capsules that fit it
   const usedBy = new Map();
@@ -567,7 +682,7 @@ function go(next) {
   for (const b of $('eTabs').children) b.classList.toggle('on', b.dataset.tab === tab);
   refresh();
 }
-function toastErr(msg) { if (msg) $('sHover').textContent = msg; }
+function toastErr(msg) { if (msg) { $('sHover').textContent = msg; $('gHover').textContent = msg; } }
 
 document.addEventListener('click', e => {
   const q = s => e.target.closest(s);
@@ -583,12 +698,17 @@ document.addEventListener('click', e => {
   if ((t = q('[data-add]'))) return enqueue(t.dataset.add, document.querySelector(`[data-addsel="${t.dataset.add}"]`).value);
   if ((t = q('[data-send]'))) { toastErr(sendShip(S, t.dataset.send, document.querySelector(`[data-dest="${t.dataset.send}"]`).value)); save(); return refresh(); }
   if ((t = q('[data-recall]'))) { recallShip(S, t.dataset.recall); save(); return refresh(); }
-  if ((t = q('[data-fleetsend]'))) { const ids = [...fleetPick]; toastErr(sendFleet(S, ids, document.querySelector('[data-fleetdest]').value)); fleetPick.clear(); save(); return refresh(); }
+  if ((t = q('[data-gpick]'))) { const k = t.dataset.gpick, n = clamp((picks.get(k) || 0) + +t.dataset.d, 0, +t.dataset.max); if (n) picks.set(k, n); else picks.delete(k); return refresh(); }
+  if ((t = q('[data-gall]'))) { const k = t.dataset.gall, max = +t.dataset.max; if ((picks.get(k) || 0) === max) picks.delete(k); else picks.set(k, max); return refresh(); }
+  if ((t = q('[data-pclear]'))) { picks.clear(); sendTo = null; return refresh(); }
+  if ((t = q('[data-pcancel]'))) { sendTo = null; return refresh(); }
+  if ((t = q('[data-psend]'))) { const ships = picked(scopeGroups(LAST)), dest = pickScope.kind === 'galaxy' ? sysOf(sendTo).star : sendTo; toastErr(sendFleet(S, ships.map(x => x.u.id), dest)); picks.clear(); sendTo = null; save(); return refresh(); }
+  if ((t = q('[data-ptogalaxy]'))) { const keep = new Map(picks), sys = placeOf(pickScope.place).sys; pickScope = { kind: 'galaxy', sys }; picks = keep; sendTo = null; gSel = sys; return go('galaxy'); }
   if ((t = q('[data-settle]'))) { toastErr(settle(S, t.dataset.settle)); save(); return refresh(); }
   if ((t = q('[data-hull]'))) { const d = design(); if (!d) return; d.hull = t.dataset.hull; save(); return refresh(); }
   if ((t = q('[data-hulldraw]'))) return hullEd.open({ klass: DS?.t.hullClass || 'starship' });
   if ((t = q('[data-hulledit]'))) return hullEd.open({ hull: t.dataset.hulledit });
-  if ((t = q('[data-addmod]'))) { const d = design(); if (!d) return; const m = { id: uid('m'), kind: t.dataset.addmod, caps: [], n: 1 }; d.modules.push(m); selMod = m.id; save(); return refresh(); }
+  if ((t = q('[data-addmod]'))) { const d = design(); if (!d) return; if (KINDS[t.dataset.addmod].engine && DS && DS.t.klass === 'structure' && shipDesignCount() >= MAX_SHIP_DESIGNS) return say(`${MAX_SHIP_DESIGNS} ship designs at most — delete one first (refits come later)`); const m = { id: uid('m'), kind: t.dataset.addmod, caps: [], n: 1 }; d.modules.push(m); selMod = m.id; save(); return refresh(); }
   if ((t = q('[data-gsize]'))) { const m = design()?.modules.find(x => x.id === selMod); if (!m) return; const k = t.dataset.gsize; m[k] = clamp((m[k] || GANTRY[k]) + +t.dataset.d, 1, k === 'w' ? GANTRY.maxW : GANTRY.maxH); save(); return refresh(); }
   if ((t = q('[data-rk]'))) { const m = design()?.modules.find(x => x.id === selMod), sc = m && KINDS[m.kind].scale; if (!sc) return; m.k = clamp(Math.round(((m.k || 1) + sc.step * +t.dataset.rk) / sc.step) * sc.step, sc.min, sc.max); save(); return refresh(); }
   if ((t = q('[data-rfit]'))) { const d = design(); if (!d || !selMod) return; fitModule(S, d, selMod); save(); return refresh(); }
@@ -601,7 +721,7 @@ document.addEventListener('click', e => {
   if ((t = q('[data-btopen]'))) { openBt.has(t.dataset.btopen) ? openBt.delete(t.dataset.btopen) : openBt.add(t.dataset.btopen); return refresh(); }
   if ((t = q('[data-cap]'))) { if (t.classList.contains('used')) return; if (!selMod) return say('Open a system or a weapon first'); return applyCap(selMod, t.dataset.cap); }
 });
-document.addEventListener('change', e => { if (e.target.matches?.('[data-fpick]')) { const id = e.target.dataset.fpick; if (e.target.checked) fleetPick.add(id); else fleetPick.delete(id); return refresh(); }
+document.addEventListener('change', e => { if (['dStyle', 'dColA', 'dColB'].includes(e.target.id)) { S.look = { style: $('dStyle').value, colA: $('dColA').value, colB: $('dColB').value }; save(); return refresh(); }   // your coat
   if (e.target.id === 'dPick') { curDesign = e.target.value; selMod = null; return refresh(); }
   if (e.target.closest?.('[data-preset]')) { const m = design()?.modules.find(x => x.id === selMod); if (!m) return; if (e.target.value === 'custom') m.preset = 'custom'; else applyPreset(m, e.target.value); save(); return refresh(); }
   const t = e.target.closest?.('[data-syspick]'); if (t) { selSys = gSel = t.value; selPlace = (placesIn(selSys).find(p => p.colony) || placeOf(sysOf(selSys).star)).id; refresh(); } });
@@ -627,7 +747,7 @@ $('dAuto').onclick = () => { const d = design(); if (!d) return; const done = au
 $('dName').oninput = e => { const d = design(); if (d) { d.name = e.target.value; save(); } };
 $('dName').onblur = () => refresh();
 $('dNew').onclick = () => { const d = { id: uid('d'), name: 'New design', modules: [] }; S.designs.push(d); curDesign = d.id; selMod = null; save(); refresh(); };
-$('dCopy').onclick = () => { const d = design(); if (!d) return; const c = cloneDesign(d); c.id = uid('d'); c.name = d.name + ' II'; for (const m of c.modules) m.id = uid('m'); S.designs.push(c); curDesign = c.id; selMod = null; save(); refresh(); };
+$('dCopy').onclick = () => { const d = design(); if (!d) return; if (DS && DS.t.klass !== 'structure' && shipDesignCount() >= MAX_SHIP_DESIGNS) return say(`${MAX_SHIP_DESIGNS} ship designs at most — delete one first (refits come later)`); const c = cloneDesign(d); c.id = uid('d'); c.name = d.name + ' II'; for (const m of c.modules) m.id = uid('m'); S.designs.push(c); curDesign = c.id; selMod = null; save(); refresh(); };
 $('dDel').onclick = () => { const d = design(); if (!d || !confirm(`Delete the design "${d.name}"? What is already built stays.`)) return; S.designs = S.designs.filter(x => x.id !== d.id); curDesign = S.designs[0]?.id || null; selMod = null; save(); refresh(); };
 $('eEnd').onclick = () => { const rep = endEon(S); newIds = new Set(rep.filter(r => r.kind === 'breakthrough').map(r => r.id)); save(); refresh(); };
 $('eNew').onclick = () => { if (confirm('Start over in a new, random galaxy?')) startGame(String(Math.floor(Math.random() * 1e6))); };

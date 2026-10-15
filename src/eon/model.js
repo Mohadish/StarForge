@@ -302,11 +302,11 @@ export function fleetRange(S, ships, caps = allCapsules(S)) {
 export function sendFleet(S, shipIds, placeId) {
   const to = S.places.find(p => p.id === placeId), ships = shipIds.map(id => S.ships.find(x => x.id === id)).filter(Boolean);
   if (!to || !ships.length) return 'Nowhere to go';
-  const at = ships[0].at, from = S.places.find(p => p.id === at);
-  if (ships.some(u => u.at !== at || u.dest)) return 'They must be together and at rest to leave as one fleet';
-  if (at === placeId) return 'It is already there';
+  const at = ships[0].at, from = S.places.find(p => p.id === at), sysOfP = id => (S.places.find(p => p.id === id) || {}).sys;
+  if (ships.some(u => u.dest || sysOfP(u.at) !== from.sys)) return 'They must be at rest in the same system to leave as one fleet';   // a fleet may gather from several places of one system (the galaxy's view)
   if (from.sys === to.sys) {                                                       // inside a system: as before, ship by ship
-    for (const u of ships) { const eta = T.travel[u.klass]; if (!eta) return `${u.name} has no engine`; u.dest = placeId; u.eta = eta; u.trip = eta; }
+    if (ships.every(u => u.at === placeId)) return 'They are already there';
+    for (const u of ships) { if (u.at === placeId) continue; const eta = T.travel[u.klass]; if (!eta) return `${u.name} has no engine`; u.dest = placeId; u.eta = eta; u.trip = eta; }
     return null;
   }
   const caps = allCapsules(S), warp = fleetWarp(passiveOf(caps));
@@ -317,7 +317,7 @@ export function sendFleet(S, shipIds, placeId) {
   const R = fleetRange(S, ships, caps), dist = lyBetween(S, from.sys, to.sys), fid = ships.length > 1 ? uid('f') : null;
   for (const u of ships) {
     u.st = u.st ?? 100;
-    u.voy = { from: at, to: placeId, travelled: 0, left: dist, total: dist, range: R, fleet: fid, back: false, A: from.sys, B: to.sys, D: dist, pos: 0 };   // A → B, pos 0…1: where it is on the line between the two stars
+    u.voy = { from: u.at, to: placeId, travelled: 0, left: dist, total: dist, range: R, fleet: fid, back: false, A: from.sys, B: to.sys, D: dist, pos: 0 };   // A → B, pos 0…1: where it is on the line between the two stars
     u.dest = placeId; u.eta = u.trip = forecast(R, dist, warp, 0, u.st).eons;
   }
   return null;
