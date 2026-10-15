@@ -176,9 +176,10 @@ const hot = s => s.heatCap > 0 && s.heat >= HEAT.hold * heatLim(s);    // the cr
 //   retreat            everyone flat out away from the nearest enemy; the clock then decides on points
 export const AVOID = 650;
 export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {}) {
+  // en0 (optional): the stamina a ship comes in with — in the game, a fleet that crossed past its reach arrives worn
   const mk = (s, side, x, y) => ({ ...s, side, x, y, ang: side ? Math.PI : 0, spin: 1, dead: false, tgt: null, guns: s.guns.map(g => ({ ...g, aim: side ? Math.PI : 0 })), pool: 0, dpool: 0, stock: s.stock || 0, repaired: 0, speed0: s.speed, bays: s.hangars.map(h => ({ ...h, left: h.craft, spent: 0, cd: 0 })),
     heat: 0, off: false, offT: 0, batt: s.batterySec || 0,                           // HEAT: how hot, scrammed?, for how long, battery seconds left
-    en: 1, em: 1, top: 1, engaged: false, broken: false, resolve: s.resolve || 1, sizeK: 1 / (1 - sizeFatigue(s.cost)), reachMax: Math.max(s.pref || 0, ...s.guns.map(g => g.range)) });   // ENDURANCE: the blue bar, its ceiling (morale), broken?, resolve, how far it fights
+    en: Math.max(0.05, Math.min(1, s.en0 ?? 1)), em: 1, top: 1, engaged: false, broken: false, resolve: s.resolve || 1, sizeK: 1 / (1 - sizeFatigue(s.cost)), reachMax: Math.max(s.pref || 0, ...s.guns.map(g => g.range)) });   // ENDURANCE: the blue bar, its ceiling (morale), broken?, resolve, how far it fights
   const FA = Array.isArray(a0) ? a0 : [a0], FB = Array.isArray(b0) ? b0 : [b0];
   const line = (F, side) => F.map((s, i) => mk(s, side, (side ? 1 : -1) * B.start / 2, (i - (F.length - 1) / 2) * B.spread));   // a fleet starts in a line abreast
   const ships = [...line(FA, 0), ...line(FB, 1)]; ships.forEach((s, i) => { s.idx = i; });

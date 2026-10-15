@@ -18,7 +18,8 @@
 import { PROPERTIES, DOMAINS, CHANNEL_X, RARITY } from '../data/properties.js';
 import { designStats, allCapsules, passiveOf, dockFit, fleetWarp } from './modules.js';
 import { generateGalaxy } from './galaxy.js';
-import { sizeFatigue } from './battle.js';
+import { sizeFatigue, createBattle, shipFromDesign, rng32 } from './battle.js';
+import { composePlan, buildPlan, naturalShips, planStrip, TACTIC_IDS, TACTICS } from './fleetplan.js';
 
 export const XS = ['expand', 'exploit', 'explore', 'exterminate'];
 export const X_INFO = {
@@ -138,6 +139,7 @@ export function newState(seed = 7) {
       design('Commons', 'block', ['habitat', { kind: 'reactor', k: 0.25 }]),
     ],
   };
+  spawnHostiles(S);
   const home = S.places.find(p => p.id === 'home');
   home.colony = newColony(100, 120);
   home.fresh = perField(0.9);                          // two thousand years of looking at the same sky
@@ -351,7 +353,7 @@ export function settle(S, shipId) {
 export const peopleWord = v => v >= 1 ? `${v >= 100 ? Math.round(v) : v.toFixed(v >= 10 ? 0 : 1)} M` : v > 0 ? `${Math.max(1, Math.round(v * 1000))} k` : '0';
 // an old save (version 8) brought up to date: people aboard ships to a ship's scale, crossings into voyages, landed ships marked
 export function upgrade(S) {
-  if (S.version >= 9) return S;
+  if (S.version >= 9) { if (!S.hostiles) spawnHostiles(S); return S; }
   const caps = allCapsules(S);
   for (const u of S.ships) {
     u.st = u.st ?? 100; if (u.people) u.people *= SCALE.shipHousing;
@@ -359,8 +361,55 @@ export function upgrade(S) {
     if (from && to && from.sys !== to.sys) { const dist = lyBetween(S, from.sys, to.sys), covered = dist * clamp(1 - u.eta / (u.trip || u.eta || 1), 0, 1); u.voy = { from: u.at, to: u.dest, travelled: covered, left: dist - covered, total: dist, range: fleetRange(S, [u], caps), fleet: null, back: false, A: from.sys, B: to.sys, D: dist, pos: dist ? covered / dist : 0 }; }
   }
   for (const pl of S.places) if (pl.colony) for (const u of pl.colony.structures) if (/^Landed /.test(u.name)) { u.landed = true; u.grade = u.grade ?? 1; }
-  S.derelicts = S.derelicts || []; S.version = 9; return S;
+  S.derelicts = S.derelicts || []; S.version = 9; if (!S.hostiles) spawnHostiles(S); return S;
 }
+
+// HOSTILE FLEETS (his ask, 2026-10-15: "spawn a couple of random fleets all over the place — the further away from home, the
+// stronger"). About a third of the other systems hold one: its price is HOSTILE.perLy for every light year from home (give or
+// take a quarter, never under HOSTILE.min), its tactics one or two drawn at random, its ships at their natural sizes (the
+// Fleet Generator's own planner). They hold their system and do not move. Your ships that rest in that system at the end of an
+// eon FIGHT it — with the battle's own engine, your breakthroughs in your ships, and the stamina they came in with — every eon
+// until one side is gone or yours leave. What dies is gone; what lives keeps the stamina the fight left it.
+export const HOSTILE = { share: 0.3, perLy: 100, spread: 0.25, min: 250 };
+const NO_TECH = { breakthroughs: [] };
+const HOSTILE_NAMES = ['Raiders', 'Wardens', 'Reavers', 'Swarm', 'Picket', 'Host', 'Marauders', 'Sentinels', 'Corsairs', 'Watch'];
+export function spawnHostiles(S) {
+  S.hostiles = [];
+  const others = S.systems.filter(x => x.id !== S.homeSys).map(x => ({ x, r: rand(S) })).sort((a, b) => a.r - b.r).map(o => o.x);
+  for (const sys of others.slice(0, Math.round(others.length * HOSTILE.share))) {
+    const ly = lyBetween(S, S.homeSys, sys.id), budget = Math.max(HOSTILE.min, Math.round(HOSTILE.perLy * ly * (1 - HOSTILE.spread + 2 * HOSTILE.spread * rand(S)) / 10) * 10);
+    const ids = TACTIC_IDS.slice().sort(() => rand(S) - 0.5), mix = (rand(S) < 0.5 ? ids.slice(0, 1) : ids.slice(0, 2)).map(id => ({ id, share: 0.5 + rand(S) }));
+    const plan = composePlan({ budget, n: naturalShips(budget, mix), mix, seed: Math.floor(rand(S) * 1e6), name: pick(S, HOSTILE_NAMES) + ' of ' + sys.name });
+    S.hostiles.push({ id: uid('h'), sys: sys.id, plan: planStrip(plan), budget });
+  }
+  return S.hostiles;
+}
+export const hostileIn = (S, sysId) => (S.hostiles || []).find(h => h.sys === sysId) || null;
+export const hostileWorth = H => Math.round(H.plan.ships.reduce((a, p) => a + p.cost, 0));
+// a hostile fleet in words: name, ships, its worth, its tactics
+export const hostileWord = H => H.plan.name + ' — ' + H.plan.ships.length + ' ship' + (H.plan.ships.length === 1 ? '' : 's') + ', worth ' + hostileWorth(H) + ' · ' + (H.plan.mix || []).map(m => TACTICS[m.id] ? TACTICS[m.id].name : m.id).join(' + ');
+// the fight in a system: your resting ships there against its hostile fleet (one battle an eon)
+function fightHostiles(S, caps, rep) {
+  const sysOf = id => (S.places.find(p => p.id === id) || {}).sys;
+  for (const H of [...(S.hostiles || [])]) {
+    const mine = S.ships.filter(u => !u.dest && sysOf(u.at) === H.sys); if (!mine.length) continue;
+    const A = mine.map(u => { const sh = shipFromDesign(S, u.design, caps); sh.name = u.name; sh.en0 = (u.st ?? 100) / 100; return sh; });
+    const plan = { ...H.plan, ships: H.plan.ships.map(p => ({ ...p })) }, B = buildPlan(NO_TECH, plan).ships;
+    if (!B.length) { S.hostiles = S.hostiles.filter(x => x !== H); continue; }
+    const bt = createBattle(A, B, rng32(Math.floor(rand(S) * 1e9)), { record: 1e9 }); while (!bt.done) bt.step(); const r = bt.result();
+    const lostMine = [], lostTheirs = new Set();
+    mine.forEach((u, i) => { const sh = bt.ships[i]; if (sh.dead) lostMine.push(u); else u.st = Math.max(1, Math.round(Math.max(0, sh.en) * 100)); });
+    B.forEach((sh, i) => { if (bt.ships[mine.length + i].dead) lostTheirs.add(sh.plan); });
+    S.ships = S.ships.filter(u => !lostMine.includes(u));
+    H.plan.ships = H.plan.ships.filter((p, k) => !lostTheirs.has(plan.ships[k]));
+    const where = (S.systems.find(x => x.id === H.sys) || {}).name || '?', gone = !H.plan.ships.length;
+    if (gone) S.hostiles = S.hostiles.filter(x => x !== H);
+    const verdict = gone ? 'you swept them away' : r.winner === 0 ? 'you won the field' : r.winner === 1 ? 'they held the field' : 'neither side gave way';
+    rep.push({ kind: lostMine.length ? 'bad' : 'battle', text: 'Battle at ' + where + ': your ' + mine.length + ' ship' + (mine.length > 1 ? 's' : '') + ' against ' + H.plan.name + ' — ' + verdict
+      + (lostMine.length ? '; you lost ' + lostMine.map(u => u.name).join(', ') : '') + '; they lost ' + lostTheirs.size + ' of ' + B.length + (gone ? '' : ', ' + H.plan.ships.length + ' remain') });
+  }
+}
+
 
 // ---------------- end the eon ----------------
 export function endEon(S) {
@@ -417,6 +466,9 @@ export function endEon(S) {
     if (V.left <= 1e-9) { u.at = V.to; u.dest = null; delete u.voy; rep.push({ kind: 'move', text: `${u.name} arrived at ${placeName(u.at)}${(u.st ?? 100) < 99.5 ? ` with ${Math.round(u.st)} % stamina` : ''}` }); }
     else u.eta = forecast(V.range, V.left, c.warp, V.travelled, u.st ?? 100).eons;
   }
+
+  // hostile fleets: your ships resting in their system fight them
+  fightHostiles(S, c.caps, rep);
 
   // integration
   S.steady = c.steadyNext;
