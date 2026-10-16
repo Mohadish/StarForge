@@ -93,16 +93,38 @@ export const worldOf = pl => WORLD_BY_COLOR[pl.color] || 'other';
 // Stamina comes back only in a star system, never in between: a little a turn, more with a fabricator aboard, more again
 // where you have a colony.
 export const LY = 4.5;
-export const VOY = { range: 4, speed: 1.2, fall: 0.1, pow: 1.585, floor: 0.01, slow: 5, minSpeed: 0.1, rest: 5, restFab: 15, restColony: 10, marginMax: 4 };
+export const VOY = { range: 4, speed: 1.2, fall: 0.1, pow: 1.585, floor: 0.01, slow: 5, minSpeed: 0.1, marginMax: 4 };
+// THE SPHERE OF INFLUENCE (his mechanic, 2026-10-16): every colony throws a bubble — blue inside ZONE.radius(people) light years,
+// then green, yellow, orange, red a light year each — and the bubbles merge into your region. Inside it a resting ship RESTOCKS
+// (stamina an eon: blue all of it, green 25, yellow 15, orange 8, red 3; a fabricator aboard ×1.5) and its STRAIN heals; in open
+// space neither. Flight in the blue is free, in the green half of it counts, from the yellow out every light year counts — and
+// the strain STACKS from hop to hop outside: no star out there resets it. Range extenders and cohesion may widen it later.
+export const ZONE = { band: 1, radius: people => 2 + 1.2 * Math.log(1 + Math.max(0, people) / 10), recover: [100, 25, 15, 8, 3, 0], heal: [Infinity, 2, 1, 0.5, 0.25, 0], strain: [0, 0.5, 1, 1, 1, 1],
+  names: ['blue', 'green', 'yellow', 'orange', 'red', 'open space'], colors: ['#4da3ff', '#7ef3b0', '#ffd26a', '#ffb347', '#ff7979'] };
+export const bubbles = S => S.places.filter(p => p.colony).map(p => { const s = S.systems.find(x => x.id === p.sys); return s ? { sys: p.sys, x: s.x, y: s.y, r: ZONE.radius(p.colony.people) } : null; }).filter(Boolean);
+export function zoneAt(S, x, y) {                    // 0 blue … 4 red, 5 open space — at a point of the map (map units)
+  let best = 5;
+  for (const b of bubbles(S)) { const d = Math.hypot(x - b.x, y - b.y) / LY - b.r, z = d <= 0 ? 0 : Math.min(5, Math.ceil(d / ZONE.band)); if (z < best) best = z; }
+  return best;
+}
+export const zoneOfSys = (S, sysId) => { const s = S.systems.find(x => x.id === sysId); return s ? zoneAt(S, s.x, s.y) : 5; };
+// the light years of STRAIN a crossing between two stars costs (the flight sampled along the line: free in the blue, half in the green)
+export function effectiveLy(S, a, b) {
+  const A = S.systems.find(s => s.id === a), B = S.systems.find(s => s.id === b); if (!A || !B) return 0;
+  const d = Math.hypot(A.x - B.x, A.y - B.y) / LY, N = 24; let eff = 0;
+  for (let i = 0; i < N; i++) { const k = (i + 0.5) / N; eff += ZONE.strain[zoneAt(S, A.x + (B.x - A.x) * k, A.y + (B.y - A.y) * k)]; }
+  return d * eff / N;
+}
 export const shipRange = (t, warp = 1) => t.klass !== 'starship' || t.underDriven ? 0 : VOY.range * Math.sqrt(clampN(t.lift / Math.max(1, t.volume), 1, VOY.marginMax)) * (1 - sizeFatigue(t.cost)) * warp;
 // the chance at `x` light years travelled on a range of `R` (above 1 = a stroll); the speed there, as a share of full
 export const chanceAt = (x, R) => x <= R ? (R > 0 ? R / Math.max(x, 0.01) : 0) : Math.max(VOY.floor, 1 - VOY.fall * Math.pow(x - R, VOY.pow));
 export const speedAt = (x, R) => x <= R ? 1 : Math.max(VOY.minSpeed, 1 - Math.pow((x - R) / VOY.slow, 2));
 // what a crossing will be like, before it is made: eons, the chance at the far end, stamina left on the way in — expected
 // (every roll a middling one) and at worst (every roll the worst)
-export function forecast(R, left, warp = 1, travelled = 0, st = 100) {
+// `effShare`: how much of the way counts as strain (effectiveLy / the distance — inside the bubble less than all of it)
+export function forecast(R, left, warp = 1, travelled = 0, st = 100, effShare = 1) {
   let x = travelled, need = left, eons = 0, exp = 0, worst = 0;
-  while (need > 1e-9 && eons < 400) { const step = Math.min(need, VOY.speed * warp * speedAt(x, R)); x += step; need -= step; eons++; const F = 100 * Math.max(0, 1 - chanceAt(x, R)); exp += F / 2; worst += F; }
+  while (need > 1e-9 && eons < 400) { const step = Math.min(need, VOY.speed * warp * speedAt(x, R)); x += step * effShare; need -= step; eons++; const F = 100 * Math.max(0, 1 - chanceAt(x, R)); exp += F / 2; worst += F; }
   return { eons, chance: chanceAt(x, R), expected: Math.max(0, st - exp), worst: Math.max(0, st - worst), lost: worst >= st };
 }
 const clampN = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -360,11 +382,11 @@ export function sendFleet(S, shipIds, placeId) {
     if (u.klass !== 'starship') return `${u.name} has no star drive: it cannot leave the system`;
     if (shipStats(S, u, caps).underDriven) return `${u.name}'s star drive is too small for its bulk: it cannot leave the system`;
   }
-  const R = fleetRange(S, ships, caps), dist = lyBetween(S, from.sys, to.sys), fid = ships.length > 1 ? uid('f') : null;
+  const R = fleetRange(S, ships, caps), dist = lyBetween(S, from.sys, to.sys), fid = ships.length > 1 ? uid('f') : null, eff = dist > 0 ? effectiveLy(S, from.sys, to.sys) / dist : 1;
   for (const u of ships) {
     u.st = u.st ?? 100;
-    u.voy = { from: u.at, to: placeId, travelled: 0, left: dist, total: dist, range: R, fleet: fid, back: false, A: from.sys, B: to.sys, D: dist, pos: 0 };   // A → B, pos 0…1: where it is on the line between the two stars
-    u.dest = placeId; u.eta = u.trip = forecast(R, dist, warp, 0, u.st).eons;
+    u.voy = { from: u.at, to: placeId, travelled: u.strain || 0, left: dist, total: dist, range: R, fleet: fid, back: false, A: from.sys, B: to.sys, D: dist, pos: 0 };   // A → B, pos 0…1: where it is on the line between the two stars; the strain it set out with counts from the first eon
+    u.dest = placeId; u.eta = u.trip = forecast(R, dist, warp, u.strain || 0, u.st, eff).eons;
   }
   return null;
 }
@@ -500,14 +522,16 @@ export function endEon(S) {
   S.derelicts = S.derelicts || [];
   for (const u of [...S.ships]) {
     if (!u.dest) {
-      const t = statsOf.get(u.id) || {}, colonyHere = S.places.some(p => p.sys === sysOf(u.at) && p.colony);
-      if ((u.st ?? 100) < 100) u.st = Math.min(100, (u.st ?? 100) + VOY.rest + (t.industry > 0 ? VOY.restFab : 0) + (colonyHere ? VOY.restColony : 0));
+      const t = statsOf.get(u.id) || {}, z = zoneOfSys(S, sysOf(u.at)), fab = t.industry > 0 ? 1.5 : 1;   // RESTOCKING: only inside the sphere, by its zone
+      if ((u.st ?? 100) < 100 && ZONE.recover[z] > 0) u.st = Math.min(100, (u.st ?? 100) + ZONE.recover[z] * fab);
+      if (u.strain > 0) u.strain = Math.max(0, u.strain - ZONE.heal[z] * fab);
       if (c.unpaid > 0 && u.klass !== 'structure') u.st = Math.max(1, (u.st ?? 100) - T.upkeep.wear * c.unpaid);   // an unpaid fleet wears
       continue;
     }
     if (!u.voy) { if (--u.eta <= 0) { u.at = u.dest; u.dest = null; rep.push({ kind: 'move', text: `${u.name} arrived at ${placeName(u.at)}` }); } continue; }
     const V = u.voy, step = Math.min(V.left, VOY.speed * c.warp * speedAt(V.travelled, V.range));
-    V.travelled += step; V.left -= step; if (V.D) V.pos = clamp((V.pos ?? 0) + (V.back ? -1 : 1) * step / V.D, 0, 1);
+    const SA = S.systems.find(s => s.id === V.A), SB = S.systems.find(s => s.id === V.B), zHere = SA && SB ? zoneAt(S, SA.x + (SB.x - SA.x) * (V.pos ?? 0), SA.y + (SB.y - SA.y) * (V.pos ?? 0)) : 5;
+    V.travelled += step * ZONE.strain[zHere]; V.left -= step; if (V.D) V.pos = clamp((V.pos ?? 0) + (V.back ? -1 : 1) * step / V.D, 0, 1);   // the strain of the eon: none in the blue, half in the green, all of it beyond
     const F = 100 * Math.max(0, 1 - chanceAt(V.travelled, V.range));
     if (F > 0) {                                                                    // past its range: the roll
       const st0 = u.st ?? 100, loss = F * (1 - rand(S)); u.st = st0 - loss;
@@ -520,7 +544,7 @@ export function endEon(S) {
       }
       if (loss >= 1) rep.push({ kind: 'bad', text: `${u.name}: a hard eon past its range — stamina ${Math.round(st0)} → ${Math.round(u.st)} %${u.people ? ` (${peopleWord(u.people)} people left aboard)` : ''}` });
     }
-    if (V.left <= 1e-9) { u.at = V.to; u.dest = null; delete u.voy; rep.push({ kind: 'move', text: `${u.name} arrived at ${placeName(u.at)}${(u.st ?? 100) < 99.5 ? ` with ${Math.round(u.st)} % stamina` : ''}` }); }
+    if (V.left <= 1e-9) { u.at = V.to; u.dest = null; u.strain = V.travelled; delete u.voy; rep.push({ kind: 'move', text: `${u.name} arrived at ${placeName(u.at)}${(u.st ?? 100) < 99.5 ? ` with ${Math.round(u.st)} % stamina` : ''}${u.strain > 0.05 ? `, ${u.strain.toFixed(1)} light years of strain` : ''}` }); }   // the strain stays with the ship: it heals only inside the sphere
     else u.eta = forecast(V.range, V.left, c.warp, V.travelled, u.st ?? 100).eons;
   }
 

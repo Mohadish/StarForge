@@ -7,7 +7,7 @@
 import fs from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { newState, compute, endEon, hostileWorth, lyBetween, fleetRange, shipRange, peopleWord } from '../../src/eon/model.js';
+import { newState, compute, endEon, hostileWorth, lyBetween, fleetRange, shipRange, peopleWord, zoneOfSys, effectiveLy } from '../../src/eon/model.js';
 import { designFromStacks } from '../../src/eon/battle.js';
 import { designStats, autoFit, fitModule } from '../../src/eon/modules.js';
 import { applyAction, REPLAY_VERSION } from '../../src/eon/replay.js';
@@ -41,12 +41,23 @@ const sysOfPlace = id => (S.places.find(p => p.id === id) || {}).sys, sysName = 
 const ofType = (c, key) => c.ships.filter(s => s.u.design.id === D[key].id), fleet = c => c.ships.filter(s => s.u.design.id === D.war.id || s.u.design.id === D.long.id);
 const resting = (c, sys, key) => ofType(c, key).filter(s => !s.u.dest && sysOfPlace(s.u.at) === sys);
 const worthOf = ships => ships.reduce((a, s) => a + s.t.cost, 0);
-// hops from one star to another, each within `reach` light years — the fewest hops; null when the reach cannot bridge a gap
-function hopsWithin(from, to, reach) {
-  const prev = new Map([[from, null]]), queue = [from];
-  while (queue.length) { const s = queue.shift(); if (s === to) break; for (const t of S.systems) if (!prev.has(t.id) && lyBetween(S, s, t.id) <= reach) { prev.set(t.id, s); queue.push(t.id); } }
-  if (!prev.has(to)) return null;
-  const out = []; for (let s = to; s !== from; s = prev.get(s)) out.unshift(s); return out;
+// hops from one star to another with the STRAIN that stacks outside the sphere never past `reach` on arrival (model.js ZONE: flight
+// in the blue is free, in the green half; a star inside the sphere heals some of it while the fleet rests a couple of eons, open
+// space none); null when no chain of stars bridges it
+const HEAL2 = [0, 4, 2, 1, 0.5, 0];                                              // strain healed by two eons' rest, by zone
+function hopsWithin(from, to, reach) {                                             // Dijkstra on (hops, strain): a star is settled once, on its first (fewest-hop, least-strained) visit
+  const open = [{ sys: from, hops: 0, strain: 0, prev: null }], settled = new Map();
+  while (open.length) {
+    open.sort((a, b) => a.hops - b.hops || a.strain - b.strain); const cur = open.shift();
+    if (settled.has(cur.sys)) continue; settled.set(cur.sys, cur); if (cur.sys === to) break;
+    for (const t of S.systems) {
+      if (settled.has(t.id) || t.id === cur.sys || lyBetween(S, cur.sys, t.id) > reach) continue;
+      const arrive = cur.strain + effectiveLy(S, cur.sys, t.id); if (arrive > reach) continue;
+      const z = zoneOfSys(S, t.id); open.push({ sys: t.id, hops: cur.hops + 1, strain: z === 0 ? 0 : Math.max(0, arrive - HEAL2[z]), prev: cur });
+    }
+  }
+  const end = settled.get(to); if (!end) return null;
+  const out = []; for (let n = end; n.prev; n = n.prev) out.unshift(n.sys); return out;
 }
 // a safe path first (every hop within the reach); failing that one that dares a light year past it (a 90 % crossing — the fleet
 // arrives worn and rests before the next hop)
@@ -100,12 +111,12 @@ for (let eon = 0; eon < MAX_EONS; eon++) {
   const groups = new Map(); for (const s of all) if (!s.u.dest) { const sys = sysOfPlace(s.u.at), key = sys + '|' + s.u.design.id; groups.set(key, (groups.get(key) || []).concat([s])); }
   for (const [key, ships] of groups) {
     const sys = key.split('|')[0], dkey = ships[0].u.design.id === D.war.id ? 'war' : 'long';
-    if (sys === rally || ships.some(s => (s.u.st ?? 100) < 85)) continue;
+    if (sys === rally || (zoneOfSys(S, sys) <= 2 && ships.some(s => (s.u.st ?? 100) < 85))) continue;   // rest to 85 % where restocking is worth the wait (blue to yellow); out there, press on
     const p = hops(sys, rally, fleetRange(S, ships.map(s => s.u))); if (!p) continue;
     if (act({ type: 'send', design: D[dkey].id, n: ships.length, from: sys, to: p[0] })) note(`${ships.length} ${D[dkey].name}${ships.length > 1 ? 's' : ''} from ${sysName(sys)} toward the rally at ${sysName(rally)} (via ${sysName(p[0])})`);
   }
   const atRally = resting(c, rally, kind);
-  if (target && path && atRally.length && worthOf(atRally) >= need && atRally.every(s => (s.u.st ?? 100) >= 85) && !moving) {
+  if (target && path && atRally.length && worthOf(atRally) >= need && (zoneOfSys(S, rally) > 2 || atRally.every(s => (s.u.st ?? 100) >= 85)) && !moving) {
     const next = path[0];
     if (act({ type: 'send', design: D[kind].id, n: atRally.length, from: rally, to: next })) { note(`${atRally.length} ${D[kind].name}${atRally.length > 1 ? 's' : ''} (worth ${Math.round(worthOf(atRally))}) leave ${sysName(rally)} for ${sysName(next)}${next === target.sys ? ' — the target' : ''}${lyBetween(S, rally, next) > REACH[kind] * 0.95 ? ', daring past their reach' : ''}`); rally = next; path = path.slice(1); }
   }

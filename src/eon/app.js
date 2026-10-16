@@ -3,7 +3,7 @@
 import { $, clamp, fmt, signed, esc } from '../util.js';
 import { DOMAINS } from '../data/properties.js';
 import { XS, X_INFO, T, CENTER, FIELD_IDS, newState, compute, endEon, uid, isIntegrated, giveAttention, sendShip, recallShip, settle, starEons, sysDistance,
-  LY, VOY, SCALE, shipRange, forecast, fleetRange, sendFleet, lyBetween, peopleWord, upgrade, hostileIn, hostileWord, hostileWorth } from './model.js';
+  LY, VOY, SCALE, shipRange, forecast, fleetRange, sendFleet, lyBetween, peopleWord, upgrade, hostileIn, hostileWord, hostileWorth, ZONE, bubbles, zoneOfSys, effectiveLy } from './model.js';
 import { KINDS, KIND_IDS, CLASS_NAME, GANTRY, GUN, PRESETS, applyPreset, allCapsules, designStats, isRelevant, dockFit, reachBand, fitModule, autoFit, traverseOf } from './modules.js';
 import { GALAXY, STARS } from './galaxy.js';
 import { createTetra } from './tetra.js';
@@ -86,9 +86,10 @@ function stackRow(g, { send = true, settleAt = null, foe = null } = {}) {
   let line;
   if (foe) line = `${esc(g.ship.arch ? g.ship.arch.label : '')} · worth ${fmt(g.ship.cost)} each · ${fmt(g.ship.dps)} dmg/s`;
   else {
-    const sts = g.ships.map(s => s.u.st ?? 100), lo = Math.min(...sts), hi = Math.max(...sts), people = g.ships.reduce((a, s) => a + (s.u.people || 0), 0);
+    const sts = g.ships.map(s => s.u.st ?? 100), lo = Math.min(...sts), hi = Math.max(...sts), people = g.ships.reduce((a, s) => a + (s.u.people || 0), 0), strain = Math.max(0, ...g.ships.map(s => s.u.strain || 0));
+    const z = zoneOfSys(S, placeOf(g.ships[0].u.at)?.sys), restock = ZONE.recover[z] > 0;
     line = [`worth ${fmt(g.t.cost)} each`, g.t.dps ? `${fmt(g.t.dps)} dmg/s` : '', g.t.research ? `lab ${fmt(g.t.research)}` : '', g.klass === 'starship' && !g.t.underDriven ? `reach ${g.range.toFixed(1)} ly` : g.klass === 'starship' ? '<b class="up">drive too small to leave</b>' : 'thrusters only',
-      `stamina ${Math.round(lo) === Math.round(hi) ? Math.round(lo) : `${Math.round(lo)}–${Math.round(hi)}`} %${lo < 100 ? ' (coming back while they rest)' : ''}`, people ? `${peopleWord(people)} people aboard` : ''].filter(Boolean).join(' · ');
+      `stamina ${Math.round(lo) === Math.round(hi) ? Math.round(lo) : `${Math.round(lo)}–${Math.round(hi)}`} %${lo < 100 ? (restock ? ` (restocking +${ZONE.recover[z]} an eon in the ${ZONE.names[z]})` : ' — <b class="up">no restocking out here</b>') : ''}`, strain > 0.05 ? `<b class="${restock ? '' : 'up'}">strain ${strain.toFixed(1)} ly</b>${restock ? '' : ' (it stacks out here)'}` : '', people ? `${peopleWord(people)} people aboard` : ''].filter(Boolean).join(' · ');
   }
   const settler = !foe && settleAt && g.ships.find(s => s.u.people > 0);
   return `<div class="shiprow"><div class="n"><span style="display:flex;align-items:center;gap:8px"><canvas data-thumb="${tid}" ${foe ? `data-foe="${esc(foe)}"` : ''} width="96" height="56" style="width:64px;height:38px;border-radius:6px;background:#04070f;flex:none"></canvas><b>${esc(g.name)}</b><b style="color:var(--time)">×${total}</b></span>
@@ -103,8 +104,8 @@ function sendBar(c, groups) {
     const R = fleetRange(S, ships.map(s => s.u)), st = Math.min(...ships.map(s => s.u.st ?? 100)), worth = ships.reduce((a, s) => a + s.t.cost, 0);
     let h = `<div class="okbox" style="margin:6px 0"><b>${ships.length} picked</b>: ${names} · worth ${fmt(worth)} · reach <b>${R.toFixed(1)} ly</b> (by bulk) · the weakest at ${Math.round(st)} % — <b>click a star on the map to send them</b> <button class="x" data-pclear>clear</button>`;
     if (sendTo) {
-      const d = lyBetween(S, pickScope.sys, sendTo), f = forecast(R, d, c.warp, 0, st), foe = hostileIn(S, sendTo);
-      h += `<div style="margin-top:6px;padding-top:6px;border-top:1px dashed var(--line)">To <b>${esc(sysOf(sendTo).name)}</b>: ${d.toFixed(1)} ly · ${plural(f.eons, 'eon')} · <b>${Math.round(f.chance * 100)} %</b>${f.chance < 1 ? ` · in at ~${Math.round(f.expected)} %${f.lost ? ' — some could be lost' : ` (worst ${Math.round(f.worst)} %)`}` : ''}${foe ? ` · <b class="up">⚔ ${esc(hostileWord(foe))}</b>` : ''}
+      const d = lyBetween(S, pickScope.sys, sendTo), eff = d > 0 ? effectiveLy(S, pickScope.sys, sendTo) / d : 1, strain = Math.max(0, ...ships.map(s => s.u.strain || 0)), f = forecast(R, d, c.warp, strain, st, eff), foe = hostileIn(S, sendTo), z = zoneOfSys(S, sendTo);
+      h += `<div style="margin-top:6px;padding-top:6px;border-top:1px dashed var(--line)">To <b>${esc(sysOf(sendTo).name)}</b> <span class="tiny">(${ZONE.names[z]}${z < 5 ? ', restocking +' + ZONE.recover[z] + ' an eon' : ', no restocking'})</span>: ${d.toFixed(1)} ly, ${(d * eff).toFixed(1)} of strain${strain > 0.05 ? ` on top of ${strain.toFixed(1)} carried` : ''} · ${plural(f.eons, 'eon')} · <b>${Math.round(f.chance * 100)} %</b>${f.chance < 1 ? ` · in at ~${Math.round(f.expected)} %${f.lost ? ' — some could be lost' : ` (worst ${Math.round(f.worst)} %)`}` : ''}${foe ? ` · <b class="up">⚔ ${esc(hostileWord(foe))}</b>` : ''}
         <div class="acts" style="margin-top:4px"><button class="go" data-psend>Send them</button><button class="x" data-pcancel>pick another star</button></div></div>`;
     }
     return h + '</div>';
@@ -339,12 +340,17 @@ function drawGalaxy(c) {
   g.strokeStyle = 'rgba(170,210,255,.12)'; g.setLineDash([2, 6]); g.beginPath(); g.arc(G.cx, G.cy, R * 0.98, 0, 7); g.stroke(); g.setLineDash([]);
   // the REACH of your best starship resting at the chosen star (STAR TRAVEL): its range, then a ring a light year apart —
   // green 90 %, yellow 70 %, orange 40 %, red 10 %
-  const reachR = ringR(gSel);
-  if (reachR > 0 && G.pos[gSel]) {
-    const p = G.pos[gSel], cols = ['#4da3ff', '#7ef3b0', '#ffd26a', '#ffb347', '#ff7979'];
-    cols.forEach((col, i) => { g.strokeStyle = col; g.globalAlpha = i ? 0.55 : 0.8; g.lineWidth = i ? 1 : 1.6; g.setLineDash(i ? [3, 5] : []); g.beginPath(); g.arc(p.x, p.y, (reachR + i) * LY * G.k, 0, 7); g.stroke(); });
-    g.globalAlpha = 1; g.lineWidth = 1; g.setLineDash([]);
+  // THE SPHERE OF INFLUENCE (model.js ZONE): every colony's bubble — blue inside, then green / yellow / orange / red a light year
+  // each — merged into one region; inside it ships restock and their strain heals, outside neither
+  const bubs = bubbles(S);
+  for (let z = 4; z >= 0; z--) {
+    g.beginPath(); for (const b of bubs) { const p = G.pos[b.sys]; if (!p) continue; const r = (b.r + z * ZONE.band) * LY * G.k; g.moveTo(p.x + r, p.y); g.arc(p.x, p.y, r, 0, 7); }
+    g.fillStyle = ZONE.colors[z]; g.globalAlpha = z === 0 ? 0.14 : 0.06; g.fill(); g.globalAlpha = 0.3; g.strokeStyle = ZONE.colors[z]; g.lineWidth = 1; g.setLineDash(z ? [3, 5] : []); g.stroke(); g.setLineDash([]);
   }
+  g.globalAlpha = 1;
+  // the reach of the fleet at the chosen star (its own range) when its panel is open: a white dashed ring
+  const reachR = ringR(gSel);
+  if (gMode === 'fleet' && reachR > 0 && G.pos[gSel]) { const p = G.pos[gSel]; g.strokeStyle = '#fff'; g.globalAlpha = 0.45; g.setLineDash([2, 4]); g.beginPath(); g.arc(p.x, p.y, reachR * LY * G.k, 0, 7); g.stroke(); g.setLineDash([]); g.globalAlpha = 1; }
   // picked ships, and the star they would go to
   if (sendTo && pickScope?.kind === 'galaxy' && G.pos[pickScope.sys] && G.pos[sendTo]) { const a = G.pos[pickScope.sys], b = G.pos[sendTo]; g.strokeStyle = '#7ef3b0'; g.lineWidth = 2; g.setLineDash([6, 5]); g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke(); g.setLineDash([]); g.lineWidth = 1; }
   // derelicts, where they broke down
@@ -448,7 +454,7 @@ function renderGalaxy(c) {
     ${here.map(pl => `<div class="shiprow" data-gplace="${pl.id}" style="cursor:pointer"><div class="n"><span><i class="dot" style="background:${lookOf(pl).color}"></i>${esc(pl.name)}${pl.cool ? ' <span title="a remarkable place" style="color:var(--time)">✦</span>' : ''}</span><span class="tiny">${KIND_WORD[pl.kind]}${pl.colony ? ' · settled' : pl.landable ? ' · can be settled' : ' · orbit only'}</span></div>
       <div class="tiny">${topFields(pl).filter(x => x[2] > 0.06).map(x => `${DOMAINS[x[0]].name} <b>${pct(x[1])}</b>`).join(' · ')}</div></div>`).join('')}
     <button class="go" data-opensys="${s.id}" style="margin-top:4px">Open the ${esc(s.name)} system ▸</button>
-    <div class="tiny" style="margin-top:8px">Click a star to look at it; double-click to open it. A green ring is a colony of yours, the big green triangle your fleet (click it for the fleet), a grey × a derelict, a red dashed ring a hostile fleet (⚔ its worth — the further from home, the stronger). Wheel to zoom, drag with the middle or right button to move about${gView.z !== 1 || gView.x || gView.y ? ' · <button class="x" data-greset>whole galaxy</button>' : ''}.${ringR(s.id) ? ` <b>The coloured rings</b> are the reach of your best ship here (${ringR(s.id).toFixed(1)} light years): inside the <span style="color:#4da3ff">blue</span> one a crossing is a stroll; past it a ship crawls and wears — <span style="color:#7ef3b0">green</span> 90 %, <span style="color:#ffd26a">yellow</span> 70 %, <span style="color:#ffb347">orange</span> 40 %, <span style="color:#ff7979">red</span> 10 %; beyond the red, few arrive.` : ''}</div>`;
+    <div class="tiny" style="margin-top:8px">Click a star to look at it; double-click to open it. A green ring is a colony of yours, the big green triangle your fleet (click it for the fleet), a grey × a derelict, a red dashed ring a hostile fleet (⚔ its worth — the further from home, the stronger). Wheel to zoom, drag with the middle or right button to move about${gView.z !== 1 || gView.x || gView.y ? ' · <button class="x" data-greset>whole galaxy</button>' : ''}. <b>The coloured bubbles</b> are your sphere of influence, thrown by your colonies: <span style="color:#4da3ff">blue</span> is home waters — flight there costs no strain and a ship restocks fully in an eon; <span style="color:#7ef3b0">green</span>, <span style="color:#ffd26a">yellow</span>, <span style="color:#ffb347">orange</span>, <span style="color:#ff7979">red</span> a light year each, restocking ${ZONE.recover.slice(1, 5).join(' / ')} an eon (green flight counts half). Beyond the red nothing restocks, and the strain of every light year flown stacks from hop to hop until a ship is back inside; past its reach it rolls to break down. The white dashed ring is the open fleet's own reach.</div>`;
   $('gPanel').innerHTML = top + h; fillThumbs($('gPanel'));
 }
 function openSystem(id, placeId) {
