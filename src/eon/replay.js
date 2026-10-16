@@ -2,7 +2,7 @@
 // order a player — or the AI player in tools/play — gives is one ACTION, and a game is a seed plus the actions eon by eon.
 // The same seed and the same actions give the same game (model.js draws every die from the state), so a log replays exactly.
 // applyAction runs one order on a state; the AI player and the game's Replay bar both use it. No DOM.
-import { sendFleet, giveAttention, compute, uid } from './model.js';
+import { sendFleet, giveAttention, settle, compute, uid } from './model.js';
 
 export const REPLAY_VERSION = 1;
 // { type: 'split', place, split: [i, r, s] } · { type: 'design', design } (a whole design: replaces one with the same id) ·
@@ -25,6 +25,10 @@ export function applyAction(S, a) {
       if (!ships.length) return 'no such ships resting there';
       const to = a.toPlace || starOf(a.to); if (!to) return 'nowhere to go';
       return sendFleet(S, ships.map(u => u.id), to);
+    }
+    case 'settle': {                                 // { type: 'settle', design, place }: a resting ship of that design at that place founds the colony
+      const u = S.ships.find(x => !x.dest && x.design && x.design.id === a.design && x.at === a.place); if (!u) return 'no such ship there';
+      return settle(S, u.id);
     }
     case 'focus': { S.focus = a.w.slice(); return null; }
     case 'attention': { giveAttention(S, a.field, a.d); return null; }

@@ -329,7 +329,7 @@ function fitCanvas(cv) { const w = cv.clientWidth, h = cv.clientHeight; if (cv.w
 function drawGalaxy(c) {
   const cv = $('gMap'); if (!cv || !cv.clientWidth) return;
   const G = fitCanvas(cv), g = cv.getContext('2d'), mine = presence(c);
-  G.cx += gView.x; G.cy += gView.y; G.k = Math.max(20, Math.min(G.w, G.h) / 2 - 34) / GALAXY.radius * gView.z; G.pos = {}; G.fleet = {};
+  G.cx += gView.x; G.cy += gView.y; G.k = Math.max(20, Math.min(G.w, G.h) / 2 - 34) / GALAXY.radius * gView.z; G.pos = {}; G.fleet = {}; G.battle = {};
   for (const s of S.systems) G.pos[s.id] = { x: G.cx + s.x * G.k, y: G.cy + s.y * G.k };
   cv._geo = G;
   g.clearRect(0, 0, G.w, G.h);
@@ -380,6 +380,8 @@ function drawGalaxy(c) {
       if (on || (s.id === gHover && gHoverFleet)) { g.strokeStyle = on ? '#7ef3b0' : 'rgba(255,255,255,.6)'; g.lineWidth = 1.5; g.beginPath(); g.arc(x, y + 1, 13, 0, 7); g.stroke(); g.lineWidth = 1; }
       g.font = 'bold 11px sans-serif'; g.textAlign = 'left'; g.fillStyle = on ? '#fff' : '#7ef3b0'; g.fillText(String(here.ships), x + 12, y + 5); g.textAlign = 'center';
     }
+    const bt = (S.battles || []).find(b => b.sys === s.id);   // a battle fought here this eon: a ▶ badge — click it to watch it (his ask, 2026-10-16)
+    if (bt) { const x = p.x - size - 14, y = p.y + size + 6; G.battle[s.id] = { x, y, id: bt.id }; g.fillStyle = '#ff5c5c'; g.beginPath(); g.arc(x, y, 8, 0, 7); g.fill(); g.fillStyle = '#fff'; g.font = 'bold 9px sans-serif'; g.textAlign = 'center'; g.fillText('▶', x + 0.5, y + 3.5); }
     const onStar = s.id === gSel && gMode !== 'fleet';   // the white ring: on the star in system mode, on the fleet icon in fleet mode
     if (onStar || (s.id === gHover && !gHoverFleet)) { g.strokeStyle = onStar ? '#fff' : 'rgba(255,255,255,.5)'; g.lineWidth = 1.5; g.beginPath(); g.arc(p.x, p.y, size + 8, 0, 7); g.stroke(); g.lineWidth = 1; }
     g.fillStyle = s.home || here ? '#e8f0ff' : '#8598bb'; g.font = (s.home || here ? 'bold ' : '') + '10px sans-serif';
@@ -400,6 +402,12 @@ function fleetAt(e) {                                // the fleet icon under the
   for (const [id, f] of Object.entries(G.fleet)) if (Math.hypot(mx - f.x, my - f.y - 1) < 14) return id;
   return null;
 }
+function battleAt(e) {                               // the ▶ badge of a battle under the mouse, if any: the battle's id
+  const G = $('gMap')._geo; if (!G || !G.battle) return null;
+  const [mx, my] = mapXY(e);
+  for (const b of Object.values(G.battle)) if (Math.hypot(mx - b.x, my - b.y) < 11) return b.id;
+  return null;
+}
 function sysBlurb(s) {
   const here = placesIn(s.id), best = here.flatMap(pl => FIELD_IDS.map(f => [pl.mult[f] * pl.fresh[f], f, pl])).sort((a, b) => b[0] - a[0]).slice(0, 3);
   return `<b>${esc(s.name)}</b> — ${STARS[s.type].name} · ${here.length > 1 ? `${plural(here.length - 1, 'place')} around it, ${here.filter(p => p.landable).length} can be settled` : 'nothing circles it'}<br>
@@ -413,6 +421,7 @@ $('gMap').addEventListener('mousemove', e => {
 });
 // a click: the fleet icon → the fleet panel; a star → the system (or, with ships picked, where they go). You are on one or the other.
 $('gMap').addEventListener('click', e => {
+  const bt = battleAt(e); if (bt) return watchBattle(bt);
   const f = fleetAt(e), id = f || sysAt(e); if (!id) return;
   if (!f && pickCount() && pickScope?.kind === 'galaxy' && id !== pickScope.sys) { sendTo = id; return refresh(); }
   gSel = id; gMode = f ? 'fleet' : 'system'; refresh();
@@ -449,6 +458,7 @@ function renderGalaxy(c) {
     <div class="tiny" style="margin-top:8px">Pick how many of each to send (+ / all), click the star they go to, then Send. Click the star here instead for the system itself.</div>`;
   else h = `<h2 style="margin-top:14px">${esc(s.name)} <span class="tiny" style="text-transform:none;letter-spacing:0">· ${STARS[s.type].name}${s.home ? ' · your home' : ''}</span></h2>
     <div class="tiny" style="margin-bottom:6px">${s.home ? 'Where your people come from.' : `${(d / LY).toFixed(1)} light years from Home — about ${plural(starEons(d, c.warp), 'eon')} for a plain star drive.`}${have ? ` You have ${have} here.` : ''}</div>${H ? `<div class="note" style="margin:4px 0 6px">⚔ <b>${esc(hostileWord(H))}</b> holds this system. Ships of yours that come to rest here fight it at the end of the eon — every eon, until one side is gone or yours leave.</div>` : ''}
+    ${(S.battles || []).filter(b => b.sys === s.id).map(b => `<button class="go" data-watch="${b.id}" style="margin:2px 6px 6px 0" title="replay it, as it was fought">▶ Watch the battle fought here this eon</button>`).join('')}
     ${mine && mine.ships ? `<button class="go" data-gfleet style="margin:2px 0 6px" title="the ships of yours resting here, as stacks to send">⯈ Your fleet here — ${plural(mine.ships, 'ship')}</button>` : ''}
     ${galaxyFleetPanel(c, s, false)}
     ${here.map(pl => `<div class="shiprow" data-gplace="${pl.id}" style="cursor:pointer"><div class="n"><span><i class="dot" style="background:${lookOf(pl).color}"></i>${esc(pl.name)}${pl.cool ? ' <span title="a remarkable place" style="color:var(--time)">✦</span>' : ''}</span><span class="tiny">${KIND_WORD[pl.kind]}${pl.colony ? ' · settled' : pl.landable ? ' · can be settled' : ' · orbit only'}</span></div>
@@ -1111,7 +1121,7 @@ function replayStep(n) {
 }
 function renderReplayBar() {
   const bar = $('replayBar'); if (!bar) return; if (!REPLAY) { bar.hidden = true; return; }
-  const word = a => a.type === 'send' ? `send ${a.n} × ${designWord(a.design)} ${sysWord(a.from)} → ${sysWord(a.to)}` : a.type === 'build' ? `build ${designWord(a.design)}` : a.type === 'buynow' ? 'buy now' : a.type === 'split' ? `split ${a.split.map(v => Math.round(v * 100)).join(' / ')}` : a.type === 'design' ? `design ${a.design.name}` : a.type === 'focus' ? 'move the focus' : a.type;
+  const word = a => a.type === 'send' ? `send ${a.n} × ${designWord(a.design)} ${sysWord(a.from)} → ${a.toPlace ? (placeOf(a.toPlace)?.name || a.toPlace) : sysWord(a.to)}` : a.type === 'settle' ? `settle ${placeOf(a.place)?.name || a.place}` : a.type === 'build' ? `build ${designWord(a.design)}` : a.type === 'buynow' ? 'buy now' : a.type === 'split' ? `split ${a.split.map(v => Math.round(v * 100)).join(' / ')}` : a.type === 'design' ? `design ${a.design.name}` : a.type === 'focus' ? 'move the focus' : a.type;
   const acts = REPLAY.log.actions.filter(a => a.eon === S.eon);
   bar.hidden = false; bar.innerHTML = `<b>REPLAY</b><span class="tiny">seed “${esc(S.seedText)}” · eon ${S.eon} of ${REPLAY.last}${acts.length ? ' · this eon: ' + acts.map(a => esc(word(a))).join(' · ') : ' · no orders this eon'}</span><span style="flex:1"></span><button class="go" data-rstep="1">▶ next eon</button><button class="x" data-rstep="10">⏩ 10</button><button class="x" data-rstep="100000">⏭ to the end</button><button class="x" data-rstop title="stop the replay here and play on yourself">✕ stop here</button>`;
 }
