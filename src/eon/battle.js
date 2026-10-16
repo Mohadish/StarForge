@@ -531,7 +531,7 @@ export function designFromChips(S, stacks, budget, rng = rng32(1), caps = allCap
     if (s.kind === 'hangar') { const m = hangarFor(4 * h, (dl && dl.sz) || 1, s.role); m.src = s.id; d.modules.push(m); names.push(`Drones${h > 1 ? ' ×' + h : ''}${s.role && s.role !== 'standard' ? ' ' + PRESETS[s.role].name.toLowerCase() : ''}`); }
     else if (KINDS[s.kind]?.mount) { const m = { id: uid(), kind: s.kind, caps: [], n: 2 * h, src: s.id }; applyPreset(m, s.role && PRESETS[s.role] ? s.role : 'standard'); tune(m, dl); d.modules.push(m); names.push(`${NAMES[s.kind]}${h > 1 ? ' ×' + h : ''}${s.role && s.role !== 'standard' ? ' ' + PRESETS[s.role].name.toLowerCase() : ''}`); }
     else if (s.kind === 'armor') { d.modules.push({ id: uid(), kind: 'armor', caps: [], n: 4 * h, src: s.id }); names.push(`armour${h > 1 ? ' ×' + h : ''}`); }
-    else if (s.kind === 'shield') { d.modules.push({ id: uid(), kind: 'shield', caps: [], n: 2 * h, src: s.id }); names.push(`shields${h > 1 ? ' ×' + h : ''}`); }
+    else if (s.kind === 'shield') { d.modules.push({ id: uid(), kind: 'shield', caps: [], n: h, k: 1, src: s.id }); names.push(`shields${h > 1 ? ' ×' + h : ''}`); }   // one generator a chip, dialled to cover the hull
     else if (s.kind === 'fast') { d.modules.push({ id: uid(), kind: 'thruster', caps: [], n: 2 * h, src: s.id }); names.push(`fast${h > 1 ? ' ×' + h : ''}`); }
     else if (s.kind === 'fab') { d.modules.push({ id: uid(), kind: 'works', caps: [], n: h, src: s.id }); names.push(`fabricator${h > 1 ? ' ×' + h : ''}`); }
   }
@@ -559,7 +559,7 @@ export function designFromStacks(S, stacks, { klass = 'starship', name = '', hul
     if (s.kind === 'hangar') add(hangarFor(4 * h, (dl && dl.sz) || 1, s.role));
     else if (KINDS[s.kind]?.mount) { const m = { id: uid(), kind: s.kind, n: gunsPerChip * h }; applyPreset(m, s.role && PRESETS[s.role] ? s.role : 'standard'); tune(m, dl); add(m); }
     else if (s.kind === 'armor') add({ id: uid(), kind: 'armor', n: 4 * h });
-    else if (s.kind === 'shield') add({ id: uid(), kind: 'shield', n: 2 * h });
+    else if (s.kind === 'shield') add({ id: uid(), kind: 'shield', n: h, k: 1 });   // one generator a chip, each dialled to cover the hull (autoFit)
     else if (s.kind === 'fast') add({ id: uid(), kind: 'thruster', n: 2 * h });
     else if (s.kind === 'fab') add({ id: uid(), kind: 'works', n: h });
     else if (s.kind === 'lab') add({ id: uid(), kind: 'lab', n: h });

@@ -30,6 +30,7 @@ const CSS = `
 .ce-tray .stack.sel { outline: 2px solid var(--warn, #ffd26a) }
 .ce-tray .stack.auto { cursor: default; border-style: dotted; background: rgba(255,255,255,.03) }
 .ce-tray .stack.auto small { color: var(--warn, #ffd26a) }
+.ce-tray .stack small.stat { color: var(--warn, #ffd26a) }
 .ce-tray .stack.over { background: rgba(126,243,176,.18); border-color: var(--good, #7ef3b0) }
 .ce-tray .stack .hh { font-style: normal; font-weight: 800; color: var(--warn, #ffd26a) }
 .ce-tray .stack small { color: var(--fg, #e8f0ff); font-size: 11px }
@@ -79,8 +80,9 @@ const DRONE_ROLES = ['standard', 'sniper', 'capital', 'antiarmor', 'antishield',
 // labels: the palette rows' names ({ weapon, role, trait }) · groupBy(stack) → a group's name, groupOrder [names]: the tray in groups under headers (the game)
 // openOnClick: a click on a stack opens its details (no ▾ needed) · onRender(openId): after every render (the game places the details panel)
 // autoChips(group) → [{ label, sub, color, title }]: chips shown first in that group that are not stacks (the game's reactor, drive, weapons computer)
+// stackSub(stack, mods, ship) → text under a stack's name: what it gives the ship (the game: HP, dmg/s, capacity …)
 // gunsPerChip: how many guns a weapon chip stands for in the details' wording (2 here and in the Fleet Generator; the game says 1)
-export function createChipEditor({ palette, tray, info, sheet, dropZones = [] }, { onChange, extra = null, infoExtra = null, onInfoClick = null, labels = null, groupBy = null, groupOrder = [], openOnClick = false, onRender = null, autoChips = null, gunsPerChip = 2 } = {}) {
+export function createChipEditor({ palette, tray, info, sheet, dropZones = [] }, { onChange, extra = null, infoExtra = null, onInfoClick = null, labels = null, groupBy = null, groupOrder = [], openOnClick = false, onRender = null, autoChips = null, gunsPerChip = 2, stackSub = null } = {}) {
   ensure(); tray.classList.add('ce-tray'); info.classList.add('ce-info'); sheet.classList.add('ce-sheet'); info.hidden = true;
   let stacks = [], sel = null, open = null, nextId = 1, ship = null;
   const LIST = { weapon: CHIPS.weapon, role: CHIPS.role, trait: [...CHIPS.trait, ...((extra && extra.trait) || [])] }, nameOf = (type, key) => (LIST[type] || []).find(c => c[0] === key)?.[1] || key;
@@ -90,7 +92,8 @@ export function createChipEditor({ palette, tray, info, sheet, dropZones = [] },
   const label = s => nameOf(s.type || (CHIPS.weapon.some(c => c[0] === s.kind) ? 'weapon' : 'trait'), s.kind);
   const isWeapon = s => CHIPS.weapon.some(c => c[0] === s.kind);
   function render() {
-    const chip = s => `<span class="stack ${s.id === sel ? 'sel' : ''}" data-stack="${s.id}" style="--c:${CHIPC[s.kind]}" title="double-click: its details and dials"><b>${label(s)}</b>${s.h > 1 ? `<i class="hh">×${s.h}</i>` : ''}${s.role ? `<small>${nameOf('role', s.role)}</small>` : ''}${s.caps && s.caps.length ? `<span class="tuned" title="breakthrough capsules on it">✦${s.caps.length}</span>` : ''}${s.dials && Object.keys(s.dials).length ? '<span class="tuned" title="its dials are turned">⚙</span>' : ''}<button class="x" data-sopen="${s.id}" title="its details and dials">${open === s.id ? '▴' : '▾'}</button><button class="x" data-stackup="${s.id}" title="one more">+</button><button class="x" data-unstack="${s.id}" title="one off">−</button></span>`;
+    const subOf = s => { if (!stackSub) return ''; const t = stackSub(s, ship ? ship.ds.mods.filter(x => x.mod.src === s.id) : [], ship); return t ? `<small class="stat">${t}</small>` : ''; };
+    const chip = s => `<span class="stack ${s.id === sel ? 'sel' : ''}" data-stack="${s.id}" style="--c:${CHIPC[s.kind]}" title="double-click: its details and dials"><b>${label(s)}</b>${s.h > 1 ? `<i class="hh">×${s.h}</i>` : ''}${s.role ? `<small>${nameOf('role', s.role)}</small>` : ''}${subOf(s)}${s.caps && s.caps.length ? `<span class="tuned" title="breakthrough capsules on it">✦${s.caps.length}</span>` : ''}${s.dials && Object.keys(s.dials).length ? '<span class="tuned" title="its dials are turned">⚙</span>' : ''}<button class="x" data-sopen="${s.id}" title="its details and dials">${open === s.id ? '▴' : '▾'}</button><button class="x" data-stackup="${s.id}" title="one more">+</button><button class="x" data-unstack="${s.id}" title="one off">−</button></span>`;
     let html;
     if (groupBy) {                                     // in groups, each under its header, the groups in the order given; a group's AUTO chips (the ship's own systems, not added by hand) come first in it
       const by = new Map(); for (const s of stacks) { const g = groupBy(s); (by.get(g) || by.set(g, []).get(g)).push(s); }
@@ -169,7 +172,7 @@ export function createChipEditor({ palette, tray, info, sheet, dropZones = [] },
       for (const x of mods) {
         const v = x.v, n = x.n;
         if (x.kind === 'armor') html += `<div>${n} layers: <b>${fmt(v.hp * n)} HP</b>, shrugs ${v.deflect.toFixed(1)} off every hit · cost ${fmt(x.cost * n)}</div><div class="muted">the shell outside the hull: layers ring outward, each bulkier than the last; a fabricator mends it from its stock</div>`;
-        if (x.kind === 'shield') html += `<div>${n} shields: <b>${fmt(v.capacity * n)}</b> capacity, +${fmt(v.recovery * n)}/s · cover ${pct(t.cover)} · cost ${fmt(x.cost * n)}</div><div class="muted">the field always grows to cover the whole ship; more shields make it stronger — every hit loses ${SHIELD.hard} on it, and it pauses ${SHIELD.delay} s after a hit</div>`;
+        if (x.kind === 'shield') html += `<div>${n} shield${n > 1 ? 's' : ''} of size ×${x.k}: <b>${fmt(v.capacity * n)}</b> capacity, +${fmt(v.recovery * n)}/s · cover ${pct(t.cover)} · cost ${fmt(x.cost * n)} · bulk ${fmt(x.volume * n)}</div><div class="muted">a generator is dialled up until its field covers the whole ship — a bigger ship, a bigger and dearer shield; a second one is a second full field, twice the capacity — every hit loses ${SHIELD.hard} on it, and it pauses ${SHIELD.delay} s after a hit</div>`;
         if (x.kind === 'thruster') html += `<div>${n} thrusters: +${fmt(v.thrust * n)} thrust, +${fmt(v.evasion * n)} agility · cost ${fmt(x.cost * n)}</div><div class="muted">speed, turning and evasion — a big ship needs many to dance</div>`;
         if (x.kind === 'works') html += `<div>${n} fabricator${n > 1 ? 's' : ''}: ${fmt(v.industry * n)} industry, stock ${fmt(x.volume * n * 4)} · cost ${fmt(x.cost * n)}</div><div class="muted">reloads missiles, rebuilds drones and mends hull and armour — all paid from its stock</div>`;
         if (x.kind === 'lab') html += `<div>${n} lab${n > 1 ? 's' : ''}: research ${fmt(v.research * n)} · cost ${fmt(x.cost * n)}</div><div class="muted">parked in orbit, it studies that place (and every lab in a system studies its star)</div>`;

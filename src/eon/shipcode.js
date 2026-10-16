@@ -33,7 +33,7 @@ export function chipsOfDesign(design, gunsPerChip = 2) {               // gunsPe
     if (m.kind === 'hangar') add('weapon', 'hangar', Math.max(1, Math.round(n * (m.cnt || 1))),m.preset && m.preset !== 'standard' ? m.preset : null);
     else if (KINDS[m.kind]?.mount && !KINDS[m.kind].orbital) add('weapon', m.kind, Math.max(1, Math.round(n / gunsPerChip)), m.preset && m.preset !== 'standard' && m.preset !== 'custom' ? m.preset : null);
     else if (m.kind === 'armor') add('trait', 'armor', Math.max(1, Math.round(n / 4)));
-    else if (m.kind === 'shield') add('trait', 'shield', Math.max(1, Math.round(n / 2)));
+    else if (m.kind === 'shield') add('trait', 'shield', n);                     // a generator a chip
     else if (m.kind === 'thruster') add('trait', 'fast', Math.max(1, Math.round(n / 2)));
     else if (m.kind === 'works') add('trait', 'fab', n);
     else if (m.kind === 'lab') add('trait', 'lab', n);                            // the game's civil chips

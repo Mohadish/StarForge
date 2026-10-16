@@ -25,7 +25,7 @@
 // A REACTOR is sized to the need: its output is dialled from a quarter to four times the standard,
 // and its cost and bulk follow.
 import { CHANNELS } from '../data/properties.js';
-import { hullOf, shieldSpots, fieldCover, hardPoints } from './hull.js';
+import { hullOf, shieldSpots, fieldCover, hardPoints, FIELD_SHARE } from './hull.js';
 
 export const PASSIVE = 0.30;
 export const TRIANGLE = ['miniaturization', 'affordability'];
@@ -58,7 +58,11 @@ export const KINDS = {
     base: { damage: 400, rate: 0.05, accuracy: 60, power: 40 },
     stats: [st('damage', 'Damage to the ground', 'HP', ['warhead_yield', 'kinetic_penetration']), st('rate', 'Rate of fire', '/s', ['rate_of_fire'], { dec: 3 }),
             st('accuracy', 'Accuracy', '%', ['accuracy', 'targeting'], { max: 98 }), st('power', 'Power use', 'MW', ['weapon_efficiency'], { less: true })] },
+  // the shield is DIALLED to the hull (his ask, 2026-10-16: a shield's size must follow the ship's size, and every shield added must
+  // make it stronger): one generator's field grows (reach ∝ √size) until it covers the whole hull — capacity, recovery, power, cost
+  // and bulk grow with the size — and a second generator is a second full field on top, never a wider one
   shield: { group: 'Defence', name: 'Shield', short: 'SHLD', color: '#cf89ff', cost: 35, volume: 15, base: { capacity: 150, recovery: 8, radius: 2.6, power: 20 },
+    scale: { min: 1, max: 128, step: 0.25, stats: ['capacity', 'recovery', 'power'], sqrtStats: ['radius'] },   // min 1: a small ship's shield is the plain one, as it always was (the lab's balance)
     stats: [st('capacity', 'Capacity', 'HP', ['shield_capacity']), st('recovery', 'Recovery', 'HP/s', ['shield_recovery'], { dec: 1 }),
             st('radius', 'Field reach', 'squares', ['shield_reach'], { dec: 1 }), st('power', 'Power use', 'MW', ['power_efficiency'], { less: true })] },
   armor: { group: 'Defence', name: 'Armor', short: 'ARM', color: '#c9d4e8', cost: 25, volume: 20, base: { hp: 300, deflect: 3, repair: 0.5 },
@@ -197,7 +201,7 @@ export function moduleStats(mod, capMap, passive) {
   const extra = ch => mine.reduce((a, c) => a + (c.channel === ch ? c.pct * (1 - c.share) : 0), 0);   // what placing it adds on top
   const stats = K.stats.map(s => {
     const pas = s.from.reduce((a, ch) => a + (passive[ch] || 0), 0), app = s.from.reduce((a, ch) => a + extra(ch), 0);
-    const base = K.base[s.k] * (rect && s.k === 'power' ? area : 1) * (K.scale?.stats.includes(s.k) ? k : 1) * (tune ? tune[s.k] || 1 : 1), kStd = 1 + pas / 100, kNow = 1 + (pas + app) / 100;
+    const base = K.base[s.k] * (rect && s.k === 'power' ? area : 1) * (K.scale?.stats.includes(s.k) ? k : K.scale?.sqrtStats?.includes(s.k) ? Math.sqrt(k) : 1) * (tune ? tune[s.k] || 1 : 1), kStd = 1 + pas / 100, kNow = 1 + (pas + app) / 100;
     let std = s.less ? base / kStd : base * kStd, val = s.less ? base / kNow : base * kNow;
     if (s.max) { std = Math.min(s.max, std); val = Math.min(s.max, val); }
     return { ...s, base, std, val, boosted: app > 0.005 };
@@ -300,6 +304,10 @@ export function fitModule(S, design, modId, caps = allCapsules(S)) {
   if (mod.kind === 'stardrive') {
     mod.k = sc.min; mod.n = 1;
     for (let i = 0; i < 40; i++) { if (!designStats(S, design, caps).t.underDriven) break; if (mod.k < sc.max - 1e-9) mod.k = clamp(mod.k + sc.step, sc.min, sc.max); else if (mod.n < 8) mod.n++; else break; }
+  } else if (mod.kind === 'shield') {                                                 // the field grows to cover the whole hull — every generator on its own, so a second one doubles the shield
+    const ds = designStats(S, design, caps), me = ds.mods.find(m => m.mod.id === modId), r1 = me.v.radius / Math.sqrt(me.k);
+    const need = ds.t.hull.area / (FIELD_SHARE * Math.PI * r1 * r1);              // the size whose field lays the whole hull's area
+    mod.k = clamp(Math.ceil(need / sc.step - 1e-9) * sc.step, sc.min, sc.max);
   } else {
     const ds = designStats(S, design, caps), me = ds.mods.find(m => m.mod.id === modId), stat = sc.stats[0];
     const total = mod.kind === 'reactor' ? ds.t.powerUse : ds.t.mountsUsed + airWanted(ds.t.drones) * DRONE_CONTROL;   // room for a share of the drones in the air
@@ -321,10 +329,9 @@ export function autoFit(S, design, caps = allCapsules(S)) {
     if (ds.mods.some(m => m.K.mount) && !first('weapon_system')) { design.modules.push({ id: newId(), kind: 'weapon_system', caps: [], n: 1, k: 0.5 }); touched.add('a weapons computer added'); changed = true; }
     if (t.powerUse > 0 && !first('reactor')) { design.modules.push({ id: newId(), kind: 'reactor', caps: [], n: 1, k: 0.5 }); touched.add('a reactor added'); changed = true; }
     for (const kind of ['stardrive', 'weapon_system', 'reactor']) { const m = first(kind); if (m && fitModule(S, design, m.id, caps)) { touched.add(KINDS[kind].name.toLowerCase() + ' sized'); changed = true; } }
-    const sh = first('shield'), now = designStats(S, design, caps).t;
-    // shields until the hull is covered: as many as the cover asks for at once (the old cap of 8 left a big hull at 97 % and
-    // every shield chip he added went nowhere until the fifth, 2026-10-16); the bulk they add is caught by the next round
-    if (sh && now.cover < 0.99 && (sh.n || 1) < 200) { sh.n = Math.max((sh.n || 1) + 1, Math.ceil((sh.n || 1) / Math.max(now.cover, 0.02))); touched.add('shields added'); changed = true; }
+    // every shield is dialled until its field covers the hull (was: shields ADDED one a round, capped at eight — a big hull sat
+    // at 97 % and every shield chip he added went nowhere until the fifth, 2026-10-16); the bulk that adds is caught next round
+    for (const m of design.modules) if (m.kind === 'shield' && fitModule(S, design, m.id, caps)) { touched.add('shield sized to the hull'); changed = true; }
     if (!changed) break;
   }
   return [...touched];

@@ -46,7 +46,7 @@ const myLook = () => {                               // the coat: a style and tw
 const hashS = str => { let h = 2166136261; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36); };
 const paintedShips = new Map();
 function paintedShip(design, caps) {               // a design as the battle builds it, for its painted picture (the id carries the modules: an edit paints afresh)
-  const key = design.id + ':' + hashS(design.hull + JSON.stringify(design.modules.map(m => [m.kind, m.n, m.k, m.dmg, m.rof, m.rng, m.chg, m.cnt, m.sz, m.preset, m.w, m.h, m.caps])) + JSON.stringify(design.paint || 0));
+  const key = design.id + ':' + hashS(design.hull + JSON.stringify(design.modules.map(m => [m.kind, m.n, m.k, m.dmg, m.rof, m.rng, m.chg, m.cnt, m.sz, m.preset, m.w, m.h, m.caps, m.src])) + JSON.stringify(design.paint || 0));   // src too: a cached ship with stale pile ids showed "nothing of it made it into the ship" (2026-10-16)
   let s = paintedShips.get(key); if (!s) { s = shipFromDesign(S, { ...design, id: key }, caps); try { s.arch = archetype(s); } catch (e) { s.arch = null; } paintedShips.set(key, s); } return s;
 }
 const thumbShips = new Map(), thumbCache = new Map();
@@ -204,6 +204,7 @@ function paintMain(d) {
   const t = DS.t;                                    // the two numbers that matter most, big: the price and the size
   g.textAlign = 'center'; g.font = 'bold 30px sans-serif'; g.fillStyle = '#ffd26a'; g.fillText(`${ICON.cost} ${fmt(t.cost)}`, G.X, 42);
   g.font = '15px sans-serif'; g.fillStyle = '#e8f0ff'; g.fillText(`${ICON.volume} ${plural(t.squares, 'square')} · ${fmt(t.volume)} volume`, G.X, 66);
+  g.font = '13px sans-serif'; g.fillStyle = '#9eb3d8'; g.fillText([`${ICON.hp} ${fmt(t.hp)} HP`, t.armor ? `▣ ${fmt(t.armor)} armour` : '', t.shieldRaw ? `${ICON.shield} ${fmt(t.shield)} shield` : '', t.dps ? `${ICON.damage} ${fmt(t.dps)} dmg/s` : ''].filter(Boolean).join(' · '), G.X, 88);   // the main numbers, under the price and the size (his ask)
   g.textAlign = 'right'; g.font = '11px sans-serif'; g.fillStyle = '#6b7a99'; g.fillText(editing ? 'drag a point · double-tap the line to add one, a point to remove it · Done or Save as… below' : 'double-click the ship to reshape its outline', G.W - 12, G.H - 10); g.textAlign = 'left';
   // while the outline is reshaped the painting is KEPT (outSnap): a drag or a hover only redraws the overlay over it (the full paint
   // on every pointer move was the lag); the paint itself follows on dragend
@@ -626,14 +627,37 @@ const hullEd = createHullEditor($('hullEd'), {
 // (battle.js designFromStacks) and the price and the bulk follow — a capital gun is a given size, two of them twice that
 const gameChips = createChipEditor({ palette: $('cPalette'), tray: $('cTray'), info: $('cInfo'), sheet: $('cSheet'), dropZones: ['#dPaint'] },
   { extra: { ...CIVIL, names: { fast: 'Thrusters' } }, onChange: chipsChanged, infoExtra: capsuleHtml, onInfoClick: capsuleClick, labels: { weapon: 'Military', role: 'Roles', trait: 'Utilities' },
-    groupBy: s => s.kind === 'fast' ? 'Energy & thrust' : s.type === 'weapon' ? 'Military' : 'Utilities', groupOrder: ['Energy & thrust', 'Utilities', 'Military'], openOnClick: true, onRender: placeInfo, autoChips, gunsPerChip: 1 });   // "Fast" is the thrusters here (his call); a weapon chip is one gun
+    groupBy: s => s.kind === 'fast' ? 'Energy & thrust' : s.type === 'weapon' ? 'Military' : 'Utilities', groupOrder: ['Energy & thrust', 'Utilities', 'Military'], openOnClick: true, onRender: placeInfo, autoChips, gunsPerChip: 1, stackSub });   // "Fast" is the thrusters here (his call); a weapon chip is one gun
+// what a pile gives the ship, under its name (his ask, 2026-10-16): armour its HP, a shield its capacity, a gun its damage …
+function stackSub(s, mods) {
+  if (!DS || !mods.length) return '';
+  const t = DS.t, sum = f => mods.reduce((a, m) => a + f(m.v) * m.n, 0);
+  if (s.kind === 'shield') return `${fmt(sum(v => v.capacity))} · +${fmt(sum(v => v.recovery))}/s`;
+  if (s.kind === 'armor') return `${fmt(sum(v => v.hp))} HP · shrugs ${t.deflect.toFixed(1)}`;
+  if (s.kind === 'fast') return `speed ${fmt(t.speed)} · evasion ${Math.round(t.evasion)} %`;
+  if (s.kind === 'fab') return `${fmt(sum(v => v.industry))} industry · stock ${fmt(t.fabStock)}`;
+  if (s.kind === 'lab') return `+${fmt(sum(v => v.research))} research`;
+  if (s.kind === 'habitat') return `${peopleWord(sum(v => v.housing) * SCALE.shipHousing)} people`;
+  if (s.kind === 'gantry') return `${mods.reduce((a, m) => a + m.n, 0)} × (4 × 2) dock`;
+  if (s.kind === 'hangar') return `${t.drones} drones · ${t.airCap} in the air`;
+  if (KINDS[s.kind]?.mount) { const d = mods.reduce((a, m) => a + m.v.damage * m.v.rate * Math.min(98, m.v.accuracy + t.bonus) / 100 * m.n, 0) * t.powerFactor * t.fireFactor; return `${fmt(d)} dmg/s · reach ${fmt(mods[0].v.range)}`; }
+  return '';
+}
 // the systems the design sizes for itself — not chips, but shown among them (his ask, 2026-10-15): the reactor, the star drive and
 // the thrusters under Energy & thrust, the weapons computer first under Military, shields added for cover under Utilities; each
 // with its size (×k) and count (×n), which grow with what the piles ask for
 const ENERGY = ['reactor', 'stardrive', 'thruster'];
 function autoChips(group) {
   if (!DS) return [];
-  const item = m => ({ label: m.K.name, sub: `${m.K.scale ? 'size ×' + m.k : ''}${m.n > 1 ? `${m.K.scale ? ' · ' : ''}×${m.n}` : ''}`, color: m.K.color, title: 'sized by the design itself — it grows with what you add; not a chip' });
+  const t = DS.t, what = m => {                       // what it gives the ship, on the chip (his ask: the reactor's MW, the thrusters' speed and evasion …)
+    const v = m.v, n = m.n;
+    if (m.kind === 'reactor') return `${fmt(v.output * n)} MW`;
+    if (m.kind === 'stardrive') return `moves ${fmt(v.lift * n)} volume · speed ${fmt(t.speed)}`;
+    if (m.kind === 'thruster') return `speed ${fmt(t.speed)} · evasion ${Math.round(t.evasion)} %`;
+    if (m.kind === 'weapon_system') return `${num(v.mounts * n, 1)} mounts · +${num(v.bonus, 1)} % aim`;
+    return '';
+  };
+  const item = m => ({ label: m.K.name, sub: `${what(m)} · ${m.K.scale ? 'size ×' + m.k : ''}${m.n > 1 ? `${m.K.scale ? ' ' : ''}×${m.n}` : ''}`.replace(/ · $/, ''), color: m.K.color, title: 'sized by the design itself — it grows with what you add; not a chip' });
   const auto = DS.mods.filter(m => !m.mod.src);
   if (group === 'Energy & thrust') return auto.filter(m => ENERGY.includes(m.kind)).map(item);
   if (group === 'Military') return auto.filter(m => m.kind === 'weapon_system').map(item);
@@ -756,7 +780,7 @@ function modCard(m, X) {
       ${openBt.has(b.id) ? b.props.map(p => `<div class="prop"><b>${esc(p.name)}</b> <span class="tiny">${p.rarity} — ${esc(p.what)}</span></div>`).join('') : ''}</div>`).join('');
   return `<div class="mcard mrow sel" data-mod="${m.mod.id}" style="--c:${m.K.color}"><div data-pick="${m.mod.id}" style="cursor:pointer">${head}</div>
     ${m.rect ? `<div class="srow"><span>Gantry size</span><b class="stepper"><button data-gsize="w" data-d="-1">−</button>${m.rect[0]}<button data-gsize="w" data-d="1">+</button> × <button data-gsize="h" data-d="-1">−</button>${m.rect[1]}<button data-gsize="h" data-d="1">+</button></b><span class="tiny">the biggest hull it builds whole — up to ${GANTRY.maxW} × ${GANTRY.maxH}</span></div>` : ''}
-    ${sc ? `<div class="srow"><span>Size</span><b class="stepper"><button data-rk="-1">−</button>×${m.k}<button data-rk="1">+</button><button data-rfit title="the smallest size that covers what the rest of the design needs">fit</button></b><span class="tiny">×${sc.min} to ×${sc.max}: ${m.kind === 'reactor' ? 'output' : m.kind === 'stardrive' ? 'what it can move' : 'mounts'}, cost and bulk follow</span></div>` : ''}
+    ${sc ? `<div class="srow"><span>Size</span><b class="stepper"><button data-rk="-1">−</button>×${m.k}<button data-rk="1">+</button><button data-rfit title="the smallest size that covers what the rest of the design needs">fit</button></b><span class="tiny">×${sc.min} to ×${sc.max}: ${m.kind === 'reactor' ? 'output' : m.kind === 'stardrive' ? 'what it can move' : m.kind === 'shield' ? 'reach, capacity and power' : 'mounts'}, cost and bulk follow</span></div>` : ''}
     ${m.tune && !m.K.hangar ? `<div class="srow"><span>Role</span><b><select data-preset>${Object.entries(PRESETS).map(([id, p]) => `<option value="${id}" ${(m.mod.preset || 'standard') === id ? 'selected' : ''}>${p.name}</option>`).join('')}<option value="custom" ${m.mod.preset === 'custom' ? 'selected' : ''}>Custom</option></select></b><span class="tiny">${m.mod.preset && PRESETS[m.mod.preset] ? PRESETS[m.mod.preset].what : 'your own dials'}${(m.mod.role || 'ship') === 'pd' ? ' · shoots missiles and drones first' : ''}</span></div>` : ''}
     ${m.tune ? (m.K.hangar ? [['cnt', 'Drones'], ['sz', 'Drone size']] : [['dmg', 'Damage'], ['rof', 'Rate of fire'], ['rng', 'Range'], ...(m.K.charges ? [['chg', 'Charges']] : [])]).map(([k, label]) => `<div class="srow"><span>${label} dial</span><b class="stepper"><button data-gtune="${k}" data-d="-1">−</button>×${m.tune[k]}<button data-gtune="${k}" data-d="1">+</button></b></div>`).join('')
       + `<div class="tiny">${m.K.hangar ? `The hangar's bulk, cost and its load on the weapons computer (${num(m.load, 2)} mounts) follow the drones it carries.` : `The dials set the gun; power, bulk, cost, its load on the weapons computer (${num(m.load, 2)} mounts) and how hard it is to aim all follow — and climb fast.`}</div>` : ''}
@@ -844,7 +868,7 @@ function renderDesign(c) {
   const warns = [], tips = [];
   if (t.powerFactor < 1) warns.push(`Not enough power: everything on it runs at ${pct(t.powerFactor)}. Turn the reactor up, add one, or use less.`);
   if (t.powerOut > t.powerUse * 1.6 && t.powerUse > 0) tips.push(`The reactor makes ${fmt(t.powerOut)} MW for ${fmt(t.powerUse)} needed — turn it down and the hull shrinks and gets cheaper.`);
-  if (hasShield && t.cover < 0.999) warns.push(`The shields reach only ${pct(t.cover)} of the hull: the uncovered part takes hits bare, so the shield counts for ${pct(t.cover)} of its strength. Add another shield, or a bigger reach.`);
+  if (hasShield && t.cover < 0.999) warns.push(`The shield's field reaches only ${pct(t.cover)} of the hull: the uncovered part takes hits bare, so the shield counts for ${pct(t.cover)} of its strength. ${chip ? 'Take something out — the hull is past what a generator can cover.' : 'Turn its size up (open it and press "fit"), or Auto-fit.'}`);
   if (t.underDriven) warns.push(`The star drive moves ${fmt(t.lift)} of volume and the hull is ${fmt(t.volume)}: it cannot leave the system. Turn the drive up (open it and press "fit to need"), or take something out.`);
   if (isShip && !best) warns.push('None of your colonies has a space dock, so this cannot be built anywhere. Build a Space dock first.');
   else if (isShip && !whole) warns.push(`Too big for any gantry you have (${t.squares} squares against ${best.cap}). The dock would cut it into ${best.sections} sections and build those: ${extraCost(best)}. Take something out, turn the reactor down, or build a dock with a bigger gantry.`);
