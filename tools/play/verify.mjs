@@ -3,7 +3,7 @@
 import fs from 'fs';
 import { newState, endEon } from '../../src/eon/model.js';
 import { applyEon } from '../../src/eon/replay.js';
-import { createWorld, worldEndEon } from '../../src/eon/world.js';
+import { createWorld, worldEndEon, applyWorldEon } from '../../src/eon/world.js';
 
 const file = process.argv[2]; if (!file) { console.error('which log?'); process.exit(1); }
 const log = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -13,7 +13,7 @@ const check = (row, now, eon) => { const diff = Object.keys(now).filter(k => now
 if (log.kind === 'world') {
   const W = createWorld(log.seedText, log.empires.length);
   for (const row of log.eons) {
-    for (const S of W.empires) if (!S.dead) { const errs = applyEon(S, log.empires[S.empire].actions, W.eon); refused += errs.length; for (const e of errs) console.log(`eon ${W.eon} ${S.name}: ${e.a.type} refused — ${e.err}`); }
+    for (const S of W.empires) if (!S.dead) { const errs = applyWorldEon(W, S, log.empires[S.empire].actions, W.eon); refused += errs.length; for (const e of errs) console.log(`eon ${W.eon} ${S.name}: ${e.a.type} refused — ${e.err}`); }
     worldEndEon(W);
     W.empires.forEach((S, i) => { const r = row.empires[i]; if (!r) { if (!S.dead) { bad++; console.log(`eon ${row.eon}: ${S.name} should have fallen`); } return; } check(r, { people: Math.round(S.places.find(p => p.id === S.homePlace).colony.people * 10) / 10, reserves: Math.round(S.reserves || 0), cohesion: Math.round(S.cohesion), ships: S.ships.length, colonies: S.places.filter(p => p.colony).length }, `${row.eon} ${S.name}`); });
   }

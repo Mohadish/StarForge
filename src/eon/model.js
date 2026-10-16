@@ -43,6 +43,7 @@ export const T = {
   // military (a share of the fleet's worth an eon), social (per million people), research (per point). Unpaid, the fleet wears,
   // people grumble and research slows, each by the unpaid share. Structures' own upkeep stays what it was: industry on the spot.
   upkeep: { military: 0.002, social: 0.01, research: 0.03, wear: 10, grumble: 20, slow: 0.3 },
+  ground: { militia: 0.01, ratio: 5, mood: 20 },     // CONQUEST (his rule, 2026-10-16): a colony's militia = 1 in 100 of its people; a trooper landed is worth 5 of them (his 5:1); a blockade sours the mood by 20
   attention: 10,           // points of research attention to hand out between the nine fields
   steps: 10,               // hidden steps a field needs for one breakthrough
   wear: 0.6,               // a place keeps this much of a field's potential after each find taken from it
@@ -277,7 +278,8 @@ export function compute(S) {
     const research = people.research * factor * docile + flat.research;
     const social = people.social * aloof + flat.social;
     const housing = P.baseHousing + flat.housing;
-    let left = industry, ahead = 0; const done = [], queue = [];
+    const blockaded = P.blockaded || 0;              // BLOCKADED by another empire's fleet (world.js): nothing gets built, nothing reaches the reserves, nobody grows, the mood sours
+    let left = blockaded ? 0 : industry, ahead = 0; const done = [], queue = [];
     for (const item of P.queue) {
       const d = S.designs.find(x => x.id === item.designId);
       if (!d) { queue.push({ item, gone: true }); continue; }
@@ -311,10 +313,11 @@ export function compute(S) {
     if (dPeople > 0) dPeople = Math.max(0, Math.min(dPeople, housing - mp));        // nowhere to live = no growth
     if (mp > housing + 0.5) dPeople = Math.min(dPeople, -1);                        // overcrowded
     dPeople -= mp * short * T.sustain.unrest + mp * pol.industry / 100 * T.pol.sicken;   // unrest, and the sick of an industrial world
-    const happyTarget = clamp(20 + 120 * ss - 60 * short - T.moveShock * shock - 0.3 * pol.industry - T.upkeep.grumble * clamp(S.unpaid || 0, 0, 1), 0, 100), happiness = P.happiness + (happyTarget - P.happiness) * 0.3;
+    if (blockaded && dPeople > 0) dPeople = 0;
+    const happyTarget = clamp(20 + 120 * ss - 60 * short - T.moveShock * shock - 0.3 * pol.industry - T.upkeep.grumble * clamp(S.unpaid || 0, 0, 1) - (blockaded ? T.ground.mood : 0), 0, 100), happiness = P.happiness + (happyTarget - P.happiness) * 0.3;
     const polNext = { industry: clamp(pol.industry + (si - 0.5) * T.pol.rate, 0, 100), research: clamp(pol.research + (sr - 0.5) * T.pol.rate, 0, 100), social: clamp(pol.social + (ss - 0.5) * T.pol.rate, 0, 100) };
     return { pl, P, people, factor, flat, industry, research, social, gantries, housing, full, queue, done, spare, food, eat, surplus, dPeople, happiness, happyTarget,
-      water, roomCap, houses, factories: P.factories || 0, newFactories, toReserves, needI, needR, short, pol, polNext };
+      water, roomCap, houses, factories: P.factories || 0, newFactories, toReserves, needI, needR, short, pol, polNext, blockaded };
   });
 
   // who is studying what: research power on the ground and in orbit, place by place

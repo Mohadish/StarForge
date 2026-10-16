@@ -6,12 +6,18 @@
 // WORLD.siege eons the colonies there change hands; an empire whose home falls is gone (his rule), its ships with it; the last
 // empire standing has the galaxy. No roaming hostile fleets in a world: the empires are the enemy. Every empire also gets
 // `S.others`: where the other empires' colonies and fleets are, for its maps and its AI. No DOM.
-import { newState, compute, endEon, uid, cloneDesign, hostileWorth } from './model.js';
+import { T, newState, compute, endEon, uid, cloneDesign, hostileWorth, peopleWord } from './model.js';
 import { shipFromDesign, createBattle, rng32 } from './battle.js';
 import { allCapsules } from './modules.js';
-import { lookFromColors } from './skins.js';
+import { applyAction } from './replay.js';
 
-export const WORLD = { siege: 3, names: ['Sol', 'Rival', 'Third', 'Fourth'], colors: [['#7fb3ff', '#ffb347'], ['#ff8a6b', '#f5a3c7'], ['#7ef3b0', '#ffe08a'], ['#cf89ff', '#5fe3d0']], styles: ['utopia2', 'greeble1', 'mushroom1', 'utopia1'] };
+// CONQUEST (his rule, 2026-10-16): no taking an alien colony by siege. A fleet holding a system where another empire has colonies
+// and no fleet BLOCKADES them (model.js: no growth, no building, the mood sours) — and that is all a fleet can do. To take a
+// colony you LAND TROOPS: ships with people aboard (drop ships) at the colony's place, the system clear of its fleet;
+// troops × T.ground.ratio against the colony's militia (T.ground.militia of its people). Win: the colony is yours, its people
+// gone, your troops its first settlers (exterminate and replace — subjugation later); lose: the ships are lost, the militia it
+// matched with it. A homeworld taken = the empire is gone.
+export const WORLD = { names: ['Sol', 'Rival', 'Third', 'Fourth'], colors: [['#7fb3ff', '#ffb347'], ['#ff8a6b', '#f5a3c7'], ['#7ef3b0', '#ffe08a'], ['#cf89ff', '#5fe3d0']], styles: ['utopia2', 'greeble1', 'mushroom1', 'utopia1'] };
 export const seedOf = text => { const s = String(text).trim(); if (/^\d{1,9}$/.test(s)) return Number(s); let h = 2166136261; for (const ch of s) { h ^= ch.codePointAt(0); h = Math.imul(h, 16777619); } return h >>> 0; };
 const worldRand = W => { let t = (W.seed + Math.imul(0x6D2B79F5, ++W.rolls)) >>> 0; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 const sysOfPlace = (S, id) => (S.places.find(p => p.id === id) || {}).sys;
@@ -32,7 +38,7 @@ function moveHome(S, pl) {
   S.homeSys = pl.sys; S.homePlace = pl.id;
 }
 export function createWorld(seedText, n = 2) {
-  const seed = seedOf(seedText), W = { seedText, seed, n, eon: 1, rolls: 0, empires: [], sieges: {}, events: [], winner: null };
+  const seed = seedOf(seedText), W = { seedText, seed, n, eon: 1, rolls: 0, empires: [], sieges: {}, events: [], winner: null, me: null, brains: null };   // me / brains: a human plays empire `me`, the rest have heads (ai.js) — the game sets them
   const taken = [];
   for (let i = 0; i < n; i++) {
     const S = newState(seed); S.seedText = String(seedText); S.hostiles = []; S.empire = i; S.name = WORLD.names[i] || `Empire ${i + 1}`; S.homePlace = 'home';
@@ -52,13 +58,52 @@ function others(W) {
     S.others = W.empires.filter(o => o !== S && !o.dead).map(o => {
       const c = cs.get(o), fleets = new Map();
       for (const s of c.ships) if (!s.u.dest) { const sys = sysOfPlace(o, s.u.at); const f = fleets.get(sys) || { sys, n: 0, worth: 0 }; f.n++; f.worth += s.t.cost; fleets.set(sys, f); }
-      return { empire: o.empire, name: o.name, color: empireColor(o), home: o.homeSys, colonies: o.places.filter(p => p.colony).map(p => ({ sys: p.sys, place: p.id, name: p.name, people: Math.round(p.colony.people * 10) / 10, home: p.id === o.homePlace })), fleets: [...fleets.values()] };
+      return { empire: o.empire, name: o.name, color: empireColor(o), home: o.homeSys, colonies: o.places.filter(p => p.colony).map(p => ({ sys: p.sys, place: p.id, name: p.name, people: Math.round(p.colony.people * 10) / 10, home: p.id === o.homePlace, blockaded: p.colony.blockaded || 0 })), fleets: [...fleets.values()] };
     });
   }
   return cs;
 }
-// is this place free for an empire to settle? (another empire's colony there says no)
-export const heldByAnother = (W, S, placeId) => W.empires.some(o => o !== S && !o.dead && o.places.some(p => p.id === placeId && p.colony));
+// is this place free for an empire to settle? (another empire's colony there says no) · who holds it
+export const ownerOf = (W, S, placeId) => W.empires.find(o => o !== S && !o.dead && o.places.some(p => p.id === placeId && p.colony)) || null;
+export const heldByAnother = (W, S, placeId) => !!ownerOf(W, S, placeId);
+// LAND TROOPS at another empire's colony: every ship of S with people aboard resting at that place goes in together
+export function invade(W, S, placeId) {
+  const O = ownerOf(W, S, placeId); if (!O) return 'Nobody else holds it';
+  const pl = O.places.find(p => p.id === placeId), mine = S.places.find(p => p.id === placeId);
+  const ships = S.ships.filter(u => !u.dest && u.at === placeId && u.people > 0); if (!ships.length) return 'No ship with people aboard is resting there';
+  if (O.ships.some(u => !u.dest && sysOfPlace(O, u.at) === pl.sys)) return `${O.name}'s fleet defends ${pl.name} — clear the system first`;
+  const troops = ships.reduce((a, u) => a + u.people, 0), militia = pl.colony.people * T.ground.militia, power = troops * T.ground.ratio;
+  const where = `${pl.name} (${(S.systems.find(x => x.id === pl.sys) || {}).name || pl.sys})`, home = pl.id === O.homePlace;
+  S.ships = S.ships.filter(u => !ships.includes(u));
+  if (power > militia) {                                                          // TAKEN: their people are gone, the troops settle, their buildings stand
+    const was = pl.colony;
+    mine.colony = { ...JSON.parse(JSON.stringify(was)), people: troops, queue: [], happiness: 60, split: [1 / 3, 1 / 3, 1 / 3], pol: { industry: 0, research: 0, social: 0 } }; delete mine.colony.blockaded;
+    for (const u of ships) mine.colony.structures.push({ id: uid('u'), name: 'Landed ' + u.name, klass: 'structure', design: u.design, eon: S.eon, landed: true, grade: Math.max(0.05, (u.st ?? 100) / 100) });
+    delete pl.colony;
+    const text = `Invasion of ${where}: ${S.name}'s ${peopleWord(troops)} troops against ${O.name}'s militia of ${peopleWord(militia)} — the colony is ${S.name}'s; ${peopleWord(was.people)} of ${O.name}'s people are gone${home ? ' — its HOMEWORLD' : ''}`;
+    S.report.push({ kind: 'build', text }); O.report.push({ kind: 'bad', text }); W.events.push({ eon: W.eon, kind: 'capture', text, sys: pl.sys, from: O.empire, to: S.empire });
+    if (home) { O.dead = true; O.ships = []; const g = `${O.name} is no more: its homeworld has fallen to ${S.name}`; W.events.push({ eon: W.eon, kind: 'fall', text: g, empire: O.empire }); for (const X of W.empires) if (!X.dead || X === O) X.report.push({ kind: X === O ? 'bad' : 'battle', text: g }); }
+    const live = living(W); if (live.length === 1 && W.n > 1 && W.winner == null) { W.winner = live[0].empire; const t = `${live[0].name} holds the galaxy — the last empire standing`; W.events.push({ eon: W.eon, kind: 'win', text: t, empire: live[0].empire }); live[0].report.push({ kind: 'battle', text: t }); }
+    return null;
+  }
+  pl.colony.people = Math.max(1, pl.colony.people - power);                       // REPELLED: the troops are lost, and the militia they matched
+  const text = `Invasion of ${where}: ${S.name}'s ${peopleWord(troops)} troops against ${O.name}'s militia of ${peopleWord(militia)} — thrown back; the ${ships.length} ship${ships.length === 1 ? '' : 's'} lost, ${peopleWord(power)} of ${O.name}'s people with them`;
+  S.report.push({ kind: 'bad', text }); O.report.push({ kind: 'battle', text }); W.events.push({ eon: W.eon, kind: 'repelled', text, sys: pl.sys, from: O.empire, to: S.empire });
+  return null;
+}
+// what the troops aboard ships at a place would face: for the panels and the AI
+export function invasionOdds(W, S, placeId) {
+  const O = ownerOf(W, S, placeId); if (!O) return null;
+  const pl = O.places.find(p => p.id === placeId), ships = S.ships.filter(u => !u.dest && u.at === placeId && u.people > 0), troops = ships.reduce((a, u) => a + u.people, 0);
+  return { O, pl, ships, troops, power: troops * T.ground.ratio, militia: pl.colony.people * T.ground.militia, defended: O.ships.some(u => !u.dest && sysOfPlace(O, u.at) === pl.sys) };
+}
+// an order on a world: the world's own (invade; settle on a held place refused), else the state's (replay.js)
+export function applyWorldAction(W, S, a) {
+  if (a.type === 'invade') return invade(W, S, a.place);
+  if (a.type === 'settle' && heldByAnother(W, S, a.place)) return `${ownerOf(W, S, a.place).name} holds it — land troops instead`;
+  return applyAction(S, a);
+}
+export function applyWorldEon(W, S, actions, eon) { const bad = []; for (const a of actions) if (a.eon === eon) { const err = applyWorldAction(W, S, a); if (err) bad.push({ a, err }); } return bad; }
 
 // fleets of two empires in one system fight; survivors keep what the fight left them
 function fightEmpires(W, rep) {
@@ -91,9 +136,11 @@ function fightEmpires(W, rep) {
     }
   }
 }
-// a fleet alone in a system where another empire has colonies lays siege; after WORLD.siege eons the colonies change hands
-function sieges(W, cs, rep) {
-  const live = living(W), seen = new Set(); let changed = false;
+// an ARMED fleet alone in a system where another empire has colonies BLOCKADES them: `colony.blockaded` = eons so far (model.js
+// stalls the colony); W.sieges counts per system | victim | attacker. Nothing changes hands here — troops do that (invade)
+function blockades(W, cs, rep) {
+  const live = living(W), seen = new Set();
+  for (const O of live) for (const p of O.places) if (p.colony) delete p.colony.blockaded;
   for (const S of live) {
     const c = cs.get(S), fleetSys = new Set(c.ships.filter(s => !s.u.dest && s.t.dps > 0).map(s => sysOfPlace(S, s.u.at)));
     for (const sys of fleetSys) for (const O of live) {
@@ -101,32 +148,35 @@ function sieges(W, cs, rep) {
       const theirs = O.places.filter(p => p.colony && p.sys === sys); if (!theirs.length) continue;
       const defended = O.ships.some(u => !u.dest && sysOfPlace(O, u.at) === sys); const key = `${sys}|${O.empire}|${S.empire}`; seen.add(key);
       if (defended) { delete W.sieges[key]; continue; }
-      W.sieges[key] = (W.sieges[key] || 0) + 1;
+      const n = W.sieges[key] = (W.sieges[key] || 0) + 1;
+      for (const pl of theirs) pl.colony.blockaded = Math.max(pl.colony.blockaded || 0, n);
       const where = (S.systems.find(x => x.id === sys) || {}).name || sys;
-      if (W.sieges[key] < WORLD.siege) { const t = `${S.name} lays siege to ${O.name}'s ${theirs.map(p => p.name).join(', ')} at ${where} (${W.sieges[key]} of ${WORLD.siege} eons)`; rep.push({ kind: 'siege', text: t, sys }); S.report.push({ kind: 'move', text: t }); O.report.push({ kind: 'bad', text: t }); continue; }
-      delete W.sieges[key]; changed = true;
-      for (const pl of theirs) {                                                 // the colony changes hands: the place of the same id in the taker's own galaxy
-        const mine = S.places.find(p => p.id === pl.id); mine.colony = JSON.parse(JSON.stringify(pl.colony)); mine.colony.queue = []; delete pl.colony;
-        const t = `${S.name} takes ${pl.name} at ${where} from ${O.name}${pl.id === O.homePlace ? ' — its HOMEWORLD' : ''}`; rep.push({ kind: 'capture', text: t, sys, from: O.empire, to: S.empire }); S.report.push({ kind: 'build', text: t }); O.report.push({ kind: 'bad', text: t });
-        if (pl.id === O.homePlace) { O.dead = true; O.ships = []; const g = `${O.name} is no more: its homeworld has fallen to ${S.name}`; rep.push({ kind: 'fall', text: g, empire: O.empire }); for (const X of live) X.report.push({ kind: X === O ? 'bad' : 'battle', text: g }); }
-      }
+      if (n === 1 || n % 10 === 0) { const t = `${S.name} blockades ${O.name}'s ${theirs.map(p => p.name).join(', ')} at ${where}${n > 1 ? ` (${n} eons)` : ' — no growth, no building there while it lasts; only troops landed can take it'}`; rep.push({ kind: 'siege', text: t, sys }); S.report.push({ kind: 'move', text: t }); O.report.push({ kind: 'bad', text: t }); }
     }
   }
   for (const k of Object.keys(W.sieges)) if (!seen.has(k)) delete W.sieges[k];
-  return changed;
 }
-// one eon of the world: every living empire's own eon, then the fights, the sieges, the fallen, and what each sees of the rest
+// one eon of the world: every living empire's own eon, then the fights, the blockades, the fallen, and what each sees of the rest
 export function worldEndEon(W) {
   const rep = [];
   for (const S of living(W)) { S.battles = []; endEon(S); }
   fightEmpires(W, rep);
-  let cs = others(W);
-  if (sieges(W, cs, rep)) cs = others(W);
+  const cs = others(W);
+  blockades(W, cs, rep);
   const live = living(W); if (live.length === 1 && W.n > 1 && W.winner == null) { W.winner = live[0].empire; rep.push({ kind: 'win', text: `${live[0].name} holds the galaxy`, empire: live[0].empire }); for (const X of live) X.report.push({ kind: 'battle', text: `${live[0].name} holds the galaxy — the last empire standing` }); }
   W.eon++; W.events.push(...rep.map(r => ({ eon: W.eon - 1, ...r })));
   return { rep, cs };
 }
 // a snapshot of the whole world (the replay's rewind) and back
-export const worldSnapshot = W => JSON.stringify({ eon: W.eon, rolls: W.rolls, sieges: W.sieges, winner: W.winner, empires: W.empires });
-export function worldRestore(W, snap) { const o = JSON.parse(snap); W.eon = o.eon; W.rolls = o.rolls; W.sieges = o.sieges; W.winner = o.winner; W.empires.splice(0, W.empires.length, ...o.empires); return W; }
+export const worldSnapshot = W => JSON.stringify({ eon: W.eon, rolls: W.rolls, sieges: W.sieges, winner: W.winner, events: W.events, empires: W.empires });
+export function worldRestore(W, snap) { const o = JSON.parse(snap); W.eon = o.eon; W.rolls = o.rolls; W.sieges = o.sieges; W.winner = o.winner; W.events = o.events || []; W.empires.splice(0, W.empires.length, ...o.empires); return W; }
+// a world where a human plays empire `me` and the others think for themselves (ai.js makeBrain, handed in by the caller — no
+// import cycle): each eon the heads give their orders, the world ends the eon, the heads read what happened
+export function worldPlayEon(W, makeBrain) {
+  if (!W.brains) W.brains = W.empires.map((E, k) => k === W.me || E.dead ? null : makeBrain(W, E));
+  for (const b of W.brains) if (b && !b.S.dead) b.plan();
+  const out = worldEndEon(W);
+  for (const b of W.brains) if (b && !b.S.dead) b.after();
+  return out;
+}
 export { hostileWorth };
