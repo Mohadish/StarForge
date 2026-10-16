@@ -39,6 +39,10 @@ export const T = {
   // POLLUTION, per world: a share held past half for long builds one up — industrial (people sicken, fewer), docile (a soft
   // society: industry and research slacken), aloof (a bookish one: the social share slackens); easing off cleans it up
   pol: { rate: 10, max: 0.33, sicken: 0.01 },
+  // UPKEEP (his ask, 2026-10-16), paid from the EXCESS — the industry that flows to the reserves — and then from the reserves:
+  // military (a share of the fleet's worth an eon), social (per million people), research (per point). Unpaid, the fleet wears,
+  // people grumble and research slows, each by the unpaid share. Structures' own upkeep stays what it was: industry on the spot.
+  upkeep: { military: 0.002, social: 0.01, research: 0.03, wear: 10, grumble: 20, slow: 0.3 },
   attention: 10,           // points of research attention to hand out between the nine fields
   steps: 10,               // hidden steps a field needs for one breakthrough
   wear: 0.6,               // a place keeps this much of a field's potential after each find taken from it
@@ -285,7 +289,7 @@ export function compute(S) {
     if (dPeople > 0) dPeople = Math.max(0, Math.min(dPeople, housing - mp));        // nowhere to live = no growth
     if (mp > housing + 0.5) dPeople = Math.min(dPeople, -1);                        // overcrowded
     dPeople -= mp * short * T.sustain.unrest + mp * pol.industry / 100 * T.pol.sicken;   // unrest, and the sick of an industrial world
-    const happyTarget = clamp(20 + 120 * ss - 60 * short - T.moveShock * shock - 0.3 * pol.industry, 0, 100), happiness = P.happiness + (happyTarget - P.happiness) * 0.3;
+    const happyTarget = clamp(20 + 120 * ss - 60 * short - T.moveShock * shock - 0.3 * pol.industry - T.upkeep.grumble * clamp(S.unpaid || 0, 0, 1), 0, 100), happiness = P.happiness + (happyTarget - P.happiness) * 0.3;
     const polNext = { industry: clamp(pol.industry + (si - 0.5) * T.pol.rate, 0, 100), research: clamp(pol.research + (sr - 0.5) * T.pol.rate, 0, 100), social: clamp(pol.social + (ss - 0.5) * T.pol.rate, 0, 100) };
     return { pl, P, people, factor, flat, industry, research, social, gantries, housing, full, queue, done, spare, food, eat, surplus, dPeople, happiness, happyTarget,
       water, roomCap, houses, factories: P.factories || 0, newFactories, toReserves, needI, needR, short, pol, polNext };
@@ -296,7 +300,14 @@ export function compute(S) {
   const inSys = (sys, v) => { sysResearch[sys] = (sysResearch[sys] || 0) + v; };
   for (const c of colonies) { ground[c.pl.id] = c.research; inSys(c.pl.sys, c.research); }
   for (const { u, t } of ships) if (!u.dest && t.research > 0) { orbit[u.at] = (orbit[u.at] || 0) + t.research; inSys(sysOfPlace[u.at], t.research); }
-  const research = colonies.reduce((a, c) => a + c.research, 0) + ships.reduce((a, s) => a + (s.u.dest ? 0 : s.t.research), 0);
+  const unpaid = clamp(S.unpaid || 0, 0, 1);         // last eon's upkeep went unpaid by this share: research slows, people grumble (above), the fleet wears (endEon)
+  const research = (colonies.reduce((a, c) => a + c.research, 0) + ships.reduce((a, s) => a + (s.u.dest ? 0 : s.t.research), 0)) * (1 - T.upkeep.slow * unpaid);
+  // the UPKEEP of the eon against the excess that flows to the reserves, and what is left after the reserves have covered the rest
+  const fleetWorth = ships.reduce((a, s) => a + s.t.cost, 0), pops0 = colonies.reduce((a, p) => a + p.P.people, 0);
+  const upkeep = { military: fleetWorth * T.upkeep.military, social: pops0 * T.upkeep.social, research: research * T.upkeep.research };
+  upkeep.total = upkeep.military + upkeep.social + upkeep.research;
+  const income = colonies.reduce((a, p) => a + p.toReserves, 0), net = income - upkeep.total, after = (S.reserves || 0) + net;
+  const shortNext = after < 0 && upkeep.total > 0 ? clamp(-after / upkeep.total, 0, 1) : 0;
   // a star is also studied, from afar, by every other lab in its own system
   const power = pl => (ground[pl.id] || 0) + (orbit[pl.id] || 0) * T.orbit + (pl.kind === 'star' ? Math.max(0, (sysResearch[pl.sys] || 0) - (orbit[pl.id] || 0)) * T.starShare : 0);
   const studied = S.places.map(pl => ({ pl, power: power(pl), onGround: ground[pl.id] || 0, inOrbit: orbit[pl.id] || 0 }));
@@ -317,7 +328,7 @@ export function compute(S) {
   const setback = Math.floor(moveDist * T.focusSetback);
   const speed = T.integrate * (1 + Math.min(steadyNext, 10) * T.steadyBonus) * clamp(Math.sqrt(research / 33), 0.5, 3);
   for (const s of ships) s.range = shipRange(s.t, fleetWarp(passive));               // STAR TRAVEL: each ship's reach between stars, light years
-  return { colonies, ships, studied, research, sysResearch, fields, points, warp: fleetWarp(passive), free: T.attention - points, cohesionGain, reach, moveDist, moveCost, moved, shock, steadyNext, setback, speed,
+  return { colonies, ships, studied, research, sysResearch, fields, points, warp: fleetWarp(passive), free: T.attention - points, cohesionGain, reach, moveDist, moveCost, moved, shock, steadyNext, setback, speed, upkeep, income, net, shortNext, unpaid,
     people: colonies.reduce((a, c) => a + c.P.people, 0) + S.ships.reduce((a, u) => a + (u.people || 0), 0), passive, caps };
 }
 
@@ -481,7 +492,6 @@ export function endEon(S) {
     // the social share's houses, the industry share's factories and reserves (his economy, 2026-10-16)
     P.baseHousing = Math.max(P.baseHousing, Math.min(pc.roomCap - pc.flat.housing, P.baseHousing + pc.houses));
     if (pc.newFactories > 0) { P.factories = (P.factories || 0) + pc.newFactories; rep.push({ kind: 'build', text: `${name}: ${pc.newFactories} factor${pc.newFactories === 1 ? 'y' : 'ies'} built with the industry nothing in the queue needed` }); }
-    if (pc.toReserves > 0) S.reserves = (S.reserves || 0) + pc.toReserves;
   }
 
   // ships: at rest they get their stamina back (only in a star system); under way inside a system they count down; between
@@ -492,6 +502,7 @@ export function endEon(S) {
     if (!u.dest) {
       const t = statsOf.get(u.id) || {}, colonyHere = S.places.some(p => p.sys === sysOf(u.at) && p.colony);
       if ((u.st ?? 100) < 100) u.st = Math.min(100, (u.st ?? 100) + VOY.rest + (t.industry > 0 ? VOY.restFab : 0) + (colonyHere ? VOY.restColony : 0));
+      if (c.unpaid > 0 && u.klass !== 'structure') u.st = Math.max(1, (u.st ?? 100) - T.upkeep.wear * c.unpaid);   // an unpaid fleet wears
       continue;
     }
     if (!u.voy) { if (--u.eta <= 0) { u.at = u.dest; u.dest = null; rep.push({ kind: 'move', text: `${u.name} arrived at ${placeName(u.at)}` }); } continue; }
@@ -552,6 +563,9 @@ export function endEon(S) {
     rep.push({ kind: 'breakthrough', text: `Breakthrough in ${f.name}, found at ${b.origin}: ${b.name}` + (helped ? ` — helps integrate ${helped} older capsule${helped > 1 ? 's' : ''}` : ''), id: b.id });
   }
 
+  // the reserves: the eon's excess in, the upkeep out; what the reserves cannot cover goes unpaid and bites next eon
+  S.reserves = Math.max(0, (S.reserves || 0) + c.net); S.unpaid = c.shortNext;
+  if (c.shortNext > 0.005) rep.push({ kind: 'bad', text: `The reserves ran dry: ${Math.round(c.shortNext * 100)} % of the upkeep (military ${Math.round(c.upkeep.military)}, social ${Math.round(c.upkeep.social)}, research ${Math.round(c.upkeep.research)}) went unpaid — the fleet wears, people grumble, research slows` });
   S.cohesion = clamp(S.cohesion + c.cohesionGain - c.moveCost, c.moved ? T.cohesionFloor : 0, 100);
   if (c.moved) rep.push({ kind: 'focus', text: `Society shifted its focus (−${c.moveCost.toFixed(1)} cohesion${c.shock > 0.5 ? ', a shock to the people' : ''})` + (c.setback ? ` — ${c.setback} step${c.setback > 1 ? 's' : ''} of research lost in every field` : '') });
   for (const pc of c.colonies) { const was = pc.pol, now = pc.polNext; pc.P.pol = now; for (const [k, word] of [['industry', 'industrial pollution — people sicken'], ['social', 'a docile society — industry and research slacken'], ['research', 'an aloof society — the social share slackens']]) if (now[k] >= 50 && was[k] < 50) rep.push({ kind: 'bad', text: `${pc.pl.name}: ${word}` }); }
