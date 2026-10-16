@@ -21,6 +21,7 @@ import { paintHull, recipeWith, RECIPE } from './paint.js';
 import { STYLES, loadStyle } from './styles.js';
 import { buildPlan, planCode } from './fleetplan.js';
 import { applyEon } from './replay.js';
+import { createWorld, worldEndEon, worldSnapshot, worldRestore } from './world.js';
 mountNav('eon', { into: document.getElementById('topbar') });
 
 const KEY = 'forge.eon.v8';
@@ -29,7 +30,7 @@ let S = load();
 let tab = 'empire', newIds = new Set();
 let curDesign = S.designs[0]?.id || null, selMod = null, openBt = new Set(), note = '', noteT = null, FIT = null;
 let HULLS = loadHulls(); setUserHulls(HULLS);
-let selSys = S.homeSys, selPlace = 'home', hoverPlace = null, DS = null, LAST = null;
+let selSys = S.homeSys, selPlace = S.homePlace || 'home', hoverPlace = null, DS = null, LAST = null;
 let gSel = S.homeSys, gHover = null, gHoverFleet = false, gField = null, seedDraft = null;
 let gView = { z: 1, x: 0, y: 0 }, gMode = 'system';   // the galaxy map's zoom and pan (the wheel; a middle- or right-drag) · what the panel shows at the chosen star: the system, or your fleet there (its icon)
 // FLEETS, Master of Orion's way (his ask, 2026-10-15): your ships at a star are STACKS by design — "Corvette ×30" — each with a
@@ -380,12 +381,18 @@ function drawGalaxy(c) {
       if (on || (s.id === gHover && gHoverFleet)) { g.strokeStyle = on ? '#7ef3b0' : 'rgba(255,255,255,.6)'; g.lineWidth = 1.5; g.beginPath(); g.arc(x, y + 1, 13, 0, 7); g.stroke(); g.lineWidth = 1; }
       g.font = 'bold 11px sans-serif'; g.textAlign = 'left'; g.fillStyle = on ? '#fff' : '#7ef3b0'; g.fillText(String(here.ships), x + 12, y + 5); g.textAlign = 'center';
     }
+    for (const o of S.others || []) {                  // the OTHER EMPIRES (a world, world.js): their colonies a ring in their colour (solid for a homeworld), their resting fleets a triangle on the left with the count
+      const col = o.colonies.filter(x => x.sys === s.id), fl = o.fleets.find(f => f.sys === s.id);
+      if (col.length) { const hm = col.some(x => x.home); g.strokeStyle = o.color; g.lineWidth = hm ? 2.5 : 1.5; g.setLineDash(hm ? [] : [4, 3]); g.beginPath(); g.arc(p.x, p.y, size + 6, 0, 7); g.stroke(); g.setLineDash([]); g.lineWidth = 1; }
+      if (fl) { const x = p.x - size - 15, y = p.y - size - 7; g.fillStyle = o.color; g.beginPath(); g.moveTo(x, y - 8); g.lineTo(x + 8, y + 7); g.lineTo(x - 8, y + 7); g.closePath(); g.fill(); g.font = 'bold 11px sans-serif'; g.textAlign = 'right'; g.fillText(String(fl.n), x - 11, y + 5); g.textAlign = 'center'; }
+    }
     const bt = (S.battles || []).find(b => b.sys === s.id);   // a battle fought here this eon: a ▶ badge — click it to watch it (his ask, 2026-10-16)
     if (bt) { const x = p.x - size - 14, y = p.y + size + 6; G.battle[s.id] = { x, y, id: bt.id }; g.fillStyle = '#ff5c5c'; g.beginPath(); g.arc(x, y, 8, 0, 7); g.fill(); g.fillStyle = '#fff'; g.font = 'bold 9px sans-serif'; g.textAlign = 'center'; g.fillText('▶', x + 0.5, y + 3.5); }
     const onStar = s.id === gSel && gMode !== 'fleet';   // the white ring: on the star in system mode, on the fleet icon in fleet mode
     if (onStar || (s.id === gHover && !gHoverFleet)) { g.strokeStyle = onStar ? '#fff' : 'rgba(255,255,255,.5)'; g.lineWidth = 1.5; g.beginPath(); g.arc(p.x, p.y, size + 8, 0, 7); g.stroke(); g.lineWidth = 1; }
-    g.fillStyle = s.home || here ? '#e8f0ff' : '#8598bb'; g.font = (s.home || here ? 'bold ' : '') + '10px sans-serif';
-    g.fillText(s.home ? s.name + ' · home' : s.name, p.x, p.y + size + 13);
+    const theirHome = (S.others || []).find(o => o.colonies.some(x => x.sys === s.id && x.home));   // another empire's homeworld: its name in its colour
+    g.fillStyle = theirHome ? theirHome.color : s.home || here ? '#e8f0ff' : '#8598bb'; g.font = (s.home || here || theirHome ? 'bold ' : '') + '10px sans-serif';
+    g.fillText(s.home ? s.name + ' · home' : theirHome ? s.name + ' · ' + theirHome.name : s.name, p.x, p.y + size + 13);
   }
   g.textAlign = 'left';
 }
@@ -458,13 +465,14 @@ function renderGalaxy(c) {
     <div class="tiny" style="margin-top:8px">Pick how many of each to send (+ / all), click the star they go to, then Send. Click the star here instead for the system itself.</div>`;
   else h = `<h2 style="margin-top:14px">${esc(s.name)} <span class="tiny" style="text-transform:none;letter-spacing:0">· ${STARS[s.type].name}${s.home ? ' · your home' : ''}</span></h2>
     <div class="tiny" style="margin-bottom:6px">${s.home ? 'Where your people come from.' : `${(d / LY).toFixed(1)} light years from Home — about ${plural(starEons(d, c.warp), 'eon')} for a plain star drive.`}${have ? ` You have ${have} here.` : ''}</div>${H ? `<div class="note" style="margin:4px 0 6px">⚔ <b>${esc(hostileWord(H))}</b> holds this system. Ships of yours that come to rest here fight it at the end of the eon — every eon, until one side is gone or yours leave.</div>` : ''}
+    ${(S.others || []).map(o => { const col = o.colonies.filter(x => x.sys === s.id), fl = o.fleets.find(f => f.sys === s.id); if (!col.length && !fl) return ''; return `<div class="note" style="margin:4px 0 6px;border-color:${o.color}"><b style="color:${o.color}">${esc(o.name)}</b>${col.length ? ` holds ${col.map(x => esc(x.name) + (x.home ? ' (its homeworld)' : '') + ', ' + peopleWord(x.people) + ' people').join(' and ')} here` : ''}${fl ? `${col.length ? ';' : ''} a fleet of ${plural(fl.n, 'ship')} (worth ${Math.round(fl.worth)}) rests here${mine && mine.colonies && !mine.ships ? ' — <b class="up">a siege: three eons unopposed and the colony is theirs</b>' : ''}` : ''}.</div>`; }).join('')}
     ${(S.battles || []).filter(b => b.sys === s.id).map(b => `<button class="go" data-watch="${b.id}" style="margin:2px 6px 6px 0" title="replay it, as it was fought">▶ Watch the battle fought here this eon</button>`).join('')}
     ${mine && mine.ships ? `<button class="go" data-gfleet style="margin:2px 0 6px" title="the ships of yours resting here, as stacks to send">⯈ Your fleet here — ${plural(mine.ships, 'ship')}</button>` : ''}
     ${galaxyFleetPanel(c, s, false)}
     ${here.map(pl => `<div class="shiprow" data-gplace="${pl.id}" style="cursor:pointer"><div class="n"><span><i class="dot" style="background:${lookOf(pl).color}"></i>${esc(pl.name)}${pl.cool ? ' <span title="a remarkable place" style="color:var(--time)">✦</span>' : ''}</span><span class="tiny">${KIND_WORD[pl.kind]}${pl.colony ? ' · settled' : pl.landable ? ' · can be settled' : ' · orbit only'}</span></div>
       <div class="tiny">${topFields(pl).filter(x => x[2] > 0.06).map(x => `${DOMAINS[x[0]].name} <b>${pct(x[1])}</b>`).join(' · ')}</div></div>`).join('')}
     <button class="go" data-opensys="${s.id}" style="margin-top:4px">Open the ${esc(s.name)} system ▸</button>
-    <div class="tiny" style="margin-top:8px">Click a star to look at it; double-click to open it. A green ring is a colony of yours, the big green triangle your fleet (click it for the fleet), a grey × a derelict, a red dashed ring a hostile fleet (⚔ its worth — the further from home, the stronger). Wheel to zoom, drag with the middle or right button to move about${gView.z !== 1 || gView.x || gView.y ? ' · <button class="x" data-greset>whole galaxy</button>' : ''}. <b>The coloured bubbles</b> are your sphere of influence, thrown by your colonies: <span style="color:#4da3ff">blue</span> is home waters — flight there costs no strain and a ship restocks fully in an eon; <span style="color:#7ef3b0">green</span>, <span style="color:#ffd26a">yellow</span>, <span style="color:#ffb347">orange</span>, <span style="color:#ff7979">red</span> a light year each, restocking ${ZONE.recover.slice(1, 5).join(' / ')} an eon (green flight counts half). Beyond the red nothing restocks, and the strain of every light year flown stacks from hop to hop until a ship is back inside; past its reach it rolls to break down. The white dashed ring is the open fleet's own reach.</div>`;
+    <div class="tiny" style="margin-top:8px">Click a star to look at it; double-click to open it. A green ring is a colony of yours, the big green triangle your fleet (click it for the fleet), a grey × a derelict, a red dashed ring a hostile fleet (⚔ its worth — the further from home, the stronger). Wheel to zoom, drag with the middle or right button to move about${gView.z !== 1 || gView.x || gView.y ? ' · <button class="x" data-greset>whole galaxy</button>' : ''}. <b>The coloured bubbles</b> are your sphere of influence, thrown by your colonies: <span style="color:#4da3ff">blue</span> is home waters — flight there costs no strain and a ship restocks fully in an eon; <span style="color:#7ef3b0">green</span>, <span style="color:#ffd26a">yellow</span>, <span style="color:#ffb347">orange</span>, <span style="color:#ff7979">red</span> a light year each, restocking ${ZONE.recover.slice(1, 5).join(' / ')} an eon (green flight counts half). Beyond the red nothing restocks, and the strain of every light year flown stacks from hop to hop until a ship is back inside; past its reach it rolls to break down. The white dashed ring is the open fleet's own reach.${(S.others || []).length ? ` <b>The other empires</b> — ${(S.others || []).map(o => `<b style="color:${o.color}">${esc(o.name)}</b>`).join(', ')} — ring their colonies in their colour (solid for a homeworld) and mark a resting fleet with a triangle on the left. Fleets of two empires in one system fight at the end of the eon; a fleet resting three eons unopposed where another empire has a colony takes it, and an empire whose homeworld falls is gone.` : ''}</div>`;
   $('gPanel').innerHTML = top + h; fillThumbs($('gPanel'));
 }
 function openSystem(id, placeId) {
@@ -483,9 +491,9 @@ function startGame(text) {
   const seedText = String(text).trim() || '7';
   leaveOutline();
   S = newState(seedOf(seedText)); S.seedText = seedText;
-  curDesign = S.designs[0]?.id || null; selMod = null; chipsFor = null; gMode = 'system'; gView = { z: 1, x: 0, y: 0 }; selSys = gSel = S.homeSys; selPlace = 'home'; newIds = new Set(); seedDraft = null;
-  save(); refresh();
+  freshView(); save(); refresh();
 }
+function freshView() { curDesign = S.designs[0]?.id || null; selMod = null; chipsFor = null; gMode = 'system'; gView = { z: 1, x: 0, y: 0 }; selSys = gSel = S.homeSys; selPlace = S.homePlace || 'home'; newIds = new Set(); seedDraft = null; picks = new Map(); pickScope = null; sendTo = null; }   // a new game, or another empire's eyes: nothing chosen yet
 
 // =====================================================================
 // STAR SYSTEM — the places of one system
@@ -1098,37 +1106,77 @@ $('dName').onblur = () => refresh();
 $('dNew').onclick = () => { leaveOutline(); const full = shipDesignCount() >= MAX_SHIP_DESIGNS; const d = { id: uid('d'), name: 'New design', klass: full ? 'structure' : 'starship', modules: [], chips: full ? [] : [{ type: 'weapon', kind: 'weapon_energy', h: 1, role: null }], paint: { plating: 0, fittings: 0, seed: Math.floor(Math.random() * 1000) } }; S.designs.push(d); curDesign = d.id; selMod = null; chipsFor = null; save(); if (full) say(`${MAX_SHIP_DESIGNS} ship designs at most — this one is a structure; delete a ship design to make room`); else refresh(); };
 $('dCopy').onclick = () => { const d = design(); if (!d) return; if ((d.klass || DS?.t.klass) !== 'structure' && shipDesignCount() >= MAX_SHIP_DESIGNS) return say(`${MAX_SHIP_DESIGNS} ship designs at most — delete one first (refits come later)`); leaveOutline(); const c = JSON.parse(JSON.stringify(d)); c.id = uid('d'); c.name = d.name + ' II'; for (const m of c.modules) m.id = uid('m'); S.designs.push(c); curDesign = c.id; selMod = null; chipsFor = null; save(); refresh(); };
 $('dDel').onclick = () => { const d = design(); if (!d || !confirm(`Delete the design "${d.name}"? What is already built stays.`)) return; leaveOutline(); S.designs = S.designs.filter(x => x.id !== d.id); curDesign = S.designs[0]?.id || null; selMod = null; chipsFor = null; save(); refresh(); };
-$('eEnd').onclick = () => { if (REPLAY) return replayStep(1); const rep = endEon(S); newIds = new Set(rep.filter(r => r.kind === 'breakthrough').map(r => r.id)); save(); refresh(); };
-// REPLAY a logged game (src/eon/replay.js; tools/play/play.mjs writes one): the seed, then every logged order eon by eon,
-// through the game itself — the same seed and orders give the same game. Stop anywhere and the game is yours from there.
+$('eEnd').onclick = () => { if (REPLAY) return REPLAY.ended ? say('The replay is at its end — rewind it, or stop it here to play on') : replayStep(1); const rep = endEon(S); newIds = new Set(rep.filter(r => r.kind === 'breakthrough').map(r => r.id)); save(); refresh(); };
+// REPLAY a logged game (src/eon/replay.js; tools/play/play.mjs writes one, tools/play/world.mjs a WORLD of two or three AI
+// empires): the seed, then every logged order eon by eon, through the game itself — the same seed and orders give the same game.
+// REWIND (his ask, 2026-10-16: "rewind and not only move forward"): a snapshot every SNAP eons; going back restores the nearest one
+// at or before the eon and steps forward from it. A world replay has an Empire select: look through any empire's eyes. Stop
+// anywhere and the game is yours from there (in a world the other empires then stand still).
 let REPLAY = null;
+const SNAP = 10;
 const sysWord = id => sysOf(id)?.name || id, designWord = id => S.designs.find(d => d.id === id)?.name || id;
+const replayEon = () => REPLAY.world ? REPLAY.world.eon : S.eon;
 function replayLoad(log) {
-  if (!log || !Array.isArray(log.actions) || log.seedText == null) return say('That is not a game log');
-  leaveOutline(); S = newState(seedOf(log.seedText)); S.seedText = String(log.seedText);
-  REPLAY = { log, last: log.eons && log.eons.length ? Math.max(...log.eons.map(e => e.eon)) : Math.max(0, ...log.actions.map(a => a.eon)) + 1 };
-  curDesign = S.designs[0]?.id || null; selMod = null; chipsFor = null; gMode = 'system'; gView = { z: 1, x: 0, y: 0 }; selSys = gSel = S.homeSys; selPlace = 'home'; newIds = new Set(); seedDraft = null;
-  replayApply(); save(); go('empire');
+  const world = !!log && log.kind === 'world' && Array.isArray(log.empires);
+  if (!log || log.seedText == null || !(world || Array.isArray(log.actions))) return say('That is not a game log');
+  leaveOutline();
+  let W = null;
+  if (world) { W = createWorld(log.seedText, log.empires.length); S = W.empires[0]; }
+  else { S = newState(seedOf(log.seedText)); S.seedText = String(log.seedText); }
+  const acts = world ? log.empires.flatMap(e => e.actions) : log.actions;
+  REPLAY = { log, world: W, view: 0, last: log.eons && log.eons.length ? Math.max(...log.eons.map(e => e.eon)) : Math.max(0, ...acts.map(a => a.eon)) + 1, snaps: new Map(), ended: false };
+  freshView(); replaySnap(); replayApply(); save(); go('empire');
 }
-function replayApply() { if (!REPLAY) return; const errs = applyEon(S, REPLAY.log.actions, S.eon); if (errs.length) console.warn('replay: orders refused', errs); }
+function replaySnap() { if (!REPLAY) return; const e = replayEon(); if (e === 1 || e % SNAP === 0) REPLAY.snaps.set(e, REPLAY.world ? worldSnapshot(REPLAY.world) : JSON.stringify(S)); }   // the state at the start of the eon, before its orders
+function replayApply() {
+  if (!REPLAY) return;
+  if (REPLAY.world) { for (const E of REPLAY.world.empires) if (!E.dead) { const errs = applyEon(E, REPLAY.log.empires[E.empire].actions, REPLAY.world.eon); if (errs.length) console.warn('replay: orders refused', E.name, errs); } }
+  else { const errs = applyEon(S, REPLAY.log.actions, S.eon); if (errs.length) console.warn('replay: orders refused', errs); }
+}
+function replayAdvance() {                           // one eon on: the eon ends (the world's, or the game's), a snapshot now and then, the next eon's orders
+  if (REPLAY.world) { worldEndEon(REPLAY.world); S = REPLAY.world.empires[REPLAY.view]; newIds = new Set(); }
+  else { const rep = endEon(S); newIds = new Set(rep.filter(r => r.kind === 'breakthrough').map(r => r.id)); }
+  if (replayEon() >= REPLAY.last) { REPLAY.ended = true; return; }
+  replaySnap(); replayApply();
+}
 function replayStep(n) {
-  for (let k = 0; k < n && REPLAY; k++) {
-    const rep = endEon(S); newIds = new Set(rep.filter(r => r.kind === 'breakthrough').map(r => r.id));
-    if (S.eon >= REPLAY.last) { REPLAY = null; say('The replay has ended — the game is yours from here'); break; }
-    replayApply();
-  }
+  if (!REPLAY) return; if (n < 0) return replayGoto(replayEon() + n);
+  for (let k = 0; k < n && !REPLAY.ended; k++) replayAdvance();
+  if (REPLAY.ended) say('The replay has reached its end — rewind it, or stop it here and play on');
   save(); refresh();
+}
+function replayGoto(eon) {
+  if (!REPLAY) return; eon = Math.max(1, Math.min(REPLAY.last, Math.round(eon) || 1));
+  const cur = replayEon(); if (eon === cur && !REPLAY.ended) return;
+  if (eon < cur || REPLAY.ended) {                   // back: the nearest snapshot at or before the eon, its orders, then forward
+    const at = Math.max(...[...REPLAY.snaps.keys()].filter(k => k <= eon));
+    if (REPLAY.world) { worldRestore(REPLAY.world, REPLAY.snaps.get(at)); S = REPLAY.world.empires[REPLAY.view]; } else S = JSON.parse(REPLAY.snaps.get(at));
+    REPLAY.ended = false; newIds = new Set(); replayApply();
+  }
+  while (replayEon() < eon && !REPLAY.ended) replayAdvance();
+  save(); refresh();
+}
+function replayView(i) {                             // a world replay: look through another empire's eyes
+  if (!REPLAY || !REPLAY.world || !REPLAY.world.empires[i]) return;
+  leaveOutline(); REPLAY.view = i; S = REPLAY.world.empires[i]; freshView(); save(); refresh();
 }
 function renderReplayBar() {
   const bar = $('replayBar'); if (!bar) return; if (!REPLAY) { bar.hidden = true; return; }
+  const W = REPLAY.world, eon = replayEon(), ended = REPLAY.ended;
   const word = a => a.type === 'send' ? `send ${a.n} × ${designWord(a.design)} ${sysWord(a.from)} → ${a.toPlace ? (placeOf(a.toPlace)?.name || a.toPlace) : sysWord(a.to)}` : a.type === 'settle' ? `settle ${placeOf(a.place)?.name || a.place}` : a.type === 'build' ? `build ${designWord(a.design)}` : a.type === 'buynow' ? 'buy now' : a.type === 'split' ? `split ${a.split.map(v => Math.round(v * 100)).join(' / ')}` : a.type === 'design' ? `design ${a.design.name}` : a.type === 'focus' ? 'move the focus' : a.type;
-  const acts = REPLAY.log.actions.filter(a => a.eon === S.eon);
-  bar.hidden = false; bar.innerHTML = `<b>REPLAY</b><span class="tiny">seed “${esc(S.seedText)}” · eon ${S.eon} of ${REPLAY.last}${acts.length ? ' · this eon: ' + acts.map(a => esc(word(a))).join(' · ') : ' · no orders this eon'}</span><span style="flex:1"></span><button class="go" data-rstep="1">▶ next eon</button><button class="x" data-rstep="10">⏩ 10</button><button class="x" data-rstep="100000">⏭ to the end</button><button class="x" data-rstop title="stop the replay here and play on yourself">✕ stop here</button>`;
+  const acts = (W ? REPLAY.log.empires[REPLAY.view].actions : REPLAY.log.actions).filter(a => a.eon === eon);
+  const events = W ? (REPLAY.log.events || []).filter(e => e.eon === eon - 1) : [];
+  const who = W ? `<select data-rview title="look through this empire's eyes">${W.empires.map((E, i) => `<option value="${i}" ${i === REPLAY.view ? 'selected' : ''}>${esc(E.name)}${E.dead ? ' (fallen)' : ''}</option>`).join('')}</select>` : '';
+  bar.hidden = false; bar.innerHTML = `<b>REPLAY</b>${who}<span class="tiny">seed “${esc(REPLAY.log.seedText)}” · eon ${eon} of ${REPLAY.last}${ended ? ' · the end' : ''}${S.dead ? ' · <b style="color:var(--bad)">this empire has fallen</b>' : ''}${acts.length ? ' · this eon: ' + acts.map(a => esc(word(a))).join(' · ') : ' · no orders this eon'}${events.length ? ' · <b style="color:var(--bad)">' + events.slice(0, 3).map(e => esc(e.text)).join(' · ') + (events.length > 3 ? ` · and ${events.length - 3} more` : '') + '</b>' : ''}</span><span style="flex:1"></span>
+    <button class="x" data-rgoto="1" title="back to the start">⏮</button><button class="x" data-rstep="-10" title="ten eons back">⏪ 10</button><button class="x" data-rstep="-1" title="an eon back">◀</button><input type="number" data-reon value="${eon}" min="1" max="${REPLAY.last}" title="go to an eon (Enter)" style="width:66px"><button class="go" data-rstep="1" ${ended ? 'disabled' : ''}>▶ next</button><button class="x" data-rstep="10" ${ended ? 'disabled' : ''} title="ten eons on">⏩ 10</button><button class="x" data-rgoto="${REPLAY.last}" title="to the end" ${ended ? 'disabled' : ''}>⏭</button><button class="x" data-rstop title="stop the replay here and play on yourself${W ? ' — the other empires stand still from here' : ''}">✕ stop here</button>`;
 }
 $('eReplay').onclick = () => $('eReplayFile').click();
 $('eReplayFile').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; f.text().then(t => { try { replayLoad(JSON.parse(t)); } catch (x) { say('Could not read that file as a game log'); } }); };
-document.addEventListener('click', e => { const s = e.target.closest('[data-rstep]'); if (s) return replayStep(+s.dataset.rstep); if (e.target.closest('[data-rstop]')) { REPLAY = null; refresh(); } });
+document.addEventListener('click', e => { const s = e.target.closest('[data-rstep]'); if (s) return replayStep(+s.dataset.rstep); const g = e.target.closest('[data-rgoto]'); if (g) return replayGoto(+g.dataset.rgoto); if (e.target.closest('[data-rstop]')) { REPLAY = null; refresh(); } });
+document.addEventListener('change', e => { if (e.target.matches('[data-rview]')) return replayView(+e.target.value); if (e.target.matches('[data-reon]')) return replayGoto(+e.target.value); });
+document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('[data-reon]')) replayGoto(+e.target.value); });
 window.sbsReplay = replayLoad;                       // for tests: load a log by hand
+window.sbsReplayGoto = replayGoto;
 // WATCH A BATTLE (his ask, 2026-10-16): the lab's arena (lab.html#arena) in a frame over the game replays a fight this eon as it was
 // fought — your ships' designs as they were (capsules and all, keep: true), each one's stamina, the hostile plan, the same dice; your
 // side wears your coat, theirs the look drawn from its name. The frame answers with the result line and a tapped ship's card.
@@ -1138,7 +1186,7 @@ function watchBattle(id) {
   const L = S.look || {}, hulls = {};
   for (const m of b.mine) { const h = hullDef(m.design.hull); if (h && h.user) { const { user, ...rec } = h; hulls[h.id] = rec; } }
   const pa = { name: 'Your fleet', style: L.style || styleChoices()[0].id, colA: L.colA || '#7fb3ff', colB: L.colB || '#ffb347', hulls, ships: b.mine.map(m => ({ design: m.design, keep: true, name: m.name, en0: m.en0, cost: 0, seed: 1, locked: true })) };
-  const msg = { type: 'fight', a: planCode(pa), b: planCode(b.foe), seed: b.seed, techA: S.breakthroughs, techB: [] };
+  const msg = { type: 'fight', a: planCode(pa), b: planCode(b.foe), seed: b.seed, techA: S.breakthroughs, techB: b.foeTech || [] };   // another empire's fleet brings its own tech (world.js)
   $('arenaWrap').hidden = false; $('shipInfo').hidden = true; $('arenaNote').textContent = `Battle at ${esc(sysOf(b.sys)?.name || '?')}, eon ${b.eon} — your ${plural(b.mine.length, 'ship')} against ${esc(b.foe.name)} — replaying…`;
   const fr = $('arenaFrame'); if (!fr.getAttribute('src') || fr.getAttribute('src') === 'about:blank') { arenaReady = false; fr.src = 'lab.html#arena'; }
   if (arenaReady) fr.contentWindow.postMessage(msg, '*'); else arenaPending = msg;

@@ -158,7 +158,7 @@ for (let eon = 0; eon < MAX_EONS; eon++) {
   if (S.hostiles.length < hostilesBefore) beaten += hostilesBefore - S.hostiles.length;
   lost += Math.max(0, shipsBefore - S.ships.length);
   if (target && !S.hostiles.includes(target)) { note(`✓ ${target.plan.name} beaten — ${S.hostiles.length} left`); target = null; path = null; lastProgress = S.eon; waitingNoted = false; }
-  else if (target && rally === target.sys && !S.ships.some(u => u.design.id === D[kind].id && !u.dest && sysOfPlace(u.at) === target.sys)) {   // the attack failed: regroup at Home, and come back stronger
+  else if (target && rally === target.sys && !S.ships.some(u => u.design.id === D[kind].id && sysOfPlace(u.dest || u.at) === target.sys)) {   // the attack failed (none there, none on the way): regroup at Home, and come back stronger
     stale++; rally = HOME; path = null; note(`✗ the attack on ${target.plan.name} at ${sysName(target.sys)} failed — regrouping at Home for a fleet ${(NEED[kind] + 0.5 * stale).toFixed(1)} × its worth`);
     const p = hops(HOME, target.sys, kind === 'war' ? REACH.war : REACH.long); if (p) path = p; else { target = null; }
   }
