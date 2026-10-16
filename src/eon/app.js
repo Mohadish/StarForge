@@ -33,6 +33,12 @@ let HULLS = loadHulls(); setUserHulls(HULLS);
 let selSys = S.homeSys, selPlace = S.homePlace || 'home', hoverPlace = null, DS = null, LAST = null;
 let gSel = S.homeSys, gHover = null, gHoverFleet = false, gField = null, seedDraft = null;
 let gView = { z: 1, x: 0, y: 0 }, gMode = 'system';   // the galaxy map's zoom and pan (the wheel; a middle- or right-drag) · what the panel shows at the chosen star: the system, or your fleet there (its icon)
+// GOD MODE (his ask, 2026-10-16: "see everything, not just from Sol's perspective — the territory they own, all the movements, click
+// any ship"): in a world replay the galaxy shows EVERY empire — spheres, colonies, fleets, ships under way — and the panel is a
+// scoreboard plus whatever is at the chosen star; a fleet opens its ships one by one, a ship its card. Read-only.
+let GOD = false, godPick = null, GODC = null;       // on/off · { kind: 'fleet', k, sys } | { kind: 'ship', k, id } · every empire's compute() this refresh
+const godEmpires = () => GOD && REPLAY && REPLAY.world ? REPLAY.world.empires : null;
+const empireLook = E => { const L = E.look || {}, lk = lookFromColors(L.style || styleChoices()[0].id, L.colA || '#7fb3ff', L.colB || '#ffb347'); lk.wash = 0.6; lk.lights = 0.5; lk.key += '|god'; return lk; };
 // FLEETS, Master of Orion's way (his ask, 2026-10-15): your ships at a star are STACKS by design — "Corvette ×30" — each with a
 // count to send. Pick some, then click where they go: a star on the galaxy map (only ships that can cross between stars are
 // offered there), a place on the system map. At most MAX_SHIP_DESIGNS ship designs (structures do not count).
@@ -55,7 +61,7 @@ const thumbShips = new Map(), thumbCache = new Map();
 function fillThumbs(root) {                         // every <canvas data-thumb> under root gets its ship's painted picture
   for (const cv of root.querySelectorAll('canvas[data-thumb]')) {
     const ship = thumbShips.get(cv.dataset.thumb); if (!ship) continue;
-    const lk = cv.dataset.foe ? fleetLook(cv.dataset.foe) : myLook(), key = ship.design.id + '|' + lk.key;
+    const lk = cv.dataset.foe ? fleetLook(cv.dataset.foe) : cv.dataset.emp != null && REPLAY && REPLAY.world ? empireLook(REPLAY.world.empires[+cv.dataset.emp]) : myLook(), key = ship.design.id + '|' + lk.key;
     const draw = img => { const g = cv.getContext('2d'); g.clearRect(0, 0, cv.width, cv.height); const q = Math.min(cv.width / img.width, cv.height / img.height); g.drawImage(img, (cv.width - img.width * q) / 2, (cv.height - img.height * q) / 2, img.width * q, img.height * q); };
     const had = thumbCache.get(key); if (had) { draw(had); continue; }
     thumbOf(ship, lk, 120).then(img => { if (!img) return; thumbCache.set(key, img); if (cv.isConnected) draw(img); });
@@ -343,26 +349,44 @@ function drawGalaxy(c) {
   // green 90 %, yellow 70 %, orange 40 %, red 10 %
   // THE SPHERE OF INFLUENCE (model.js ZONE): every colony's bubble — blue inside, then green / yellow / orange / red a light year
   // each — merged into one region; inside it ships restock and their strain heals, outside neither
-  const bubs = bubbles(S);
-  for (let z = 4; z >= 0; z--) {
-    g.beginPath(); for (const b of bubs) { const p = G.pos[b.sys]; if (!p) continue; const r = (b.r + z * ZONE.band) * LY * G.k; g.moveTo(p.x + r, p.y); g.arc(p.x, p.y, r, 0, 7); }
-    g.fillStyle = ZONE.colors[z]; g.globalAlpha = z === 0 ? 0.14 : 0.06; g.fill(); g.globalAlpha = 0.3; g.strokeStyle = ZONE.colors[z]; g.lineWidth = 1; g.setLineDash(z ? [3, 5] : []); g.stroke(); g.setLineDash([]);
+  const GE = godEmpires(); G.gfleet = {}; G.gship = {};
+  if (GE) {                                          // GOD MODE: every empire's sphere in its own colour (the core solid, the bands faint, the outermost dashed)
+    for (const E of GE) {
+      if (E.dead) continue; const col = E.look.colA, bubs = bubbles(E);
+      for (let z = 4; z >= 0; z--) {
+        g.beginPath(); for (const b of bubs) { const p = G.pos[b.sys]; if (!p) continue; const r = (b.r + z * ZONE.band) * LY * G.k; g.moveTo(p.x + r, p.y); g.arc(p.x, p.y, r, 0, 7); }
+        g.fillStyle = col; g.globalAlpha = z === 0 ? 0.13 : 0.03; g.fill();
+        if (z === 0 || z === 4) { g.globalAlpha = z ? 0.22 : 0.5; g.strokeStyle = col; g.lineWidth = 1; g.setLineDash(z ? [3, 5] : []); g.stroke(); g.setLineDash([]); }
+      }
+    }
+    g.globalAlpha = 1;
+  } else {
+    const bubs = bubbles(S);
+    for (let z = 4; z >= 0; z--) {
+      g.beginPath(); for (const b of bubs) { const p = G.pos[b.sys]; if (!p) continue; const r = (b.r + z * ZONE.band) * LY * G.k; g.moveTo(p.x + r, p.y); g.arc(p.x, p.y, r, 0, 7); }
+      g.fillStyle = ZONE.colors[z]; g.globalAlpha = z === 0 ? 0.14 : 0.06; g.fill(); g.globalAlpha = 0.3; g.strokeStyle = ZONE.colors[z]; g.lineWidth = 1; g.setLineDash(z ? [3, 5] : []); g.stroke(); g.setLineDash([]);
+    }
+    g.globalAlpha = 1;
   }
-  g.globalAlpha = 1;
   // the reach of the fleet at the chosen star (its own range) when its panel is open: a white dashed ring
   const reachR = ringR(gSel);
   if (gMode === 'fleet' && reachR > 0 && G.pos[gSel]) { const p = G.pos[gSel]; g.strokeStyle = '#fff'; g.globalAlpha = 0.45; g.setLineDash([2, 4]); g.beginPath(); g.arc(p.x, p.y, reachR * LY * G.k, 0, 7); g.stroke(); g.setLineDash([]); g.globalAlpha = 1; }
   // picked ships, and the star they would go to
   if (sendTo && pickScope?.kind === 'galaxy' && G.pos[pickScope.sys] && G.pos[sendTo]) { const a = G.pos[pickScope.sys], b = G.pos[sendTo]; g.strokeStyle = '#7ef3b0'; g.lineWidth = 2; g.setLineDash([6, 5]); g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke(); g.setLineDash([]); g.lineWidth = 1; }
-  // derelicts, where they broke down
-  for (const w of S.derelicts || []) { const a = G.pos[w.A], b = G.pos[w.B]; if (!a || !b) continue; const x = a.x + (b.x - a.x) * w.pos, y = a.y + (b.y - a.y) * w.pos; g.strokeStyle = '#8a93a8'; g.lineWidth = 1.5; g.beginPath(); g.moveTo(x - 4, y - 4); g.lineTo(x + 4, y + 4); g.moveTo(x + 4, y - 4); g.lineTo(x - 4, y + 4); g.stroke(); g.lineWidth = 1; }
-  // ships crossing between stars
-  for (const { u } of c.ships) {
+  // derelicts, where they broke down (in God mode everyone's)
+  for (const E of GE || [S]) for (const w of E.derelicts || []) { const a = G.pos[w.A], b = G.pos[w.B]; if (!a || !b) continue; const x = a.x + (b.x - a.x) * w.pos, y = a.y + (b.y - a.y) * w.pos; g.strokeStyle = '#8a93a8'; g.lineWidth = 1.5; g.beginPath(); g.moveTo(x - 4, y - 4); g.lineTo(x + 4, y + 4); g.moveTo(x + 4, y - 4); g.lineTo(x - 4, y + 4); g.stroke(); g.lineWidth = 1; }
+  // ships crossing between stars (in God mode every empire's, in its colour; each dot is clickable)
+  const flights = GE ? GE.flatMap((E, k) => E.dead || !GODC || !GODC[k] ? [] : GODC[k].ships.map(s => ({ u: s.u, k, E, col: E.look.colA }))) : c.ships.map(s => ({ u: s.u, k: null, E: S, col: '#7ef3b0' }));
+  for (const { u, k: ek, E, col } of flights) {
     if (!u.dest) continue;
-    const V = u.voy, a = V ? G.pos[V.A] : G.pos[placeOf(u.at).sys], b = V ? G.pos[V.B] : G.pos[placeOf(u.dest).sys]; if (!a || !b || a === b) continue;
+    const pOf = id => (E.places.find(p => p.id === id) || {}).sys;
+    const V = u.voy, a = V ? G.pos[V.A] : G.pos[pOf(u.at)], b = V ? G.pos[V.B] : G.pos[pOf(u.dest)]; if (!a || !b || a === b) continue;
     const k = V ? clamp(V.pos ?? 0, 0.02, 1) : clamp(1 - u.eta / (u.trip || u.eta || 1), 0.06, 1), x = a.x + (b.x - a.x) * k, y = a.y + (b.y - a.y) * k;
-    g.setLineDash([4, 5]); g.strokeStyle = 'rgba(126,243,176,.5)'; g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke(); g.setLineDash([]);
-    g.fillStyle = '#7ef3b0'; g.beginPath(); g.arc(x, y, 3.5, 0, 7); g.fill();
+    const on = GE && godPick && godPick.kind === 'ship' && godPick.k === ek && godPick.id === u.id;
+    g.setLineDash([4, 5]); g.strokeStyle = col; g.globalAlpha = 0.45; g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke(); g.setLineDash([]); g.globalAlpha = 1;
+    g.fillStyle = on ? '#fff' : col; g.beginPath(); g.arc(x, y, on ? 5 : 3.5, 0, 7); g.fill();
+    if (on) { g.strokeStyle = col; g.lineWidth = 1.5; g.beginPath(); g.arc(x, y, 9, 0, 7); g.stroke(); g.lineWidth = 1; }
+    if (GE) G.gship[ek + '|' + u.id] = { x, y, k: ek, id: u.id };
   }
   g.textAlign = 'center';
   for (const s of S.systems) {
@@ -374,25 +398,43 @@ function drawGalaxy(c) {
     g.shadowColor = st.color; g.shadowBlur = 10; g.fillStyle = st.color; g.beginPath(); g.arc(p.x, p.y, size, 0, 7); g.fill(); g.shadowBlur = 0;
     const foe = hostileIn(S, s.id);                    // a HOSTILE FLEET holds this system: a red ring and its worth
     if (foe) { g.strokeStyle = '#ff5c5c'; g.lineWidth = 1.5; g.setLineDash([3, 3]); g.beginPath(); g.arc(p.x, p.y, size + 6, 0, 7); g.stroke(); g.setLineDash([]); g.lineWidth = 1; g.fillStyle = '#ff7979'; g.font = 'bold 9px sans-serif'; g.fillText('⚔ ' + hostileWorth(foe), p.x, p.y - size - 8); }
-    if (here?.colonies) { g.strokeStyle = '#7ef3b0'; g.lineWidth = 2; g.beginPath(); g.arc(p.x, p.y, size + 4, 0, 7); g.stroke(); g.lineWidth = 1; }
-    if (here?.ships) {                                 // YOUR FLEET here: a big triangle by the star — click it for the fleet, the star for the system (his ask, 2026-10-15)
-      const x = p.x + size + 15, y = p.y - size - 7, on = gMode === 'fleet' && s.id === gSel; G.fleet[s.id] = { x, y };
-      g.fillStyle = on ? '#fff' : '#7ef3b0'; g.beginPath(); g.moveTo(x, y - 8); g.lineTo(x + 8, y + 7); g.lineTo(x - 8, y + 7); g.closePath(); g.fill();
-      if (on || (s.id === gHover && gHoverFleet)) { g.strokeStyle = on ? '#7ef3b0' : 'rgba(255,255,255,.6)'; g.lineWidth = 1.5; g.beginPath(); g.arc(x, y + 1, 13, 0, 7); g.stroke(); g.lineWidth = 1; }
-      g.font = 'bold 11px sans-serif'; g.textAlign = 'left'; g.fillStyle = on ? '#fff' : '#7ef3b0'; g.fillText(String(here.ships), x + 12, y + 5); g.textAlign = 'center';
+    let label = s.name, labelCol = s.home || here ? '#e8f0ff' : '#8598bb', bold = !!(s.home || here);
+    if (GE) {                                          // GOD MODE: every empire's colonies as rings (one ring per empire, outward), every fleet as a triangle in a slot of its own
+      const SLOT = [[1, -1], [-1, -1], [1, 1], [-1, 1]]; let ring = 0;
+      GE.forEach((E, k) => {
+        if (E.dead) return; const col = E.look.colA, cols = E.places.filter(pl => pl.colony && pl.sys === s.id), ships = GODC && GODC[k] ? GODC[k].ships.filter(x => !x.u.dest && (E.places.find(pl => pl.id === x.u.at) || {}).sys === s.id) : [];
+        if (cols.length) { const hm = cols.some(pl => pl.id === E.homePlace); g.strokeStyle = col; g.lineWidth = hm ? 2.5 : 1.5; g.setLineDash(hm ? [] : [4, 3]); g.beginPath(); g.arc(p.x, p.y, size + 4 + 3 * ring++, 0, 7); g.stroke(); g.setLineDash([]); g.lineWidth = 1; if (hm) { label = s.name + ' · ' + E.name; labelCol = col; bold = true; } }
+        if (ships.length) {
+          const [sx, sy] = SLOT[k % 4], x = p.x + sx * (size + 15), y = p.y + sy * (size + 7), key = s.id + '|' + k, on = godPick && godPick.kind === 'fleet' && godPick.k === k && godPick.sys === s.id; G.gfleet[key] = { x, y, k, sys: s.id };
+          g.fillStyle = on ? '#fff' : col; g.beginPath(); g.moveTo(x, y - 8); g.lineTo(x + 8, y + 7); g.lineTo(x - 8, y + 7); g.closePath(); g.fill();
+          if (on || gHover === key) { g.strokeStyle = on ? col : 'rgba(255,255,255,.6)'; g.lineWidth = 1.5; g.beginPath(); g.arc(x, y + 1, 13, 0, 7); g.stroke(); g.lineWidth = 1; }
+          g.font = 'bold 11px sans-serif'; g.textAlign = sx > 0 ? 'left' : 'right'; g.fillStyle = on ? '#fff' : col; g.fillText(String(ships.length), x + sx * 12, y + 5); g.textAlign = 'center';
+        }
+      });
+      for (const [key, n] of Object.entries(REPLAY.world.sieges || {})) {   // a siege under way here: who, how far along
+        const [sys, victim, attacker] = key.split('|'); if (sys !== s.id) continue; const A = GE[+attacker];
+        g.fillStyle = A ? A.look.colA : '#ff7979'; g.font = 'bold 9px sans-serif'; g.fillText(`siege ${n} of 3`, p.x, p.y + size + 24);
+      }
+    } else {
+      if (here?.colonies) { g.strokeStyle = '#7ef3b0'; g.lineWidth = 2; g.beginPath(); g.arc(p.x, p.y, size + 4, 0, 7); g.stroke(); g.lineWidth = 1; }
+      if (here?.ships) {                               // YOUR FLEET here: a big triangle by the star — click it for the fleet, the star for the system (his ask, 2026-10-15)
+        const x = p.x + size + 15, y = p.y - size - 7, on = gMode === 'fleet' && s.id === gSel; G.fleet[s.id] = { x, y };
+        g.fillStyle = on ? '#fff' : '#7ef3b0'; g.beginPath(); g.moveTo(x, y - 8); g.lineTo(x + 8, y + 7); g.lineTo(x - 8, y + 7); g.closePath(); g.fill();
+        if (on || (s.id === gHover && gHoverFleet)) { g.strokeStyle = on ? '#7ef3b0' : 'rgba(255,255,255,.6)'; g.lineWidth = 1.5; g.beginPath(); g.arc(x, y + 1, 13, 0, 7); g.stroke(); g.lineWidth = 1; }
+        g.font = 'bold 11px sans-serif'; g.textAlign = 'left'; g.fillStyle = on ? '#fff' : '#7ef3b0'; g.fillText(String(here.ships), x + 12, y + 5); g.textAlign = 'center';
+      }
+      for (const o of S.others || []) {                // the OTHER EMPIRES (a world, world.js): their colonies a ring in their colour (solid for a homeworld), their resting fleets a triangle on the left with the count
+        const col = o.colonies.filter(x => x.sys === s.id), fl = o.fleets.find(f => f.sys === s.id);
+        if (col.length) { const hm = col.some(x => x.home); g.strokeStyle = o.color; g.lineWidth = hm ? 2.5 : 1.5; g.setLineDash(hm ? [] : [4, 3]); g.beginPath(); g.arc(p.x, p.y, size + 6, 0, 7); g.stroke(); g.setLineDash([]); g.lineWidth = 1; if (hm) { label = s.name + ' · ' + o.name; labelCol = o.color; bold = true; } }
+        if (fl) { const x = p.x - size - 15, y = p.y - size - 7; g.fillStyle = o.color; g.beginPath(); g.moveTo(x, y - 8); g.lineTo(x + 8, y + 7); g.lineTo(x - 8, y + 7); g.closePath(); g.fill(); g.font = 'bold 11px sans-serif'; g.textAlign = 'right'; g.fillText(String(fl.n), x - 11, y + 5); g.textAlign = 'center'; }
+      }
     }
-    for (const o of S.others || []) {                  // the OTHER EMPIRES (a world, world.js): their colonies a ring in their colour (solid for a homeworld), their resting fleets a triangle on the left with the count
-      const col = o.colonies.filter(x => x.sys === s.id), fl = o.fleets.find(f => f.sys === s.id);
-      if (col.length) { const hm = col.some(x => x.home); g.strokeStyle = o.color; g.lineWidth = hm ? 2.5 : 1.5; g.setLineDash(hm ? [] : [4, 3]); g.beginPath(); g.arc(p.x, p.y, size + 6, 0, 7); g.stroke(); g.setLineDash([]); g.lineWidth = 1; }
-      if (fl) { const x = p.x - size - 15, y = p.y - size - 7; g.fillStyle = o.color; g.beginPath(); g.moveTo(x, y - 8); g.lineTo(x + 8, y + 7); g.lineTo(x - 8, y + 7); g.closePath(); g.fill(); g.font = 'bold 11px sans-serif'; g.textAlign = 'right'; g.fillText(String(fl.n), x - 11, y + 5); g.textAlign = 'center'; }
-    }
-    const bt = (S.battles || []).find(b => b.sys === s.id);   // a battle fought here this eon: a ▶ badge — click it to watch it (his ask, 2026-10-16)
-    if (bt) { const x = p.x - size - 14, y = p.y + size + 6; G.battle[s.id] = { x, y, id: bt.id }; g.fillStyle = '#ff5c5c'; g.beginPath(); g.arc(x, y, 8, 0, 7); g.fill(); g.fillStyle = '#fff'; g.font = 'bold 9px sans-serif'; g.textAlign = 'center'; g.fillText('▶', x + 0.5, y + 3.5); }
-    const onStar = s.id === gSel && gMode !== 'fleet';   // the white ring: on the star in system mode, on the fleet icon in fleet mode
+    const bt = GE ? GE.flatMap((E, k) => (E.battles || []).filter(b => b.sys === s.id).map(b => ({ b, k }))).map(x => ({ id: x.b.id, k: x.k }))[0] : (S.battles || []).filter(b => b.sys === s.id).map(b => ({ id: b.id, k: null }))[0];   // a battle fought here this eon: a ▶ badge — click it to watch it (his ask, 2026-10-16)
+    if (bt) { const x = p.x - size - 14, y = p.y + size + 6; G.battle[s.id] = { x, y, id: bt.id, k: bt.k }; g.fillStyle = '#ff5c5c'; g.beginPath(); g.arc(x, y, 8, 0, 7); g.fill(); g.fillStyle = '#fff'; g.font = 'bold 9px sans-serif'; g.textAlign = 'center'; g.fillText('▶', x + 0.5, y + 3.5); }
+    const onStar = s.id === gSel && gMode !== 'fleet' && !(GE && godPick);   // the white ring: on the star in system mode, on the fleet icon in fleet mode
     if (onStar || (s.id === gHover && !gHoverFleet)) { g.strokeStyle = onStar ? '#fff' : 'rgba(255,255,255,.5)'; g.lineWidth = 1.5; g.beginPath(); g.arc(p.x, p.y, size + 8, 0, 7); g.stroke(); g.lineWidth = 1; }
-    const theirHome = (S.others || []).find(o => o.colonies.some(x => x.sys === s.id && x.home));   // another empire's homeworld: its name in its colour
-    g.fillStyle = theirHome ? theirHome.color : s.home || here ? '#e8f0ff' : '#8598bb'; g.font = (s.home || here || theirHome ? 'bold ' : '') + '10px sans-serif';
-    g.fillText(s.home ? s.name + ' · home' : theirHome ? s.name + ' · ' + theirHome.name : s.name, p.x, p.y + size + 13);
+    g.fillStyle = labelCol; g.font = (bold ? 'bold ' : '') + '10px sans-serif';
+    g.fillText(s.home && !GE ? s.name + ' · home' : label, p.x, p.y + size + 13);
   }
   g.textAlign = 'left';
 }
@@ -409,11 +451,21 @@ function fleetAt(e) {                                // the fleet icon under the
   for (const [id, f] of Object.entries(G.fleet)) if (Math.hypot(mx - f.x, my - f.y - 1) < 14) return id;
   return null;
 }
-function battleAt(e) {                               // the ▶ badge of a battle under the mouse, if any: the battle's id
+function battleAt(e) {                               // the ▶ badge of a battle under the mouse, if any: the battle (id, and in God mode whose record it is)
   const G = $('gMap')._geo; if (!G || !G.battle) return null;
   const [mx, my] = mapXY(e);
-  for (const b of Object.values(G.battle)) if (Math.hypot(mx - b.x, my - b.y) < 11) return b.id;
+  for (const b of Object.values(G.battle)) if (Math.hypot(mx - b.x, my - b.y) < 11) return b;
   return null;
+}
+function godFleetAt(e) {                             // God mode: an empire's fleet triangle under the mouse → 'sys|k'
+  const G = $('gMap')._geo; if (!G || !G.gfleet) return null; const [mx, my] = mapXY(e);
+  for (const [key, f] of Object.entries(G.gfleet)) if (Math.hypot(mx - f.x, my - f.y - 1) < 14) return key;
+  return null;
+}
+function godShipAt(e) {                              // God mode: a ship under way under the mouse → { k, id }
+  const G = $('gMap')._geo; if (!G || !G.gship) return null; const [mx, my] = mapXY(e); let best = null, bd = 9;
+  for (const sh of Object.values(G.gship)) { const d = Math.hypot(mx - sh.x, my - sh.y); if (d < bd) { bd = d; best = sh; } }
+  return best;
 }
 function sysBlurb(s) {
   const here = placesIn(s.id), best = here.flatMap(pl => FIELD_IDS.map(f => [pl.mult[f] * pl.fresh[f], f, pl])).sort((a, b) => b[0] - a[0]).slice(0, 3);
@@ -421,19 +473,34 @@ function sysBlurb(s) {
     the most to learn: ${best.map(b => `${DOMAINS[b[1]].name} ${pct(b[0])} at ${esc(b[2].name)}`).join(' · ')}`;
 }
 $('gMap').addEventListener('mousemove', e => {
+  if (godEmpires()) {                                // God mode: a fleet, a ship under way, or a star
+    const GE = godEmpires(), gf = godFleetAt(e), gs = gf ? null : godShipAt(e), id = gf || (gs ? gs.k + '|' + gs.id : sysAt(e)); if (id === gHover) return;
+    gHover = id; gHoverFleet = !!gf; $('gMap').style.cursor = id ? 'pointer' : 'default';
+    let h = '';
+    if (gf) { const [sys, k] = gf.split('|'), E = GE[+k], n = GODC[+k].ships.filter(x => !x.u.dest && (E.places.find(pl => pl.id === x.u.at) || {}).sys === sys).length; h = `<b style="color:${E.look.colA}">${esc(E.name)}'s fleet at ${esc(sysOf(sys).name)}</b> — ${plural(n, 'ship')}. Click it for the ships.`; }
+    else if (gs) { const E = GE[gs.k], u = E.ships.find(x => x.id === gs.id); if (u) { const to = E.places.find(p => p.id === u.dest); h = `<b style="color:${E.look.colA}">${esc(E.name)}'s ${esc(u.name)}</b> → ${esc(to ? to.name : '?')} · ${plural(u.eta, 'eon')}. Click it for its card.`; } }
+    else if (id) h = sysBlurb(sysOf(id));
+    $('gHover').innerHTML = h; if (LAST) drawGalaxy(LAST); return;
+  }
   const f = fleetAt(e), id = f || sysAt(e); if (id === gHover && !!f === gHoverFleet) return;
   gHover = id; gHoverFleet = !!f; $('gMap').style.cursor = id ? 'pointer' : 'default';
   $('gHover').innerHTML = f ? `<b>Your fleet at ${esc(sysOf(f).name)}</b> — ${LAST ? plural(presence(LAST).get(f)?.ships || 0, 'ship') : ''}. Click it for the fleet; click the star for the system.` : id ? sysBlurb(sysOf(id)) : '';
   if (LAST) drawGalaxy(LAST);
 });
 // a click: the fleet icon → the fleet panel; a star → the system (or, with ships picked, where they go). You are on one or the other.
+// In God mode: a fleet triangle → that empire's ships there; a ship under way → its card; a star → everything at it.
 $('gMap').addEventListener('click', e => {
-  const bt = battleAt(e); if (bt) return watchBattle(bt);
+  const bt = battleAt(e); if (bt) return watchBattle(bt.id, bt.k != null && REPLAY && REPLAY.world ? REPLAY.world.empires[bt.k] : S);
+  if (godEmpires()) {
+    const gf = godFleetAt(e); if (gf) { const [sys, k] = gf.split('|'); godPick = { kind: 'fleet', k: +k, sys }; gSel = sys; gMode = 'god'; return refresh(); }
+    const gs = godShipAt(e); if (gs) { godPick = { kind: 'ship', k: gs.k, id: gs.id }; gMode = 'god'; return refresh(); }
+    const id = sysAt(e); if (!id) return; godPick = null; gSel = id; gMode = 'god'; return refresh();
+  }
   const f = fleetAt(e), id = f || sysAt(e); if (!id) return;
   if (!f && pickCount() && pickScope?.kind === 'galaxy' && id !== pickScope.sys) { sendTo = id; return refresh(); }
   gSel = id; gMode = f ? 'fleet' : 'system'; refresh();
 });
-$('gMap').addEventListener('dblclick', e => { if (fleetAt(e)) return; const id = sysAt(e); if (id) openSystem(id); });
+$('gMap').addEventListener('dblclick', e => { if (fleetAt(e) || godFleetAt(e) || godShipAt(e)) return; const id = sysAt(e); if (id) openSystem(id); });
 // ZOOM with the wheel, about the mouse; PAN with a middle- or right-drag (his ask, 2026-10-15)
 {
   const cv = $('gMap'); let pan = null;
@@ -459,7 +526,8 @@ function renderGalaxy(c) {
     <div>${FIELD_IDS.map(f => `<button class="x ${gField === f ? 'go' : ''}" data-gfield="${f}" style="margin:0 4px 4px 0">${DOMAINS[f].name}</button>`).join('')}</div>
     <div class="tiny">${gField ? `The bigger the purple halo, the more ${DOMAINS[gField].name} there is to find in that system. Click the field again to switch it off.` : 'Pick a field and the map marks the systems worth going to for it.'}</div>`;
   let h;
-  if (gMode === 'fleet') h = `<h2 style="margin-top:14px;display:flex;justify-content:space-between;align-items:center">Your fleet at ${esc(s.name)} <button class="x" data-gsys title="the system itself">◂ the system</button></h2>
+  if (godEmpires()) h = godPanel(s);
+  else if (gMode === 'fleet') h = `<h2 style="margin-top:14px;display:flex;justify-content:space-between;align-items:center">Your fleet at ${esc(s.name)} <button class="x" data-gsys title="the system itself">◂ the system</button></h2>
     <div class="tiny" style="margin-bottom:6px">${plural(mine.ships, 'ship')} resting here.${H ? ` <b class="up">⚔ ${esc(hostileWord(H))} holds this system</b> — they fight at the end of the eon.` : ''}</div>
     ${galaxyFleetPanel(c, s, true)}
     <div class="tiny" style="margin-top:8px">Pick how many of each to send (+ / all), click the star they go to, then Send. Click the star here instead for the system itself.</div>`;
@@ -474,6 +542,47 @@ function renderGalaxy(c) {
     <button class="go" data-opensys="${s.id}" style="margin-top:4px">Open the ${esc(s.name)} system ▸</button>
     <div class="tiny" style="margin-top:8px">Click a star to look at it; double-click to open it. A green ring is a colony of yours, the big green triangle your fleet (click it for the fleet), a grey × a derelict, a red dashed ring a hostile fleet (⚔ its worth — the further from home, the stronger). Wheel to zoom, drag with the middle or right button to move about${gView.z !== 1 || gView.x || gView.y ? ' · <button class="x" data-greset>whole galaxy</button>' : ''}. <b>The coloured bubbles</b> are your sphere of influence, thrown by your colonies: <span style="color:#4da3ff">blue</span> is home waters — flight there costs no strain and a ship restocks fully in an eon; <span style="color:#7ef3b0">green</span>, <span style="color:#ffd26a">yellow</span>, <span style="color:#ffb347">orange</span>, <span style="color:#ff7979">red</span> a light year each, restocking ${ZONE.recover.slice(1, 5).join(' / ')} an eon (green flight counts half). Beyond the red nothing restocks, and the strain of every light year flown stacks from hop to hop until a ship is back inside; past its reach it rolls to break down. The white dashed ring is the open fleet's own reach.${(S.others || []).length ? ` <b>The other empires</b> — ${(S.others || []).map(o => `<b style="color:${o.color}">${esc(o.name)}</b>`).join(', ')} — ring their colonies in their colour (solid for a homeworld) and mark a resting fleet with a triangle on the left. Fleets of two empires in one system fight at the end of the eon; a fleet resting three eons unopposed where another empire has a colony takes it, and an empire whose homeworld falls is gone.` : ''}</div>`;
   $('gPanel').innerHTML = top + h; fillThumbs($('gPanel'));
+}
+// GOD MODE's panel: the scoreboard of every empire, the sieges under way, then the chosen star — every empire's colonies, resting
+// ships and ships bound here — or, picked on the map, one fleet's ships one by one, or one ship's card. Nothing here gives orders.
+function godShipLine(E, k, s, big) {
+  const u = s.u, t = s.t, caps = GODC[k].caps, tid = `g${k}|${u.id}`; thumbShips.set(tid, paintedShip(u.design, caps));
+  const pl = E.places.find(p => p.id === u.at), to = u.dest ? E.places.find(p => p.id === u.dest) : null, V = u.voy, z = pl ? zoneOfSys(E, pl.sys) : 5;
+  const where = u.dest ? `under way to <b>${esc(to ? to.name : '?')}</b>${V ? ` (${esc(sysOf(V.B)?.name || '?')}), ${V.left.toFixed(1)} ly to go` : ''} · ${plural(u.eta, 'eon')}${V && V.travelled > V.range ? ` · <b class="up">${(V.travelled - V.range).toFixed(1)} ly past its reach</b>` : ''}` : `resting at <b>${esc(pl ? pl.name : '?')}</b> (${esc(pl ? sysOf(pl.sys)?.name || '' : '')}, ${ZONE.names[z]})`;
+  const stats = [`worth ${fmt(t.cost)}`, t.dps ? `${fmt(t.dps)} dmg/s` : '', `hull ${fmt(t.hp)}`, t.armor ? `armour ${fmt(t.armor)}` : '', t.shieldRaw ? `shield ${fmt(t.shieldRaw)}` : '', t.research ? `lab ${fmt(t.research)}` : '', u.klass === 'starship' && !t.underDriven ? `reach ${shipRange(t).toFixed(1)} ly` : u.klass === 'starship' ? 'drive too small' : 'no star drive', `stamina ${Math.round(u.st ?? 100)} %`, (u.strain || 0) > 0.05 ? `strain ${u.strain.toFixed(1)} ly` : '', u.people ? `${peopleWord(u.people)} people aboard` : ''].filter(Boolean).join(' · ');
+  return `<div class="shiprow" ${big ? '' : `data-gship="${k}|${u.id}" style="cursor:pointer"`}><div class="n"><span style="display:flex;align-items:center;gap:8px"><canvas data-thumb="${tid}" data-emp="${k}" width="${big ? 240 : 96}" height="${big ? 140 : 56}" style="width:${big ? 160 : 64}px;height:${big ? 94 : 38}px;border-radius:6px;background:#04070f;flex:none"></canvas>${big ? `<span><b>${esc(u.design.name || u.name)}</b> <span class="tiny">· ${CLASS_NAME[u.klass] || u.klass}</span></span>` : `<b style="color:${E.look.colA}">${esc(u.name)}</b><span class="tiny">${Math.round(u.st ?? 100)} %${(u.strain || 0) > 0.05 ? ` · strain ${u.strain.toFixed(1)}` : ''}</span>`}</span>${big ? `<button class="x" data-gback>◂ back</button>` : ''}</div>
+    ${big ? `<div class="tiny">${where}</div><div class="tiny">${stats}</div>${u.design.chips ? `<div class="tiny">fitted: ${u.design.chips.filter(c => !c.off).map(c => `${c.kind.replace('weapon_', '')}${c.role ? ' ' + c.role : ''} ×${c.h}`).join(', ')}</div>` : ''}` : ''}</div>`;
+}
+function godPanel(s) {
+  const GE = godEmpires(), W = REPLAY.world, sysName = id => sysOf(id)?.name || id;
+  const board = GE.map((E, k) => {
+    const c = GODC[k], col = E.look.colA; if (!c) return `<div class="shiprow"><div class="n"><span><i class="dot" style="background:${col}"></i><b style="color:${col}">${esc(E.name)}</b> <span class="tiny">· fallen</span></span></div></div>`;
+    const cols = E.places.filter(p => p.colony), people = cols.reduce((a, p) => a + p.colony.people, 0), rest = c.ships.filter(x => !x.u.dest).length, away = c.ships.length - rest, worth = c.ships.reduce((a, x) => a + x.t.cost, 0);
+    return `<div class="shiprow"><div class="n"><span><i class="dot" style="background:${col}"></i><b style="color:${col}">${esc(E.name)}</b> <span class="tiny">· home ${esc(sysName(E.homeSys))}</span></span><span class="tiny">${plural(cols.length, 'colony').replace('colonys', 'colonies')} · ${peopleWord(people)} people</span></div>
+      <div class="tiny">${plural(c.ships.length, 'ship')} (${rest} resting, ${away} under way) worth ${fmt(worth)} · reserves ${fmt(E.reserves || 0)} · cohesion ${Math.round(E.cohesion)} % · ${plural(E.breakthroughs.length, 'breakthrough')} · focus ${XS.map((x, i) => `${X_INFO[x].name.slice(0, 6)} ${pct(E.focus[i])}`).join(' · ')}</div></div>`;
+  }).join('');
+  const sieges = Object.entries(W.sieges || {}).map(([key, n]) => { const [sys, v, a] = key.split('|'); return `<div class="note" style="margin:4px 0;border-color:${GE[+a].look.colA}"><b style="color:${GE[+a].look.colA}">${esc(GE[+a].name)}</b> besieges <b style="color:${GE[+v].look.colA}">${esc(GE[+v].name)}</b> at ${esc(sysName(sys))} — ${n} of 3 eons</div>`; }).join('');
+  let h = `<h2 style="margin-top:14px">👁 God mode <span class="tiny" style="text-transform:none;letter-spacing:0">· everyone, everything · eon ${W.eon}${W.winner != null ? ` · <b>${esc(GE[W.winner].name)} holds the galaxy</b>` : ''}</span></h2>${board}${sieges}`;
+  if (godPick && godPick.kind === 'ship') {           // one ship's card
+    const E = GE[godPick.k], sh = GODC[godPick.k] && GODC[godPick.k].ships.find(x => x.u.id === godPick.id);
+    if (sh) return h + `<h3 style="margin-top:12px;color:${E.look.colA}">${esc(E.name)}'s ${esc(sh.u.name)}</h3>` + godShipLine(E, godPick.k, sh, true);
+    godPick = null;
+  }
+  if (godPick && godPick.kind === 'fleet') {          // one fleet, ship by ship
+    const E = GE[godPick.k], c = GODC[godPick.k], ships = c ? c.ships.filter(x => !x.u.dest && (E.places.find(pl => pl.id === x.u.at) || {}).sys === godPick.sys) : [];
+    if (ships.length) return h + `<h3 style="margin-top:12px;display:flex;justify-content:space-between;align-items:center"><span style="color:${E.look.colA}">${esc(E.name)}'s fleet at ${esc(sysName(godPick.sys))} — ${plural(ships.length, 'ship')}, worth ${fmt(ships.reduce((a, x) => a + x.t.cost, 0))}</span><button class="x" data-gback>◂ the star</button></h3><div class="tiny" style="margin-bottom:4px">Click a ship for its card.</div>` + ships.sort((a, b) => b.t.cost - a.t.cost).map(x => godShipLine(E, godPick.k, x, false)).join('');
+    godPick = null;
+  }
+  h += `<h3 style="margin-top:12px">${esc(s.name)} <span class="tiny" style="text-transform:none;letter-spacing:0">· ${STARS[s.type].name}</span></h3>`;
+  let any = false;
+  GE.forEach((E, k) => {
+    const c = GODC[k]; if (!c) return; const col = E.look.colA, cols = E.places.filter(p => p.colony && p.sys === s.id), here = c.ships.filter(x => !x.u.dest && (E.places.find(pl => pl.id === x.u.at) || {}).sys === s.id), bound = c.ships.filter(x => x.u.dest && x.u.voy && x.u.voy.B === s.id), leaving = c.ships.filter(x => x.u.dest && x.u.voy && x.u.voy.A === s.id);
+    if (!cols.length && !here.length && !bound.length && !leaving.length) return; any = true;
+    h += `<div class="note" style="margin:6px 0;border-color:${col}"><b style="color:${col}">${esc(E.name)}</b>${cols.length ? ` holds ${cols.map(p => `${esc(p.name)}${p.id === E.homePlace ? ' (its homeworld)' : ''}, ${peopleWord(p.colony.people)} people${p.colony.factories ? `, ${p.colony.factories} factories` : ''}`).join(' and ')}` : ''}${here.length ? `${cols.length ? ';' : ''} ${plural(here.length, 'ship')} resting here (worth ${fmt(here.reduce((a, x) => a + x.t.cost, 0))}) <button class="x" data-gfleet="${s.id}|${k}">the ships ▸</button>` : ''}${bound.length ? `${cols.length || here.length ? ';' : ''} ${plural(bound.length, 'ship')} on the way here (${Math.max(...bound.map(x => x.u.eta))} eons at most)` : ''}${leaving.length ? `; ${plural(leaving.length, 'ship')} leaving` : ''}.</div>`;
+  });
+  if (!any) h += `<div class="tiny">Nobody here.</div>`;
+  h += `<div class="tiny" style="margin-top:8px">Every empire's sphere is drawn in its colour (solid core, dashed edge); a ring round a star is a colony (solid = a homeworld), a triangle a resting fleet (its slot by empire), a dot on a dashed line a ship under way — click any of them. The Empire select above still picks whose Empire and Star-system tabs you see.</div>`;
+  return h;
 }
 function openSystem(id, placeId) {
   selSys = gSel = id;
@@ -1006,6 +1115,7 @@ function removeModule(modId) {
 const TABS = ['empire', 'galaxy', 'system', 'design'];
 function refresh() {
   const c = LAST = compute(S);
+  GODC = godEmpires() ? REPLAY.world.empires.map(E => E.dead ? null : compute(E)) : null;
   renderTop(c); renderReplayBar();
   if (tab === 'empire') renderEmpire(c);
   if (tab === 'galaxy') renderGalaxy(c);
@@ -1166,13 +1276,20 @@ function renderReplayBar() {
   const word = a => a.type === 'send' ? `send ${a.n} × ${designWord(a.design)} ${sysWord(a.from)} → ${a.toPlace ? (placeOf(a.toPlace)?.name || a.toPlace) : sysWord(a.to)}` : a.type === 'settle' ? `settle ${placeOf(a.place)?.name || a.place}` : a.type === 'build' ? `build ${designWord(a.design)}` : a.type === 'buynow' ? 'buy now' : a.type === 'split' ? `split ${a.split.map(v => Math.round(v * 100)).join(' / ')}` : a.type === 'design' ? `design ${a.design.name}` : a.type === 'focus' ? 'move the focus' : a.type;
   const acts = (W ? REPLAY.log.empires[REPLAY.view].actions : REPLAY.log.actions).filter(a => a.eon === eon);
   const events = W ? (REPLAY.log.events || []).filter(e => e.eon === eon - 1) : [];
-  const who = W ? `<select data-rview title="look through this empire's eyes">${W.empires.map((E, i) => `<option value="${i}" ${i === REPLAY.view ? 'selected' : ''}>${esc(E.name)}${E.dead ? ' (fallen)' : ''}</option>`).join('')}</select>` : '';
+  const who = W ? `<select data-rview title="look through this empire's eyes">${W.empires.map((E, i) => `<option value="${i}" ${i === REPLAY.view ? 'selected' : ''}>${esc(E.name)}${E.dead ? ' (fallen)' : ''}</option>`).join('')}</select><button class="${GOD ? 'go' : 'x'}" data-rgod title="the galaxy map shows every empire — spheres, colonies, fleets, ships under way — and the panel a scoreboard; click any fleet or ship">👁 God mode${GOD ? ' ✓' : ''}</button>` : '';
   bar.hidden = false; bar.innerHTML = `<b>REPLAY</b>${who}<span class="tiny">seed “${esc(REPLAY.log.seedText)}” · eon ${eon} of ${REPLAY.last}${ended ? ' · the end' : ''}${S.dead ? ' · <b style="color:var(--bad)">this empire has fallen</b>' : ''}${acts.length ? ' · this eon: ' + acts.map(a => esc(word(a))).join(' · ') : ' · no orders this eon'}${events.length ? ' · <b style="color:var(--bad)">' + events.slice(0, 3).map(e => esc(e.text)).join(' · ') + (events.length > 3 ? ` · and ${events.length - 3} more` : '') + '</b>' : ''}</span><span style="flex:1"></span>
     <button class="x" data-rgoto="1" title="back to the start">⏮</button><button class="x" data-rstep="-10" title="ten eons back">⏪ 10</button><button class="x" data-rstep="-1" title="an eon back">◀</button><input type="number" data-reon value="${eon}" min="1" max="${REPLAY.last}" title="go to an eon (Enter)" style="width:66px"><button class="go" data-rstep="1" ${ended ? 'disabled' : ''}>▶ next</button><button class="x" data-rstep="10" ${ended ? 'disabled' : ''} title="ten eons on">⏩ 10</button><button class="x" data-rgoto="${REPLAY.last}" title="to the end" ${ended ? 'disabled' : ''}>⏭</button><button class="x" data-rstop title="stop the replay here and play on yourself${W ? ' — the other empires stand still from here' : ''}">✕ stop here</button>`;
 }
 $('eReplay').onclick = () => $('eReplayFile').click();
 $('eReplayFile').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; f.text().then(t => { try { replayLoad(JSON.parse(t)); } catch (x) { say('Could not read that file as a game log'); } }); };
-document.addEventListener('click', e => { const s = e.target.closest('[data-rstep]'); if (s) return replayStep(+s.dataset.rstep); const g = e.target.closest('[data-rgoto]'); if (g) return replayGoto(+g.dataset.rgoto); if (e.target.closest('[data-rstop]')) { REPLAY = null; refresh(); } });
+document.addEventListener('click', e => {
+  const s = e.target.closest('[data-rstep]'); if (s) return replayStep(+s.dataset.rstep); const g = e.target.closest('[data-rgoto]'); if (g) return replayGoto(+g.dataset.rgoto);
+  if (e.target.closest('[data-rstop]')) { REPLAY = null; GOD = false; godPick = null; if (gMode === 'god') gMode = 'system'; return refresh(); }
+  if (e.target.closest('[data-rgod]')) { GOD = !GOD; godPick = null; gMode = GOD ? 'god' : 'system'; if (GOD) go('galaxy'); else refresh(); return; }
+  const gf = e.target.closest('[data-gfleet]'); if (gf && godEmpires()) { const [sys, k] = gf.dataset.gfleet.split('|'); godPick = { kind: 'fleet', k: +k, sys }; gSel = sys; return refresh(); }
+  const gs = e.target.closest('[data-gship]'); if (gs && godEmpires()) { const [k, id] = gs.dataset.gship.split('|'); godPick = { kind: 'ship', k: +k, id }; return refresh(); }
+  if (e.target.closest('[data-gback]') && godEmpires()) { if (godPick && godPick.kind === 'ship') { const E = REPLAY.world.empires[godPick.k], u = E.ships.find(x => x.id === godPick.id), pl = u && !u.dest && E.places.find(p => p.id === u.at); godPick = pl ? { kind: 'fleet', k: godPick.k, sys: pl.sys } : null; } else godPick = null; return refresh(); }
+});
 document.addEventListener('change', e => { if (e.target.matches('[data-rview]')) return replayView(+e.target.value); if (e.target.matches('[data-reon]')) return replayGoto(+e.target.value); });
 document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('[data-reon]')) replayGoto(+e.target.value); });
 window.sbsReplay = replayLoad;                       // for tests: load a log by hand
@@ -1181,13 +1298,13 @@ window.sbsReplayGoto = replayGoto;
 // fought — your ships' designs as they were (capsules and all, keep: true), each one's stamina, the hostile plan, the same dice; your
 // side wears your coat, theirs the look drawn from its name. The frame answers with the result line and a tapped ship's card.
 let arenaReady = false, arenaPending = null;
-function watchBattle(id) {
-  const b = (S.battles || []).find(x => x.id === id); if (!b) return say('That battle is gone from the record');
-  const L = S.look || {}, hulls = {};
+function watchBattle(id, E = S) {                    // E: whose record (God mode replays another empire's battle from its side)
+  const b = (E.battles || []).find(x => x.id === id); if (!b) return say('That battle is gone from the record');
+  const L = E.look || {}, hulls = {}, mine = E === S ? 'Your fleet' : `${E.name}'s fleet`;
   for (const m of b.mine) { const h = hullDef(m.design.hull); if (h && h.user) { const { user, ...rec } = h; hulls[h.id] = rec; } }
-  const pa = { name: 'Your fleet', style: L.style || styleChoices()[0].id, colA: L.colA || '#7fb3ff', colB: L.colB || '#ffb347', hulls, ships: b.mine.map(m => ({ design: m.design, keep: true, name: m.name, en0: m.en0, cost: 0, seed: 1, locked: true })) };
-  const msg = { type: 'fight', a: planCode(pa), b: planCode(b.foe), seed: b.seed, techA: S.breakthroughs, techB: b.foeTech || [] };   // another empire's fleet brings its own tech (world.js)
-  $('arenaWrap').hidden = false; $('shipInfo').hidden = true; $('arenaNote').textContent = `Battle at ${esc(sysOf(b.sys)?.name || '?')}, eon ${b.eon} — your ${plural(b.mine.length, 'ship')} against ${esc(b.foe.name)} — replaying…`;
+  const pa = { name: mine, style: L.style || styleChoices()[0].id, colA: L.colA || '#7fb3ff', colB: L.colB || '#ffb347', hulls, ships: b.mine.map(m => ({ design: m.design, keep: true, name: m.name, en0: m.en0, cost: 0, seed: 1, locked: true })) };
+  const msg = { type: 'fight', a: planCode(pa), b: planCode(b.foe), seed: b.seed, techA: E.breakthroughs, techB: b.foeTech || [] };   // another empire's fleet brings its own tech (world.js)
+  $('arenaWrap').hidden = false; $('shipInfo').hidden = true; $('arenaNote').textContent = `Battle at ${esc(sysOf(b.sys)?.name || '?')}, eon ${b.eon} — ${E === S ? 'your' : esc(E.name) + "'s"} ${plural(b.mine.length, 'ship')} against ${esc(b.foe.name)} — replaying…`;
   const fr = $('arenaFrame'); if (!fr.getAttribute('src') || fr.getAttribute('src') === 'about:blank') { arenaReady = false; fr.src = 'lab.html#arena'; }
   if (arenaReady) fr.contentWindow.postMessage(msg, '*'); else arenaPending = msg;
 }
