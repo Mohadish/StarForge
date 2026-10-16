@@ -31,6 +31,11 @@ const CSS = `
 .ce-tray .stack.auto { cursor: default; border-style: dotted; background: rgba(255,255,255,.03) }
 .ce-tray .stack.auto small { color: var(--warn, #ffd26a) }
 .ce-tray .stack small.stat { color: var(--warn, #ffd26a) }
+.ce-tray .stack .btns { display: inline-flex; gap: 2px; margin-left: auto }
+.ce-tray .stack .eye { font-size: 11px; opacity: .6 }
+.ce-tray .stack.off { opacity: .5; border-style: dashed }
+.ce-tray .stack.off b { text-decoration: line-through }
+.ce-tray .stack.off .eye { opacity: 1; color: var(--bad, #ff7979) }
 .ce-tray .stack.over { background: rgba(126,243,176,.18); border-color: var(--good, #7ef3b0) }
 .ce-tray .stack .hh { font-style: normal; font-weight: 800; color: var(--warn, #ffd26a) }
 .ce-tray .stack small { color: var(--fg, #e8f0ff); font-size: 11px }
@@ -92,8 +97,9 @@ export function createChipEditor({ palette, tray, info, sheet, dropZones = [] },
   const label = s => nameOf(s.type || (CHIPS.weapon.some(c => c[0] === s.kind) ? 'weapon' : 'trait'), s.kind);
   const isWeapon = s => CHIPS.weapon.some(c => c[0] === s.kind);
   function render() {
-    const subOf = s => { if (!stackSub) return ''; const t = stackSub(s, ship ? ship.ds.mods.filter(x => x.mod.src === s.id) : [], ship); return t ? `<small class="stat">${t}</small>` : ''; };
-    const chip = s => `<span class="stack ${s.id === sel ? 'sel' : ''}" data-stack="${s.id}" style="--c:${CHIPC[s.kind]}" title="double-click: its details and dials"><b>${label(s)}</b>${s.h > 1 ? `<i class="hh">×${s.h}</i>` : ''}${s.role ? `<small>${nameOf('role', s.role)}</small>` : ''}${subOf(s)}${s.caps && s.caps.length ? `<span class="tuned" title="breakthrough capsules on it">✦${s.caps.length}</span>` : ''}${s.dials && Object.keys(s.dials).length ? '<span class="tuned" title="its dials are turned">⚙</span>' : ''}<button class="x" data-sopen="${s.id}" title="its details and dials">${open === s.id ? '▴' : '▾'}</button><button class="x" data-stackup="${s.id}" title="one more">+</button><button class="x" data-unstack="${s.id}" title="one off">−</button></span>`;
+    const subOf = s => { if (s.off) return '<small class="stat">hidden — left out of the ship</small>'; if (!stackSub) return ''; const t = stackSub(s, ship ? ship.ds.mods.filter(x => x.mod.src === s.id) : [], ship); return t ? `<small class="stat">${t}</small>` : ''; };
+    // 👁 HIDES a stack (his ask, 2026-10-16): it stays here, dimmed, but is left out of the ship — to try setups without losing the chips
+    const chip = s => `<span class="stack ${s.id === sel ? 'sel' : ''}${s.off ? ' off' : ''}" data-stack="${s.id}" style="--c:${CHIPC[s.kind]}" title="double-click: its details and dials"><b>${label(s)}</b>${s.h > 1 ? `<i class="hh">×${s.h}</i>` : ''}${s.role ? `<small>${nameOf('role', s.role)}</small>` : ''}${subOf(s)}${s.caps && s.caps.length ? `<span class="tuned" title="breakthrough capsules on it">✦${s.caps.length}</span>` : ''}${s.dials && Object.keys(s.dials).length ? '<span class="tuned" title="its dials are turned">⚙</span>' : ''}<span class="btns"><button class="x" data-sopen="${s.id}" title="its details and dials">${open === s.id ? '▴' : '▾'}</button><button class="x" data-stackup="${s.id}" title="one more">+</button><button class="x" data-unstack="${s.id}" title="one off">−</button><button class="x eye" data-shide="${s.id}" title="${s.off ? 'show it: build it into the ship again' : 'hide it: keep it here, leave it out of the ship'}">👁</button></span></span>`;
     let html;
     if (groupBy) {                                     // in groups, each under its header, the groups in the order given; a group's AUTO chips (the ship's own systems, not added by hand) come first in it
       const by = new Map(); for (const s of stacks) { const g = groupBy(s); (by.get(g) || by.set(g, []).get(g)).push(s); }
@@ -136,6 +142,7 @@ export function createChipEditor({ palette, tray, info, sheet, dropZones = [] },
   }
   tray.addEventListener('click', e => {
     const up = e.target.closest('[data-stackup]'); if (up) { const s = stacks.find(x => x.id === +up.dataset.stackup); if (s) { s.h++; sel = s.id; } return emit(); }
+    const hide = e.target.closest('[data-shide]'); if (hide) { const s = stacks.find(x => x.id === +hide.dataset.shide); if (s) { s.off = !s.off; if (!s.off) delete s.off; sel = s.id; } return emit(); }
     const u = e.target.closest('[data-unstack]'); if (u) { const s = stacks.find(x => x.id === +u.dataset.unstack); if (s) { s.h--; if (s.h <= 0) { stacks = stacks.filter(x => x !== s); if (open === s.id) open = null; } } return emit(); }
     const o = e.target.closest('[data-sopen]'); if (o) { const id = +o.dataset.sopen; open = open === id ? null : id; sel = id; return render(); }
     const st = e.target.closest('[data-stack]'); if (st) { sel = +st.dataset.stack; if (openOnClick || open !== null) open = sel; render(); }
@@ -180,7 +187,7 @@ export function createChipEditor({ palette, tray, info, sheet, dropZones = [] },
         if (x.kind === 'gantry') html += `<div>${n} gantr${n > 1 ? 'ies' : 'y'} ${x.rect ? x.rect.join(' × ') : '4 × 2'} · cost ${fmt(x.cost * n)}</div><div class="muted">a space dock: ships that fit inside it are built whole wherever it is parked</div>`;
       }
     }
-    if (!mods.length) html += `<div class="muted">${ship ? 'nothing of it made it into the ship at this price' : 'build the ship to see what it does'}</div>`;
+    if (!mods.length) html += `<div class="muted">${s.off ? 'hidden: it is left out of the ship — press 👁 on it to build it in again' : ship ? 'nothing of it made it into the ship at this price' : 'build the ship to see what it does'}</div>`;
     if (infoExtra) html += infoExtra(s, mods) || '';
     info.innerHTML = html;
   }

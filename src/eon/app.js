@@ -154,7 +154,7 @@ const scaleInfo = (poly, volume) => { const a0 = areaOf(poly) || 1, b = bboxOf(p
 // the STAGE (his layout, 2026-10-15): the chip piles float over the left of the canvas (#cTray, TRAY_W wide), the systems the
 // design sizes for itself show among them (autoChips), the ship takes a share of the rest by its width (shipShare).
 // The price and the size, big, above the ship.
-const TRAY_W = 230;
+const TRAY_W = 300;                                 // wide piles (his ask, 2026-10-16): room for the multiplier, a role, the stat line, the buttons — and more to come
 function stageGeo() {
   const cv = $('dPaint'), W = cv.clientWidth || 900, H = cv.clientHeight || 440; if (cv.width !== W) cv.width = W; if (cv.height !== H) cv.height = H;
   const x0 = TRAY_W + 16, w = Math.max(160, W - 16 - x0); return { W, H, x0, w, X: x0 + w / 2 };
@@ -673,7 +673,7 @@ function placeInfo(openId) {
   info.style.top = clamp(top, 8, Math.max(8, st.clientHeight - info.offsetHeight - 8)) + 'px';
 }
 let chipsFor = null, fitGunsFor = null;              // the design whose chips are in the editor · the design whose guns must be fitted on the next paint (its piles changed)
-const stacksOut = () => gameChips.stacks.map(s => ({ id: s.id, type: s.type, kind: s.kind, h: s.h, role: s.role, ...(s.dials ? { dials: { ...s.dials } } : {}), ...(s.caps && s.caps.length ? { caps: s.caps.slice() } : {}) }));
+const stacksOut = () => gameChips.stacks.map(s => ({ id: s.id, type: s.type, kind: s.kind, h: s.h, role: s.role, ...(s.off ? { off: true } : {}), ...(s.dials ? { dials: { ...s.dials } } : {}), ...(s.caps && s.caps.length ? { caps: s.caps.slice() } : {}) }));
 function rebuildFromChips(d, c) {
   d.chips = stacksOut();
   const made = designFromStacks(S, d.chips, { klass: d.klass, name: d.name, hull: d.hull || undefined, id: d.id, caps: c ? c.caps : allCapsules(S), gunsPerChip: 1 });   // a chip is ONE gun here (odd counts: a lone gun leads on the midline)

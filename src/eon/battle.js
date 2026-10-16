@@ -527,6 +527,7 @@ export function designFromChips(S, stacks, budget, rng = rng32(1), caps = allCap
   // stack it came from (`src`), so the editor can show what each stack became.
   const tune = (m, dl) => { if (!dl) return; for (const k of ['dmg', 'rof', 'rng', 'chg']) if (dl[k]) m[k] = dl[k]; };
   for (const s of stacks) {
+    if (s.off) continue;                                                             // a HIDDEN stack (the editor's 👁): kept in the tray, left out of the ship
     const h = Math.max(1, s.h || 1), dl = s.dials || null;
     if (s.kind === 'hangar') { const m = hangarFor(4 * h, (dl && dl.sz) || 1, s.role); m.src = s.id; d.modules.push(m); names.push(`Drones${h > 1 ? ' ×' + h : ''}${s.role && s.role !== 'standard' ? ' ' + PRESETS[s.role].name.toLowerCase() : ''}`); }
     else if (KINDS[s.kind]?.mount) { const m = { id: uid(), kind: s.kind, caps: [], n: 2 * h, src: s.id }; applyPreset(m, s.role && PRESETS[s.role] ? s.role : 'standard'); tune(m, dl); d.modules.push(m); names.push(`${NAMES[s.kind]}${h > 1 ? ' ×' + h : ''}${s.role && s.role !== 'standard' ? ' ' + PRESETS[s.role].name.toLowerCase() : ''}`); }
@@ -555,6 +556,7 @@ export function designFromStacks(S, stacks, { klass = 'starship', name = '', hul
   if (klass === 'starship') d.modules.push({ id: uid(), kind: 'stardrive', caps: [], n: 1, k: 1 });
   const tune = (m, dl) => { if (!dl) return; for (const k of ['dmg', 'rof', 'rng', 'chg']) if (dl[k]) m[k] = dl[k]; };
   for (const s of stacks) {
+    if (s.off) continue;                                                             // a HIDDEN stack (the editor's 👁): kept in the tray, left out of the ship
     const h = Math.max(1, s.h || 1), dl = s.dials || null, cp = (s.caps || []).slice(), add = m => { m.caps = cp.slice(); m.src = s.id; d.modules.push(m); };
     if (s.kind === 'hangar') add(hangarFor(4 * h, (dl && dl.sz) || 1, s.role));
     else if (KINDS[s.kind]?.mount) { const m = { id: uid(), kind: s.kind, n: gunsPerChip * h }; applyPreset(m, s.role && PRESETS[s.role] ? s.role : 'standard'); tune(m, dl); add(m); }

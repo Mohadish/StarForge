@@ -106,12 +106,13 @@
 /* the Design tab as the painter (2026-10-15): the ship big in the middle, the chip piles over the left of its stage, the numbers on the right */
 #dMain.chipmode{display:flex;flex-direction:column;min-height:0}
 #dMain.chipmode #dSummary{display:none}
-#cTray.ce-tray{position:absolute;left:8px;top:8px;bottom:8px;width:216px;margin:0;padding:4px;border:0;border-radius:10px;background:transparent;display:flex;flex-direction:column;flex-wrap:nowrap;align-items:stretch;justify-content:flex-start;gap:6px;overflow:auto}
+#cTray.ce-tray{position:absolute;left:8px;top:8px;bottom:8px;width:286px;margin:0;padding:4px;border:0;border-radius:10px;background:transparent;display:flex;flex-direction:column;flex-wrap:nowrap;align-items:stretch;justify-content:flex-start;gap:6px;overflow:auto}
 #cTray.ce-tray.over{outline:1px dashed var(--good);background:rgba(126,243,176,.05)}
-#cTray.ce-tray .stack{font-size:14px;padding:9px 10px;justify-content:space-between;flex-wrap:wrap}
-#cTray.ce-tray .stack b{flex:1}
+#cTray.ce-tray .stack{font-size:14px;padding:9px 10px;justify-content:flex-start;flex-wrap:wrap;gap:4px 8px}
+#cTray.ce-tray .stack b{flex:0 1 auto}
 #cTray.ce-tray .stack small{flex-basis:100%;order:9;margin-top:-2px}
-#cInfo.ce-info{position:absolute;left:236px;top:8px;width:330px;max-height:calc(100% - 16px);overflow:auto;z-index:2;margin:0;background:rgba(11,17,32,.96);box-shadow:0 6px 24px rgba(0,0,0,.5)}
+#cTray.ce-tray .stack small:not(.stat){flex-basis:auto;order:0;margin:0}
+#cInfo.ce-info{position:absolute;left:306px;top:8px;width:330px;max-height:calc(100% - 16px);overflow:auto;z-index:2;margin:0;background:rgba(11,17,32,.96);box-shadow:0 6px 24px rgba(0,0,0,.5)}
 #cTray.ce-tray .ce-grp{flex-basis:auto;margin:8px 0 0}
 #dStats .sum{grid-template-columns:1fr}
 #dStats .sec:first-child{margin-top:0;padding-top:0;border-top:0}
