@@ -20,6 +20,7 @@ import { createDialog, saveFlow } from './hullui.js';
 import { paintHull, recipeWith, RECIPE } from './paint.js';
 import { STYLES, loadStyle } from './styles.js';
 import { buildPlan, planCode } from './fleetplan.js';
+import { applyEon } from './replay.js';
 mountNav('eon', { into: document.getElementById('topbar') });
 
 const KEY = 'forge.eon.v8';
@@ -981,7 +982,7 @@ function removeModule(modId) {
 const TABS = ['empire', 'galaxy', 'system', 'design'];
 function refresh() {
   const c = LAST = compute(S);
-  renderTop(c);
+  renderTop(c); renderReplayBar();
   if (tab === 'empire') renderEmpire(c);
   if (tab === 'galaxy') renderGalaxy(c);
   if (tab === 'system') renderSystem(c);
@@ -1081,7 +1082,37 @@ $('dName').onblur = () => refresh();
 $('dNew').onclick = () => { leaveOutline(); const full = shipDesignCount() >= MAX_SHIP_DESIGNS; const d = { id: uid('d'), name: 'New design', klass: full ? 'structure' : 'starship', modules: [], chips: full ? [] : [{ type: 'weapon', kind: 'weapon_energy', h: 1, role: null }], paint: { plating: 0, fittings: 0, seed: Math.floor(Math.random() * 1000) } }; S.designs.push(d); curDesign = d.id; selMod = null; chipsFor = null; save(); if (full) say(`${MAX_SHIP_DESIGNS} ship designs at most — this one is a structure; delete a ship design to make room`); else refresh(); };
 $('dCopy').onclick = () => { const d = design(); if (!d) return; if ((d.klass || DS?.t.klass) !== 'structure' && shipDesignCount() >= MAX_SHIP_DESIGNS) return say(`${MAX_SHIP_DESIGNS} ship designs at most — delete one first (refits come later)`); leaveOutline(); const c = JSON.parse(JSON.stringify(d)); c.id = uid('d'); c.name = d.name + ' II'; for (const m of c.modules) m.id = uid('m'); S.designs.push(c); curDesign = c.id; selMod = null; chipsFor = null; save(); refresh(); };
 $('dDel').onclick = () => { const d = design(); if (!d || !confirm(`Delete the design "${d.name}"? What is already built stays.`)) return; leaveOutline(); S.designs = S.designs.filter(x => x.id !== d.id); curDesign = S.designs[0]?.id || null; selMod = null; chipsFor = null; save(); refresh(); };
-$('eEnd').onclick = () => { const rep = endEon(S); newIds = new Set(rep.filter(r => r.kind === 'breakthrough').map(r => r.id)); save(); refresh(); };
+$('eEnd').onclick = () => { if (REPLAY) return replayStep(1); const rep = endEon(S); newIds = new Set(rep.filter(r => r.kind === 'breakthrough').map(r => r.id)); save(); refresh(); };
+// REPLAY a logged game (src/eon/replay.js; tools/play/play.mjs writes one): the seed, then every logged order eon by eon,
+// through the game itself — the same seed and orders give the same game. Stop anywhere and the game is yours from there.
+let REPLAY = null;
+const sysWord = id => sysOf(id)?.name || id, designWord = id => S.designs.find(d => d.id === id)?.name || id;
+function replayLoad(log) {
+  if (!log || !Array.isArray(log.actions) || log.seedText == null) return say('That is not a game log');
+  leaveOutline(); S = newState(seedOf(log.seedText)); S.seedText = String(log.seedText);
+  REPLAY = { log, last: log.eons && log.eons.length ? Math.max(...log.eons.map(e => e.eon)) : Math.max(0, ...log.actions.map(a => a.eon)) + 1 };
+  curDesign = S.designs[0]?.id || null; selMod = null; chipsFor = null; gMode = 'system'; gView = { z: 1, x: 0, y: 0 }; selSys = gSel = S.homeSys; selPlace = 'home'; newIds = new Set(); seedDraft = null;
+  replayApply(); save(); go('empire');
+}
+function replayApply() { if (!REPLAY) return; const errs = applyEon(S, REPLAY.log.actions, S.eon); if (errs.length) console.warn('replay: orders refused', errs); }
+function replayStep(n) {
+  for (let k = 0; k < n && REPLAY; k++) {
+    const rep = endEon(S); newIds = new Set(rep.filter(r => r.kind === 'breakthrough').map(r => r.id));
+    if (S.eon >= REPLAY.last) { REPLAY = null; say('The replay has ended — the game is yours from here'); break; }
+    replayApply();
+  }
+  save(); refresh();
+}
+function renderReplayBar() {
+  const bar = $('replayBar'); if (!bar) return; if (!REPLAY) { bar.hidden = true; return; }
+  const word = a => a.type === 'send' ? `send ${a.n} × ${designWord(a.design)} ${sysWord(a.from)} → ${sysWord(a.to)}` : a.type === 'build' ? `build ${designWord(a.design)}` : a.type === 'buynow' ? 'buy now' : a.type === 'split' ? `split ${a.split.map(v => Math.round(v * 100)).join(' / ')}` : a.type === 'design' ? `design ${a.design.name}` : a.type === 'focus' ? 'move the focus' : a.type;
+  const acts = REPLAY.log.actions.filter(a => a.eon === S.eon);
+  bar.hidden = false; bar.innerHTML = `<b>REPLAY</b><span class="tiny">seed “${esc(S.seedText)}” · eon ${S.eon} of ${REPLAY.last}${acts.length ? ' · this eon: ' + acts.map(a => esc(word(a))).join(' · ') : ' · no orders this eon'}</span><span style="flex:1"></span><button class="go" data-rstep="1">▶ next eon</button><button class="x" data-rstep="10">⏩ 10</button><button class="x" data-rstep="100000">⏭ to the end</button><button class="x" data-rstop title="stop the replay here and play on yourself">✕ stop here</button>`;
+}
+$('eReplay').onclick = () => $('eReplayFile').click();
+$('eReplayFile').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; f.text().then(t => { try { replayLoad(JSON.parse(t)); } catch (x) { say('Could not read that file as a game log'); } }); };
+document.addEventListener('click', e => { const s = e.target.closest('[data-rstep]'); if (s) return replayStep(+s.dataset.rstep); if (e.target.closest('[data-rstop]')) { REPLAY = null; refresh(); } });
+window.sbsReplay = replayLoad;                       // for tests: load a log by hand
 // WATCH A BATTLE (his ask, 2026-10-16): the lab's arena (lab.html#arena) in a frame over the game replays a fight this eon as it was
 // fought — your ships' designs as they were (capsules and all, keep: true), each one's stamina, the hostile plan, the same dice; your
 // side wears your coat, theirs the look drawn from its name. The frame answers with the result line and a tapped ship's card.
