@@ -557,7 +557,10 @@ function renderSystem(c) {
       <div class="prog"><div style="width:${100 * Math.min(1, (q.item.progress + q.spend) / q.cost)}%;background:var(--cost)"></div></div>
       <div class="tiny">${q.noDock ? '<b class="up">waiting — there is no space dock here to put it together in</b>' : `${fmt(q.item.progress)} / ${fmt(q.cost)} · ${q.finishes ? '<b class="down">finished this eon</b>' : q.joining ? `paid for — joining the sections, ${plural(q.joinLeft, 'eon')} left` : Number.isFinite(q.eta) ? 'ready in ' + plural(q.eta, 'eon') : 'nobody in industry'}`}${q.sections > 1 ? ` · <b class="up">too big for the ${q.fit.w} × ${q.fit.h} gantry: built in ${q.sections} sections, ${extraCost(q.fit)}</b>` : ''}${q.ds.klass !== 'structure' && q.ds.housing > 0 ? ` · takes ${peopleWord(Math.max(0, Math.min(q.ds.housing * SCALE.shipHousing, P.people - 5)))} people aboard` : ''}</div></div>`).join('');
     const slips = pc.gantries.slice().sort((a, b) => b.w * b.h - a.w * a.h);
+    const surf = surfaceCounts(pc);
     h += `<h3>The colony</h3>
+      <canvas id="sSurface" class="surface" title="the colony from above: city blocks (one per ${surf.per} M people), farm plots (one per ${SURF.farm} food), its structures as their outlines"></canvas>
+      <div class="tiny" style="margin-bottom:6px">${surf.blocks} city block${surf.blocks === 1 ? '' : 's'} of ${surf.per} M${pc.full ? ' — <b class="up">up to the room\'s edge</b>' : ''} · <span style="color:${surf.have >= surf.need ? 'var(--good)' : 'var(--bad)'}">${surf.have} of ${surf.need} farm plots</span> (${fmt(pc.food)} food for ${fmt(pc.eat)} eaten) · ${plural(P.structures.length, 'structure')}</div>
       <div class="tiny">${peopleWord(P.people)} people of ${peopleWord(pc.housing)} room <b class="${pc.dPeople < 0 ? 'up' : 'down'}">${pc.dPeople < 0 ? '−' : '+'}${peopleWord(Math.abs(pc.dPeople))}</b>${pc.full ? ' · <b class="up">housing is full — build habitats</b>' : ''} · happiness ${Math.round(P.happiness)} · food ${signed(pc.surplus)}</div>
       <svg class="ptri" data-planet="${pl.id}" width="200" height="150" viewBox="0 0 200 150">
         <polygon points="100,16 22,134 178,134" fill="rgba(255,255,255,.03)" stroke="rgba(255,255,255,.35)"/>
@@ -584,6 +587,47 @@ function renderSystem(c) {
   if (leaving.length) h += `<h3>Leaving</h3>` + movingLines(leaving);
   if (!pc && pl.landable) h += `<div class="tiny" style="margin-top:8px">To settle ${esc(pl.name)}: build a ship that has a habitat (the people go aboard when it is built), send it here, and press Settle. The ship becomes the colony's first building.</div>`;
   $('sPanel').innerHTML = h; fillThumbs($('sPanel'));
+  if (pc && $('sSurface')) drawSurface($('sSurface'), pc);
+}
+// THE SURFACE (his ask, 2026-10-16): the colony from above, in the system panel — city blocks that multiply with its people (one
+// per SURF.block million; a huge city counts more a block), farm plots that follow its FOOD (a plot per SURF.farm units: the ones
+// its people need, green when the food is there and red when it is short — so the fields tell the food story), and its
+// structures as their outlines, no more. Everything sits on a sunflower spiral: what is there stays put, new blocks grow at the rim.
+const SURF = { block: 5, farm: 4, gold: 2.399963 };
+function surfaceCounts(pc) {
+  let per = SURF.block; while (pc.P.people / per > 240) per *= 2;
+  const blocks = Math.max(1, Math.ceil(pc.P.people / per)), roomBlocks = Math.max(blocks, Math.ceil(pc.housing / per));
+  const need = Math.max(1, Math.ceil(pc.eat / SURF.farm)), have = Math.max(0, Math.round(pc.food / SURF.farm));
+  return { per, blocks, roomBlocks, need, have };
+}
+function drawSurface(cv, pc) {
+  const W = cv.clientWidth || 300, H = 240; if (cv.width !== W) cv.width = W; if (cv.height !== H) cv.height = H;
+  const g = cv.getContext('2d'), P = pc.P, { per, blocks, roomBlocks, need, have } = surfaceCounts(pc), col = lookOf(pc.pl).color;
+  g.fillStyle = '#04070f'; g.fillRect(0, 0, W, H); g.fillStyle = col; g.globalAlpha = 0.09; g.fillRect(0, 0, W, H); g.globalAlpha = 1;   // the ground, in the world's tint
+  const cx = W * 0.4, cy = H / 2, spot = (i, step, r0) => { const r = r0 + step * Math.sqrt(i), a = i * SURF.gold; return [cx + r * Math.cos(a), cy + r * Math.sin(a)]; };
+  // the city, and its ROOM (the housing) as a dashed ring where the blocks would end
+  const step = 6.5, rRoom = step * Math.sqrt(roomBlocks) + 4;
+  g.strokeStyle = pc.full ? 'rgba(255,121,121,.6)' : 'rgba(255,255,255,.28)'; g.setLineDash([3, 4]); g.lineWidth = 1; g.beginPath(); g.arc(cx, cy, rRoom, 0, 7); g.stroke(); g.setLineDash([]);
+  for (let i = 0; i < blocks; i++) { const [x, y] = spot(i, step, 0); g.fillStyle = 'rgba(232,240,255,.16)'; g.fillRect(x - 2.5, y - 2.5, 5, 5); g.strokeStyle = '#e8f0ff'; g.strokeRect(x - 2.5, y - 2.5, 5, 5); }
+  // the farms, round the city: fed plots green, the ones it is short of red and dashed, spare ones faint
+  const plots = Math.max(need, have), fstep = 11;
+  for (let i = 0; i < plots; i++) {
+    const [x, y] = spot(i, fstep, rRoom + 12), fed = i < have, spare = i >= need;
+    g.setLineDash(fed ? [] : [2, 2]); g.strokeStyle = fed ? (spare ? 'rgba(126,243,176,.45)' : '#7ef3b0') : '#ff7979'; g.fillStyle = fed ? `rgba(126,243,176,${spare ? 0.06 : 0.16})` : 'rgba(255,121,121,.08)';
+    g.fillRect(x - 4, y - 4, 8, 8); g.strokeRect(x - 4, y - 4, 8, 8);
+  }
+  g.setLineDash([]);
+  // the structures: their outlines in a column at the right, the biggest first, a landed ship dashed
+  const sts = P.structures.map(u => { const t = designStats(S, u.design, LAST.caps).t; return { u, hull: t.hull, dock: t.dock }; }).sort((a, b) => b.hull.area - a.hull.area);
+  const colX = W * 0.86, slotH = Math.min(44, (H - 16) / Math.max(1, sts.length)); let y0 = 8 + slotH / 2;
+  for (const { u, hull, dock } of sts) {
+    const k = Math.min(48 / hull.bw, (slotH - 14) / hull.bh), b = hull.box, mx = (b.minx + b.maxx) / 2, my = (b.miny + b.maxy) / 2;
+    g.beginPath(); hull.poly.forEach(([x, y], i) => i ? g.lineTo(colX + (x - mx) * k, y0 + (y - my) * k) : g.moveTo(colX + (x - mx) * k, y0 + (y - my) * k)); g.closePath();
+    g.setLineDash(u.landed ? [3, 2] : []); g.strokeStyle = dock ? '#e8c56b' : '#ffb347'; g.fillStyle = dock ? 'rgba(232,197,107,.12)' : 'rgba(255,179,71,.12)'; g.fill(); g.stroke(); g.setLineDash([]);
+    g.fillStyle = '#9eb3d8'; g.font = '9px sans-serif'; g.textAlign = 'center'; g.fillText(u.name.length > 14 ? u.name.slice(0, 13) + '…' : u.name, colX, y0 + (slotH - 14) / 2 + 9);
+    y0 += slotH;
+  }
+  g.textAlign = 'left';
 }
 
 let triDrag = null;
