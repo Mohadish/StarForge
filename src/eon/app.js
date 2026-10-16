@@ -106,7 +106,7 @@ function stackRow(g, { send = true, settleAt = null, foe = null } = {}) {
       `stamina ${Math.round(lo) === Math.round(hi) ? Math.round(lo) : `${Math.round(lo)}–${Math.round(hi)}`} %${lo < 100 ? (restock ? ` (restocking +${ZONE.recover[z]} an eon in the ${ZONE.names[z]})` : ' — <b class="up">no restocking out here</b>') : ''}`, strain > 0.05 ? `<b class="${restock ? '' : 'up'}">strain ${strain.toFixed(1)} ly</b>${restock ? '' : ' (it stacks out here)'}` : '', people ? `${peopleWord(people)} people aboard` : ''].filter(Boolean).join(' · ');
   }
   const settler = !foe && settleAt && g.ships.find(s => s.u.people > 0);
-  return `<div class="shiprow"><div class="n"><span style="display:flex;align-items:center;gap:8px"><canvas data-thumb="${tid}" ${foe ? `data-foe="${esc(foe)}"` : ''} width="96" height="56" style="width:64px;height:38px;border-radius:6px;background:#04070f;flex:none"></canvas><b>${esc(g.name)}</b><b style="color:var(--time)">×${total}</b></span>
+  return `<div class="shiprow" ${foe ? '' : `data-shipctx="me|${g.ships.map(s => s.u.id).join(',')}" title="right-click for the full spec"`}><div class="n"><span style="display:flex;align-items:center;gap:8px"><canvas data-thumb="${tid}" ${foe ? `data-foe="${esc(foe)}"` : ''} width="96" height="56" style="width:64px;height:38px;border-radius:6px;background:#04070f;flex:none"></canvas><b>${esc(g.name)}</b><b style="color:var(--time)">×${total}</b></span>
     ${send ? `<span class="stepper" title="how many of them to send"><button data-gpick="${g.key}" data-max="${total}" data-d="-1">−</button><b>${n}</b><button data-gpick="${g.key}" data-max="${total}" data-d="1">+</button><button class="x" data-gall="${g.key}" data-max="${total}">${n === total ? 'none' : 'all'}</button></span>` : foe ? '' : '<span class="tiny">stays in its system</span>'}</div>
     <div class="tiny">${line}</div>${settler ? `<div class="acts"><button class="go" data-settle="${settler.u.id}">Settle ${esc(settleAt.name)} with one</button></div>` : ''}</div>`;
 }
@@ -134,7 +134,7 @@ function movingLines(list) {
   return [...m.values()].map(ss => {
     const u = ss[0].u, cnt = {}; for (const s of ss) cnt[s.u.name] = (cnt[s.u.name] || 0) + 1;
     const names = Object.entries(cnt).map(([n, k]) => `${esc(n)} ×${k}`).join(', '), to = placeOf(u.dest), V = u.voy, lo = Math.min(...ss.map(s => s.u.st ?? 100));
-    return `<div class="shiprow"><div class="n"><span>${names} → ${esc(to.name)}${V && to.kind !== 'star' ? ` (${esc(sysOf(to.sys).name)})` : ''} <span class="tiny">· ${plural(u.eta, 'eon')}</span></span><button class="x" data-recall="${u.id}" title="${V ? 'the fleet turns round: the way back counts on the same voyage' : 'they stay where they are'}">call back</button></div>${V ? `<div class="tiny">${V.left.toFixed(1)} ly to go · stamina ${Math.round(lo)} %${V.travelled > V.range ? ` · <b class="up">${(V.travelled - V.range).toFixed(1)} ly past its reach — crawling, wearing</b>` : ''}${V.back ? ' · turned back' : ''}</div>` : ''}</div>`;
+    return `<div class="shiprow" data-shipctx="me|${ss.map(s => s.u.id).join(',')}" title="right-click for the full spec"><div class="n"><span>${names} → ${esc(to.name)}${V && to.kind !== 'star' ? ` (${esc(sysOf(to.sys).name)})` : ''} <span class="tiny">· ${plural(u.eta, 'eon')}</span></span><button class="x" data-recall="${u.id}" title="${V ? 'the fleet turns round: the way back counts on the same voyage' : 'they stay where they are'}">call back</button></div>${V ? `<div class="tiny">${V.left.toFixed(1)} ly to go · stamina ${Math.round(lo)} %${V.travelled > V.range ? ` · <b class="up">${(V.travelled - V.range).toFixed(1)} ly past its reach — crawling, wearing</b>` : ''}${V.back ? ' · turned back' : ''}</div>` : ''}</div>`;
   }).join('');
 }
 // a hostile fleet's ships, built once for its picture and its stacks
@@ -510,11 +510,16 @@ $('gMap').addEventListener('click', e => {
 $('gMap').addEventListener('dblclick', e => { if (fleetAt(e) || godFleetAt(e) || godShipAt(e)) return; const id = sysAt(e); if (id) openSystem(id); });
 // ZOOM with the wheel, about the mouse; PAN with a middle- or right-drag (his ask, 2026-10-15)
 {
-  const cv = $('gMap'); let pan = null;
-  cv.addEventListener('pointerdown', e => { if (e.button !== 1 && e.button !== 2) return; pan = { x: e.clientX, y: e.clientY, vx: gView.x, vy: gView.y }; try { cv.setPointerCapture(e.pointerId); } catch (x) { /* a synthetic pointer */ } e.preventDefault(); });
-  cv.addEventListener('pointermove', e => { if (!pan) return; gView.x = pan.vx + e.clientX - pan.x; gView.y = pan.vy + e.clientY - pan.y; if (LAST) drawGalaxy(LAST); });
-  const stop = () => { pan = null; }; cv.addEventListener('pointerup', stop); cv.addEventListener('pointercancel', stop);
-  cv.addEventListener('contextmenu', e => e.preventDefault());
+  const cv = $('gMap'); let pan = null, panMoved = false;
+  cv.addEventListener('pointerdown', e => { if (e.button !== 1 && e.button !== 2) return; pan = { x: e.clientX, y: e.clientY, vx: gView.x, vy: gView.y, moved: false }; try { cv.setPointerCapture(e.pointerId); } catch (x) { /* a synthetic pointer */ } e.preventDefault(); });
+  cv.addEventListener('pointermove', e => { if (!pan) return; if (Math.hypot(e.clientX - pan.x, e.clientY - pan.y) > 3) pan.moved = true; gView.x = pan.vx + e.clientX - pan.x; gView.y = pan.vy + e.clientY - pan.y; if (LAST) drawGalaxy(LAST); });
+  const stop = () => { panMoved = !!(pan && pan.moved); pan = null; }; cv.addEventListener('pointerup', stop); cv.addEventListener('pointercancel', stop);
+  cv.addEventListener('contextmenu', e => {          // a right-click (not a drag) on a fleet icon or a ship under way: its full spec
+    e.preventDefault(); if (panMoved || !LAST) return;
+    const GE = godEmpires();
+    if (GE) { const gf = godFleetAt(e); if (gf) { const [sys, k] = gf.split('|'), E = GE[+k]; return openShipPop(+k, GODC[+k].ships.filter(x => !x.u.dest && sysOfPlaceOf(E, x.u.at) === sys).map(x => x.u.id), e.clientX, e.clientY); } const gs = godShipAt(e); if (gs) return openShipPop(gs.k, [gs.id], e.clientX, e.clientY); }
+    const f = fleetAt(e); if (f) openShipPop(null, LAST.ships.filter(x => !x.u.dest && placeOf(x.u.at)?.sys === f).map(x => x.u.id), e.clientX, e.clientY);
+  });
   cv.addEventListener('wheel', e => {
     e.preventDefault(); const [px, py] = mapXY(e), mx = px - cv.width / 2, my = py - cv.height / 2, z = clamp(gView.z * (e.deltaY < 0 ? 1.18 : 1 / 1.18), 0.5, 8), k = z / gView.z;
     gView = { z, x: mx - (mx - gView.x) * k, y: my - (my - gView.y) * k }; if (LAST) drawGalaxy(LAST);
@@ -557,7 +562,7 @@ function godShipLine(E, k, s, big) {
   const pl = E.places.find(p => p.id === u.at), to = u.dest ? E.places.find(p => p.id === u.dest) : null, V = u.voy, z = pl ? zoneOfSys(E, pl.sys) : 5;
   const where = u.dest ? `under way to <b>${esc(to ? to.name : '?')}</b>${V ? ` (${esc(sysOf(V.B)?.name || '?')}), ${V.left.toFixed(1)} ly to go` : ''} · ${plural(u.eta, 'eon')}${V && V.travelled > V.range ? ` · <b class="up">${(V.travelled - V.range).toFixed(1)} ly past its reach</b>` : ''}` : `resting at <b>${esc(pl ? pl.name : '?')}</b> (${esc(pl ? sysOf(pl.sys)?.name || '' : '')}, ${ZONE.names[z]})`;
   const stats = [`worth ${fmt(t.cost)}`, t.dps ? `${fmt(t.dps)} dmg/s` : '', `hull ${fmt(t.hp)}`, t.armor ? `armour ${fmt(t.armor)}` : '', t.shieldRaw ? `shield ${fmt(t.shieldRaw)}` : '', t.research ? `lab ${fmt(t.research)}` : '', u.klass === 'starship' && !t.underDriven ? `reach ${shipRange(t).toFixed(1)} ly` : u.klass === 'starship' ? 'drive too small' : 'no star drive', `stamina ${Math.round(u.st ?? 100)} %`, (u.strain || 0) > 0.05 ? `strain ${u.strain.toFixed(1)} ly` : '', u.people ? `${peopleWord(u.people)} people aboard` : ''].filter(Boolean).join(' · ');
-  return `<div class="shiprow" ${big ? '' : `data-gship="${k}|${u.id}" style="cursor:pointer"`}><div class="n"><span style="display:flex;align-items:center;gap:8px"><canvas data-thumb="${tid}" data-emp="${k}" width="${big ? 240 : 96}" height="${big ? 140 : 56}" style="width:${big ? 160 : 64}px;height:${big ? 94 : 38}px;border-radius:6px;background:#04070f;flex:none"></canvas>${big ? `<span><b>${esc(u.design.name || u.name)}</b> <span class="tiny">· ${CLASS_NAME[u.klass] || u.klass}</span></span>` : `<b style="color:${E.look.colA}">${esc(u.name)}</b><span class="tiny">${Math.round(u.st ?? 100)} %${(u.strain || 0) > 0.05 ? ` · strain ${u.strain.toFixed(1)}` : ''}</span>`}</span>${big ? `<button class="x" data-gback>◂ back</button>` : ''}</div>
+  return `<div class="shiprow" data-shipctx="${k}|${u.id}" title="right-click for the full spec" ${big ? '' : `data-gship="${k}|${u.id}" style="cursor:pointer"`}><div class="n"><span style="display:flex;align-items:center;gap:8px"><canvas data-thumb="${tid}" data-emp="${k}" width="${big ? 240 : 96}" height="${big ? 140 : 56}" style="width:${big ? 160 : 64}px;height:${big ? 94 : 38}px;border-radius:6px;background:#04070f;flex:none"></canvas>${big ? `<span><b>${esc(u.design.name || u.name)}</b> <span class="tiny">· ${CLASS_NAME[u.klass] || u.klass}</span></span>` : `<b style="color:${E.look.colA}">${esc(u.name)}</b><span class="tiny">${Math.round(u.st ?? 100)} %${(u.strain || 0) > 0.05 ? ` · strain ${u.strain.toFixed(1)}` : ''}</span>`}</span>${big ? `<button class="x" data-gback>◂ back</button>` : ''}</div>
     ${big ? `<div class="tiny">${where}</div><div class="tiny">${stats}</div>${u.design.chips ? `<div class="tiny">fitted: ${u.design.chips.filter(c => !c.off).map(c => `${c.kind.replace('weapon_', '')}${c.role ? ' ' + c.role : ''} ×${c.h}`).join(', ')}</div>` : ''}` : ''}</div>`;
 }
 function godPanel(s) {
@@ -591,6 +596,74 @@ function godPanel(s) {
   h += `<div class="tiny" style="margin-top:8px">Every empire's sphere is drawn in its colour (solid core, dashed edge); a ring round a star is a colony (solid = a homeworld), a triangle a resting fleet (its slot by empire), a dot on a dashed line a ship under way — click any of them. The Empire select above still picks whose Empire and Star-system tabs you see.</div>`;
   return h;
 }
+// A SHIP'S FULL SPEC on a RIGHT-CLICK (his ask, 2026-10-16: "if I right click it, a pop-up with its full spec, exactly what it is
+// — and if it came in with fatigue, its fatigue"): the design as built, in the Design tab's own figures, its modules, then every
+// ship of the group with its own state — stamina, strain, where it is or where it is bound, what it carries. Any ship row, the
+// fleet icons and ships under way on the galaxy map, the ships parked at a place on the system map; yours or another empire's.
+let POP = null;                                      // { k: empire index (null = you), ids: [ship ids], x, y }
+function openShipPop(k, ids, x, y) { if (!ids.length) return; POP = { k: W && W.empires[k] === S ? null : k, ids, x, y }; renderShipPop(); }
+function closeShipPop() { POP = null; $('shipPop').hidden = true; }
+function renderShipPop() {
+  const el = $('shipPop'); if (!el) return; if (!POP) { el.hidden = true; return; }
+  const E = POP.k == null ? S : W ? W.empires[POP.k] : null, c = POP.k == null ? LAST : GODC && GODC[POP.k]; if (!E || !c) return closeShipPop();
+  const units = POP.ids.map(id => c.ships.find(s => s.u.id === id)).filter(Boolean); if (!units.length) return closeShipPop();
+  const col = POP.k == null ? '#7ef3b0' : E.look.colA, who = POP.k == null ? 'Your' : `${esc(E.name)}'s`;
+  const groups = new Map(); for (const s of units) { const g = groups.get(s.u.design.id) || { d: s.u.design, ships: [] }; g.ships.push(s); groups.set(s.u.design.id, g); }
+  let h = `<h2><span style="color:${col}">${who} ${units.length === 1 ? esc(units[0].u.name) : plural(units.length, 'ship')}</span><button class="x" data-popclose title="close (Esc)">✕</button></h2>`;
+  for (const g of groups.values()) h += specBlock(E, POP.k, g.d, g.ships, c);
+  el.innerHTML = h; el.hidden = false; fillThumbs(el);
+  const r = el.getBoundingClientRect();
+  el.style.left = Math.max(12, Math.min(POP.x + 12, innerWidth - r.width - 12)) + 'px'; el.style.top = Math.max(60, Math.min(POP.y + 12, innerHeight - r.height - 12)) + 'px';
+}
+function specBlock(E, k, d, ships, c) {
+  const ds = designStats(E, d, c.caps), t = ds.t, isShip = t.klass !== 'structure', tid = (k == null ? 'p' : 'pg' + k) + '|' + d.id; thumbShips.set(tid, paintedShip(d, c.caps));
+  const box = (icon, label, val, bad) => `<div class="${bad ? 'bad' : ''}"><i>${icon}</i><span>${label}</span><b>${val}</b></div>`;
+  const sec = (title, boxes) => boxes ? `<div class="sec"><h3>${title}</h3><div class="sum">${boxes}</div></div>` : '';
+  let build = box(ICON.cost, 'Cost to build', fmt(t.cost)) + box(ICON.volume, 'Volume', `${fmt(t.volume)} · ${plural(t.squares, 'square')}`);
+  if (t.upkeep) build += box(ICON.upkeep, 'Upkeep', '−' + fmt(t.upkeep) + ' industry/eon');
+  let hull = box(ICON.hp, 'Hull', `${fmt(t.hp)} HP`);
+  if (t.armor) hull += box('▣', 'Armour', `${fmt(t.armor)} HP · shrugs ${t.deflect.toFixed(1)}/hit`);
+  if (t.hullRepair) hull += box(ICON.upkeep, 'Repairs in battle', `${t.hullRepair.toFixed(1)} hull/s`);
+  if (t.shieldRaw) hull += box(ICON.shield, 'Shield', `${fmt(t.shield)} · +${fmt(t.shieldRec)}/s`) + box(ICON.cover, 'Shield covers', pct(t.cover) + ' of the hull', t.cover < 0.999);
+  let power = box(ICON.power, 'Power', `${fmt(t.powerOut)} made / ${fmt(t.powerUse)} used`, t.powerFactor < 1);
+  if (t.powerFactor < 1) power += box(ICON.runs, 'Runs at', pct(t.powerFactor), true);
+  if (t.mounts || t.mountsUsed) power += box(ICON.fire, 'Weapons computer', `${num(t.mountsUsed, 1)} of ${num(t.mounts, 1)} mounts${t.fireFactor < 1 ? ` · guns fire at ${pct(t.fireFactor)}` : ''}`, t.fireFactor < 1);
+  let fire = '';
+  if (t.weapons || t.drones || t.missiles) {
+    const L = { shield: 0, through: 0, armor: 0, hull: 0 };
+    for (const x of ds.mods) if (x.K.mount && !x.K.hangar && !x.K.orbital) { const v = x.v, aim = Math.min(98, v.accuracy + t.bonus), l = vsLayers(v.damage * t.powerFactor * t.fireFactor, v.rate * aim / 100 * x.n, x.mod.preset, x.kind); for (const q in L) L[q] += l[q]; }
+    fire = box(ICON.damage, 'Damage', `${fmt(t.dps)} dmg/s`) + box(ICON.shield, 'Against a shield', `${fmt(L.shield)}${L.through > 0.05 ? ` (+${fmt(L.through)} through it)` : ''}`) + box('▣', 'Against armour', fmt(L.armor)) + box(ICON.hp, 'Against the hull', fmt(L.hull))
+      + (t.missiles ? box(ICON.speed, 'Missiles', t.missiles) : '') + (t.drones ? box(ICON.gantry, 'Drones', `${t.drones}, ${t.airCap} in the air at once`, !t.airCap) : '');
+  }
+  let travel = '';
+  if (isShip) travel += box(ICON.speed, 'Battle speed', fmt(t.speed) + ' u/s') + box(ICON.speed, 'Turns', `${Math.round(t.turn)}°/s`) + box(ICON.evasion, 'Evasion', Math.round(t.evasion) + '%');
+  if (t.klass === 'starship') travel += box(ICON.drive, 'Star drive', `moves ${fmt(t.lift)} of ${fmt(t.volume)} volume ${t.underDriven ? '✗' : '✓'}`, t.underDriven) + box(ICON.stars, 'Between stars', `reach ${shipRange(t, c.warp).toFixed(1)} light years · ${(VOY.speed * c.warp).toFixed(1)} ly a turn`, !t.underDriven && shipRange(t, c.warp) < 3);
+  let civ = '';
+  if (t.housing) civ += box(ICON.house, isShip ? 'Carries' : 'Houses', peopleWord(t.housing * (isShip ? SCALE.shipHousing : 1)) + ' people');
+  if (t.research) civ += box(ICON.research, isShip ? 'Lab (studies where parked)' : 'Research', '+' + fmt(t.research));
+  if (t.industry) civ += box(ICON.industry, 'Industry', '+' + fmt(t.industry) + '/eon');
+  if (t.social) civ += box(ICON.social, 'Social', '+' + fmt(t.social) + '/eon');
+  if (t.dock) civ += box(ICON.gantry, 'Gantry', t.gantries.map(s => `${s.w} × ${s.h}`).join(', '));
+  const mods = ds.mods.map(m => `${esc(m.K.name)}${m.n > 1 ? ' ×' + m.n : ''}${m.mod.preset ? ' · ' + esc(PRESETS[m.mod.preset]?.name || m.mod.preset) : ''}${m.mod.k != null && m.mod.k !== 1 ? ' · size ' + m.mod.k : ''}${(m.mod.caps || []).length ? ' · ' + plural(m.mod.caps.length, 'capsule') : ''}`).join(' · ');
+  const unit = s => {
+    const u = s.u, st = Math.round(u.st ?? 100), strain = u.strain || 0, pl = E.places.find(p => p.id === u.at), z = pl ? zoneOfSys(E, pl.sys) : 5, restock = ZONE.recover[z] > 0, V = u.voy, to = u.dest && E.places.find(p => p.id === u.dest), sysN = id => (E.systems.find(x => x.id === id) || {}).name || '?';
+    const where = u.dest ? `under way to <b>${esc(to ? to.name : '?')}</b>${V ? ` (${esc(sysN(V.B))}) · ${V.left.toFixed(1)} ly to go` : ''} · ${plural(u.eta, 'eon')}${V && V.travelled > V.range ? ` · <b class="up">${(V.travelled - V.range).toFixed(1)} ly past its reach — rolling to break down</b>` : ''}` : `at <b>${esc(pl ? pl.name : '?')}</b> (${esc(pl ? sysN(pl.sys) : '?')}, ${ZONE.names[z]})`;
+    const fatigue = st < 100 && !u.dest ? (restock ? ` · restocking +${ZONE.recover[z]} an eon` : ' · <b class="up">no restocking out here</b>') : '';
+    const strainW = strain > 0.05 ? ` · strain <b class="${restock || u.dest ? '' : 'up'}">${strain.toFixed(1)} ly</b>${!u.dest ? (restock ? ` (heals ${ZONE.heal[z] === Infinity ? 'at once' : ZONE.heal[z] + ' ly an eon'})` : ' — it stacks out here') : ' carried on this voyage'}` : '';
+    return `<div class="unit"><span><b>${esc(u.name)}</b>${u.sections > 1 ? ` <span class="tiny">· built in ${u.sections} sections</span>` : ''}${u.eon ? ` <span class="tiny">· built eon ${u.eon}</span>` : ''}</span><span class="st ${st < 70 ? 'low' : ''}">stamina ${st} %</span><div class="tiny">${where}${fatigue}${strainW}${u.people ? ` · ${peopleWord(u.people)} people aboard` : ''}</div></div>`;
+  };
+  return `<div class="sec" style="display:flex;gap:10px;align-items:center;border-top:0;padding-top:0"><canvas data-thumb="${tid}" ${k != null ? `data-emp="${k}"` : ''} width="240" height="140" style="width:150px;height:88px;border-radius:8px;background:#04070f;flex:none"></canvas><div><b>${esc(d.name)}</b> <span class="tiny">· ${CLASS_NAME[t.klass] || t.klass}</span><div class="tiny" style="margin-top:3px">${mods || 'no modules'}</div></div></div>`
+    + `<div class="sec"><h3>${plural(ships.length, 'ship')} of this design — state</h3>${ships.map(unit).join('')}</div>`
+    + sec('Build', build) + sec('Hull', hull) + sec('Power', power) + sec('Firepower', fire) + sec('Travel', travel) + sec('Civilian', civ);
+}
+document.addEventListener('contextmenu', e => { const row = e.target.closest('[data-shipctx]'); if (!row) return; e.preventDefault(); const [k, ids] = row.dataset.shipctx.split('|'); openShipPop(k === 'me' ? null : +k, ids.split(','), e.clientX, e.clientY); });
+document.addEventListener('click', e => { if (!POP) return; if (e.target.closest('[data-popclose]') || !e.target.closest('#shipPop')) closeShipPop(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && POP) closeShipPop(); });
+$('sMap').addEventListener('contextmenu', e => {         // the ships parked at a place: yours first, else another empire's
+  e.preventDefault(); const id = placeAt(e); if (!id || !LAST) return;
+  const own = LAST.ships.filter(s => !s.u.dest && s.u.at === id).map(s => s.u.id); if (own.length) return openShipPop(null, own, e.clientX, e.clientY);
+  for (const { k } of foreignEmpires()) { const ids = GODC && GODC[k] ? GODC[k].ships.filter(s => !s.u.dest && s.u.at === id).map(s => s.u.id) : []; if (ids.length) return openShipPop(k, ids, e.clientX, e.clientY); }
+});
 function openSystem(id, placeId) {
   selSys = gSel = id;
   selPlace = placeId || (placesIn(id).find(p => p.colony) || placeOf(sysOf(id).star)).id;
@@ -1156,6 +1229,7 @@ function refresh() {
   if (tab === 'galaxy') renderGalaxy(c);
   if (tab === 'system') renderSystem(c);
   if (tab === 'design') renderDesign(c);
+  renderShipPop();                                   // the spec pop-up follows the state (an eon ended, a ship moved)
 }
 function go(next) {
   tab = next;
