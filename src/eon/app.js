@@ -19,7 +19,7 @@ import { createShapeEditor, GW, GH } from './shapeedit.js';
 import { createDialog, saveFlow } from './hullui.js';
 import { paintHull, recipeWith, RECIPE } from './paint.js';
 import { STYLES, loadStyle } from './styles.js';
-import { buildPlan } from './fleetplan.js';
+import { buildPlan, planCode } from './fleetplan.js';
 mountNav('eon', { into: document.getElementById('topbar') });
 
 const KEY = 'forge.eon.v8';
@@ -314,7 +314,7 @@ function renderEmpire(c, skipTetra) {
     + (known.length ? `<h2 style="margin-top:12px">Fully integrated — in every design for free</h2><div class="known">${known.map(b => esc(b.name)).join(' · ')}</div>` : '')
     + `<div class="tiny" style="margin-top:8px">The pale fill in a capsule is how far it has been integrated. Everyone already gets that share of it.</div>`;
   const icon = { breakthrough: '★', bad: '▼', integ: '◆', step: '›', move: '→', battle: '⚔' }, col = { breakthrough: 'var(--time)', bad: 'var(--bad)', integ: 'var(--good)', battle: 'var(--good)' };
-  if (S.report?.length) $('eReport').innerHTML = `<div class="rep">${S.report.map(r => `<div>${icon[r.kind] || '·'} <span style="color:${col[r.kind] || 'inherit'}">${esc(r.text)}</span></div>`).join('')}</div>`;
+  if (S.report?.length) $('eReport').innerHTML = `<div class="rep">${S.report.map(r => `<div>${icon[r.kind] || '·'} <span style="color:${col[r.kind] || 'inherit'}">${esc(r.text)}</span>${r.battle && (S.battles || []).some(b => b.id === r.battle) ? ` <button class="go" data-watch="${r.battle}" title="replay it, as it was fought">▶ Watch</button>` : ''}</div>`).join('')}</div>`;
   else $('eReport').textContent = S.eon > 1 ? 'A quiet eon.' : 'Nothing yet.';
   if (!skipTetra) tetra.draw();
 }
@@ -966,6 +966,7 @@ document.addEventListener('click', e => {
   if ((t = q('[data-pcancel]'))) { sendTo = null; return refresh(); }
   if ((t = q('[data-psend]'))) { const ships = picked(scopeGroups(LAST)), dest = pickScope.kind === 'galaxy' ? sysOf(sendTo).star : sendTo; toastErr(sendFleet(S, ships.map(x => x.u.id), dest)); picks.clear(); sendTo = null; save(); return refresh(); }
   if ((t = q('[data-ptogalaxy]'))) { const keep = new Map(picks), sys = placeOf(pickScope.place).sys; pickScope = { kind: 'galaxy', sys }; picks = keep; sendTo = null; gSel = sys; gMode = 'fleet'; return go('galaxy'); }
+  if ((t = q('[data-watch]'))) return watchBattle(t.dataset.watch);
   if ((t = q('[data-gsys]'))) { gMode = 'system'; return refresh(); }
   if ((t = q('[data-gfleet]'))) { gMode = 'fleet'; return refresh(); }
   if ((t = q('[data-greset]'))) { gView = { z: 1, x: 0, y: 0 }; return refresh(); }
@@ -1025,6 +1026,30 @@ $('dNew').onclick = () => { leaveOutline(); const full = shipDesignCount() >= MA
 $('dCopy').onclick = () => { const d = design(); if (!d) return; if ((d.klass || DS?.t.klass) !== 'structure' && shipDesignCount() >= MAX_SHIP_DESIGNS) return say(`${MAX_SHIP_DESIGNS} ship designs at most — delete one first (refits come later)`); leaveOutline(); const c = JSON.parse(JSON.stringify(d)); c.id = uid('d'); c.name = d.name + ' II'; for (const m of c.modules) m.id = uid('m'); S.designs.push(c); curDesign = c.id; selMod = null; chipsFor = null; save(); refresh(); };
 $('dDel').onclick = () => { const d = design(); if (!d || !confirm(`Delete the design "${d.name}"? What is already built stays.`)) return; leaveOutline(); S.designs = S.designs.filter(x => x.id !== d.id); curDesign = S.designs[0]?.id || null; selMod = null; chipsFor = null; save(); refresh(); };
 $('eEnd').onclick = () => { const rep = endEon(S); newIds = new Set(rep.filter(r => r.kind === 'breakthrough').map(r => r.id)); save(); refresh(); };
+// WATCH A BATTLE (his ask, 2026-10-16): the lab's arena (lab.html#arena) in a frame over the game replays a fight this eon as it was
+// fought — your ships' designs as they were (capsules and all, keep: true), each one's stamina, the hostile plan, the same dice; your
+// side wears your coat, theirs the look drawn from its name. The frame answers with the result line and a tapped ship's card.
+let arenaReady = false, arenaPending = null;
+function watchBattle(id) {
+  const b = (S.battles || []).find(x => x.id === id); if (!b) return say('That battle is gone from the record');
+  const L = S.look || {}, hulls = {};
+  for (const m of b.mine) { const h = hullDef(m.design.hull); if (h && h.user) { const { user, ...rec } = h; hulls[h.id] = rec; } }
+  const pa = { name: 'Your fleet', style: L.style || styleChoices()[0].id, colA: L.colA || '#7fb3ff', colB: L.colB || '#ffb347', hulls, ships: b.mine.map(m => ({ design: m.design, keep: true, name: m.name, en0: m.en0, cost: 0, seed: 1, locked: true })) };
+  const msg = { type: 'fight', a: planCode(pa), b: planCode(b.foe), seed: b.seed, techA: S.breakthroughs, techB: [] };
+  $('arenaWrap').hidden = false; $('shipInfo').hidden = true; $('arenaNote').textContent = `Battle at ${esc(sysOf(b.sys)?.name || '?')}, eon ${b.eon} — your ${plural(b.mine.length, 'ship')} against ${esc(b.foe.name)} — replaying…`;
+  const fr = $('arenaFrame'); if (!fr.getAttribute('src') || fr.getAttribute('src') === 'about:blank') { arenaReady = false; fr.src = 'lab.html#arena'; }
+  if (arenaReady) fr.contentWindow.postMessage(msg, '*'); else arenaPending = msg;
+}
+window.addEventListener('message', e => {
+  const d = e.data, fr = $('arenaFrame'); if (!d || !fr.contentWindow || e.source !== fr.contentWindow) return;
+  if (d.type === 'ready') { arenaReady = true; if (arenaPending) { e.source.postMessage(arenaPending, '*'); arenaPending = null; } }
+  else if (d.type === 'result') $('arenaNote').innerHTML = d.html + ' <span style="color:var(--muted)">Tap a ship for its card, tap it again to ride it. Detail and the frame rate are at the bottom.</span>';
+  else if (d.type === 'error') $('arenaNote').textContent = d.text;
+  else if (d.type === 'ship') { const el = $('shipInfo'); if (!d.html) { el.hidden = true; el.innerHTML = ''; } else { el.innerHTML = d.html; el.hidden = false; } }
+});
+$('shipInfo').addEventListener('click', e => { const a = e.target.closest('[data-sact]'); if (!a) return; const fr = $('arenaFrame'); if (fr.contentWindow) fr.contentWindow.postMessage({ type: 'shipAct', act: a.dataset.sact }, '*'); if (a.dataset.sact === 'close') $('shipInfo').hidden = true; });
+$('arenaClose').onclick = () => { $('arenaWrap').hidden = true; $('arenaFrame').src = 'about:blank'; arenaReady = false; arenaPending = null; };   // the frame is dropped: it would go on drawing behind the game
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('arenaWrap').hidden) $('arenaClose').onclick(); });
 $('eNew').onclick = () => { if (confirm('Start over in a new, random galaxy?')) startGame(String(Math.floor(Math.random() * 1e6))); };
 $('eTetra').addEventListener('pointerup', save);
 

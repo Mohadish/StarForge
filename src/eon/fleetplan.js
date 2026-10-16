@@ -108,10 +108,11 @@ export const chipsToWords = stacks => stacks.map(s => CHIP_WORD[s.kind] ? `${s.k
 // exactly as it is, at its own price; it stays locked so the fleet's re-pricing never touches it.
 export function buildPlan(S, plan, letter = 'abcdefghijklmnopqrstuvwxy', num = '') {
   const ships = plan.ships.map((p, i) => {
-    const rng = rng32(p.seed), d = p.design ? designOf(p.design) : p.chips ? designFromChips(S, p.chips.map(c => ({ kind: c.kind, h: c.h, role: c.role })), p.cost, rng) : designFromWords(S, p.words, p.cost, rng);
+    // p.keep: the design AS IT IS (the game's own, capsules and all — a battle replayed exactly); p.name / p.en0: the ship's name and the stamina it came in with
+    const rng = rng32(p.seed), d = p.design ? (p.keep ? p.design : designOf(p.design)) : p.chips ? designFromChips(S, p.chips.map(c => ({ kind: c.kind, h: c.h, role: c.role })), p.cost, rng) : designFromWords(S, p.words, p.cost, rng);
     if (!d) return null;
     if (p.hull && hullDef(p.hull)) d.hull = p.hull;                                // the silhouette the designer gave it (a custom one travels in plan.hulls and must be registered first)
-    const s = shipFromDesign(S, d); s.arch = archetype(s); s.name = `${num}${letter[i] || i + 1}`; s.plan = p; p.built = s;
+    const s = shipFromDesign(S, d); s.arch = archetype(s); s.name = p.name || `${num}${letter[i] || i + 1}`; if (p.en0 != null) s.en0 = p.en0; s.plan = p; p.built = s;
     s.resolve = (p.blend || []).reduce((a, b) => a + (TACTICS[b.id]?.resolve ?? 1) * b.share, 0) || 1;   // the doctrine's RESOLVE: how long its crews hold (battle.js ENDURE)
     return s;
   }).filter(Boolean);

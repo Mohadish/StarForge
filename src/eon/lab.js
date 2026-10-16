@@ -13,6 +13,12 @@ import { buildPlan, planFromCode, planCode, plansLoad, exportAllText, shipLabel 
 import { mountNav } from './nav.js';
 const TCELL = { weapon_energy: 0, weapon_kinetic: 1, weapon_missile: 2 };   // a style's turret cells: beam, gun, missile
 const skinsOn = () => !!($('skins') && $('skins').checked);
+// DETAIL (his ask, 2026-10-16): full = the painted ships with the style's turrets; plain = the painted ships, no turrets (the shots
+// and the range rings still show where the guns fire); tactical = the plain plates with the guns as dots on the outline. And a
+// frame-rate readout — no auto-adjusting, just the number
+let detail = 'full', fps = 0, fpsN = 0;
+try { detail = localStorage.getItem('lab.detail') || 'full'; } catch (e) { /* fine */ }
+const detailOn = () => detail;
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -288,6 +294,7 @@ function tick(now) {
   if (!cur) return;
   if (!last) last = now;
   const dtReal = Math.min(0.25, (now - last) / 1000); last = now;
+  if (dtReal > 0) { fps = fps ? fps + (1 / dtReal - fps) * 0.08 : 1 / dtReal; if (++fpsN % 12 === 0 && $('fps')) $('fps').textContent = Math.round(fps) + ' fps'; }   // the frame rate, eased
   const live = cur.live;
   if (live && !live.done) { /* a live battle is stepped by liveStep on a timer, so a throttled animation frame cannot stall it */ }
   else if (playing) clock = Math.min(cur.frames.length - 1, clock + dtReal * speed * PACE);   // ×1 runs the fight at half its real pace (his call: the ships were too fast to follow)
@@ -516,7 +523,7 @@ function draw() {
   // colour, turning red as it drains, a shield arc round it; in between the two fade into each other
   const tiers = cur.tiers || (cur.tiers = tiersOf(ships)), few = ships.length <= 6;
   // each fleet's COAT (skins.js): a plating style and a two-colour wash from its name, never the same style on both sides
-  const lookA = skinsOn() ? (cur.A && cur.A.look) || lookOf(cur.A ? cur.A.name : 'A') : null, looks = lookA ? [lookA, (cur.B && cur.B.look) || lookOf(cur.B ? cur.B.name : 'B', lookA)] : null;   // a designed fleet wears the coat its designer chose
+  const lookA = skinsOn() && detail !== 'tactical' ? (cur.A && cur.A.look) || lookOf(cur.A ? cur.A.name : 'A') : null, looks = lookA ? [lookA, (cur.B && cur.B.look) || lookOf(cur.B ? cur.B.name : 'B', lookA)] : null;   // a designed fleet wears the coat its designer chose; tactical detail: plates
   ships.forEach((s, j) => {
     const side = sideOf(j), hull = s.ds.hull, Lraw = hull.bw * B.unit * sc, L = Math.max(16, Lraw), scale = L / hull.bw, [cx, cy] = P[j], hp = hpOf(j), ang = angOf(j);
     const symA = Math.max(0, Math.min(1, (SYM.far - Lraw) / (SYM.far - SYM.near)));       // 1 = symbol only, 0 = ship only
@@ -543,13 +550,16 @@ function draw() {
       g.restore();
       // the hard points: every gun a TURRET on its mount — a dark drum rimmed in the weapon's colour, a pale barrel on the ship's target
       // or swung onto what it just shot at, a muzzle flash when it fired this frame; a launcher sits fixed, facing forward
-      if (scale >= 4 && hp > 0) {
+      if (scale >= 4 && hp > 0 && detail !== 'plain') {                           // plain detail: no turrets at all (the shots still run from the hard points)
         const c = Math.cos(ang), sn = Math.sin(ang), kpx = scale / B.unit, big = scale >= 9;
         s.guns.forEach((gun, gi) => {
           if (gun.mx === undefined) return;
           const tx = cx + (c * gun.mx - sn * gun.my) * kpx, ty = cy + (sn * gun.mx + c * gun.my) * kpx, tr = Math.max(big ? 3 : 1.6, 0.17 * scale * Math.sqrt(gun.size || 1));
           const fired = aim.get(j * 1000 + gi), a = turretAng(j, gi, fired ? fired.a : ang), kch = gun.kind.slice(7, 8), col = COLOR[kch] || '#fff', len = tr * (kch === 'k' ? 3.4 : 2.8);
           const fl = fired ? Math.max(0, 1 - fired.p / 0.3) : 0;                     // the muzzle flash: bright the instant it fires, gone in a third of a second
+          if (detail === 'tactical') {                                               // a DOT per gun on the outline, in the weapon's colour, lit when it fires
+            g.globalAlpha = 1 - symA; g.fillStyle = fl > 0 ? '#fff' : col; g.beginPath(); g.arc(tx, ty, Math.max(1.5, tr * 0.55), 0, 7); g.fill(); return;
+          }
           const flash = (mx2, my2, fr) => { const gr = g.createRadialGradient(mx2, my2, 0, mx2, my2, fr * 2.2); gr.addColorStop(0, `rgba(255,255,230,${0.95 * fl})`); gr.addColorStop(0.4, `rgba(255,220,120,${0.6 * fl})`); gr.addColorStop(1, 'rgba(255,200,80,0)'); g.fillStyle = gr; g.beginPath(); g.arc(mx2, my2, fr * 2.2, 0, 7); g.fill(); };
           g.globalAlpha = 1 - symA;
           const T = sp && sp.turrets ? sp.turrets.cells[TCELL[gun.kind]] : null, rr = sp ? (sp.r[gi] || 0) * scale / sp.S : 0;
@@ -747,6 +757,7 @@ $('arena').addEventListener('contextmenu', e => {
 $('speed').onclick = () => { speed = speed === 1 ? 3 : speed === 3 ? 8 : 1; $('speed').textContent = '×' + speed; };
 $('scrub').oninput = e => { if (!cur) return; playing = false; clock = +e.target.value; draw(); };
 $('order').onchange = e => { order = e.target.value; try { localStorage.setItem('lab.order', order); } catch (x) { /* fine */ } renderShips(); };
+if ($('detail')) { $('detail').value = detail; $('detail').onchange = e => { detail = e.target.value; try { localStorage.setItem('lab.detail', detail); } catch (x) { /* fine */ } if (cur) draw(); }; }
 $('ffilter').onchange = e => { ffilter = e.target.value; renderFights(); };
 $('duel').onclick = duel;
 $('make').onclick = makeShip;
@@ -803,14 +814,17 @@ const libraryReady = Promise.race([loadLibrary(), new Promise(r => setTimeout(()
 
 
 // ---------------- two fleets by code (from the Fleet Generator) fight each other ----------------
+let arenaFight = null;                                                             // what the page around us asked for: the dice and each side's tech (the game's replay)
 function fightCodes() {
   if (!LAB) return;
   const pa = planFromCode($('codeA').value), pb = planFromCode($('codeB').value);
   if (!pa || !pb) { $('codesNote').textContent = (pa ? 'Fleet 2' : 'Fleet 1') + ' is not a fleet code — copy it from the Fleet Generator (⚙).'; tellParent({ type: 'error', text: $('codesNote').textContent }); return; }
   setUserHulls([...HULLS, ...Object.values(pa.hulls || {}), ...Object.values(pb.hulls || {})]);          // their own silhouettes travel inside the code
-  const mk = p => { const id = LAB.fleets.length, f = buildPlan(S, p, undefined, (id + 1) + ''); if (!f.ships.length) return null; f.name = p.name || `Fleet ${id + 1}`; f.look = lookFromColors(p.style, p.colA, p.colB); Object.assign(f, { id, w: 0, l: 0, d: 0 }); LAB.fleets.push(f); return f; };
-  const A = mk(pa), Bf = mk(pb); if (!A || !Bf) { $('codesNote').textContent = 'One of the fleets could not be built.'; tellParent({ type: 'error', text: $('codesNote').textContent }); return; }
-  const r = simulate(A.ships, Bf.ships, rng32(Math.floor(Math.random() * 1e9)));
+  // a fleet with a chosen coat wears it; one without (the game's hostile fleets) draws its look from its name, as the game does.
+  // The game REPLAYS a battle it fought: it sends each side's tech (techA / techB) and the dice (seed), so the fight comes out as it did
+  const mk = (p, tech) => { const id = LAB.fleets.length, f = buildPlan(tech ? { ...S, breakthroughs: tech } : S, p, undefined, (id + 1) + ''); if (!f.ships.length) return null; f.name = p.name || `Fleet ${id + 1}`; f.look = p.style ? lookFromColors(p.style, p.colA, p.colB) : lookOf(f.name); Object.assign(f, { id, w: 0, l: 0, d: 0 }); LAB.fleets.push(f); return f; };
+  const A = mk(pa, arenaFight && arenaFight.techA), Bf = mk(pb, arenaFight && arenaFight.techB); if (!A || !Bf) { $('codesNote').textContent = 'One of the fleets could not be built.'; tellParent({ type: 'error', text: $('codesNote').textContent }); return; }
+  const r = simulate(A.ships, Bf.ships, rng32(arenaFight && arenaFight.seed != null ? arenaFight.seed : Math.floor(Math.random() * 1e9)));
   LAB.fights.unshift({ a: A.id, b: Bf.id, A, B: Bf, ...r, custom: true });
   picked = [A.id, Bf.id]; renderShips(); renderFights(); watch(0);
   $('codesNote').innerHTML = `<b>${esc(A.name)}</b> (${A.n} ships, ${fmt(A.cost)}) vs <b>${esc(Bf.name)}</b> (${Bf.n} ships, ${fmt(Bf.cost)}): ${r.winner === null ? 'a draw' : `<b style="color:${SIDE[r.winner]}">${esc(r.winner === 0 ? A.name : Bf.name)} wins</b>`} in ${r.time}s.${ARENA ? '' : ' Both are in the pool — press Fight again for fresh dice, or Command this fight.'}`;
@@ -853,7 +867,7 @@ if (!$('seed').value) $('seed').value = Math.floor(Math.random() * 1e6);
 if (ARENA) {
   // a window for one fight: an empty pool, the codes come by message from the page around us (or in the link as #arena&fleetA=…&fleetB=…)
   LAB = { fleets: [], fights: [], budget: 6000, fleetSizes: [1, 1], table: {}, rate: {} };
-  window.addEventListener('message', e => { const d = e.data; if (!d || e.source !== window.parent) return; if (d.type === 'shipAct') return shipAct(d.act); if (d.type !== 'fight') return; $('codeA').value = d.a || ''; $('codeB').value = d.b || ''; fightCodes(); });
+  window.addEventListener('message', e => { const d = e.data; if (!d || e.source !== window.parent) return; if (d.type === 'shipAct') return shipAct(d.act); if (d.type !== 'fight') return; arenaFight = { seed: d.seed, techA: d.techA || null, techB: d.techB || null }; $('codeA').value = d.a || ''; $('codeB').value = d.b || ''; fightCodes(); });
   if ($('codeA').value && $('codeB').value) fightCodes();
   tellParent({ type: 'ready' });
 } else libraryReady.then(run);                                                 // the first run waits (briefly) for the page's store, so random ships wear the silhouettes kept there

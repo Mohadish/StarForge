@@ -389,14 +389,19 @@ export const hostileWorth = H => Math.round(H.plan.ships.reduce((a, p) => a + p.
 // a hostile fleet in words: name, ships, its worth, its tactics
 export const hostileWord = H => H.plan.name + ' — ' + H.plan.ships.length + ' ship' + (H.plan.ships.length === 1 ? '' : 's') + ', worth ' + hostileWorth(H) + ' · ' + (H.plan.mix || []).map(m => TACTICS[m.id] ? TACTICS[m.id].name : m.id).join(' + ');
 // the fight in a system: your resting ships there against its hostile fleet (one battle an eon)
+// Every fight is KEPT for watching (S.battles, this eon's; his ask 2026-10-16 "when there's a battle, show me the battle"): the
+// hostile plan as it stood, your ships' designs as they were, each one's stamina, and the dice — the lab's arena replays it
 function fightHostiles(S, caps, rep) {
   const sysOf = id => (S.places.find(p => p.id === id) || {}).sys;
+  S.battles = [];
   for (const H of [...(S.hostiles || [])]) {
     const mine = S.ships.filter(u => !u.dest && sysOf(u.at) === H.sys); if (!mine.length) continue;
     const A = mine.map(u => { const sh = shipFromDesign(S, u.design, caps); sh.name = u.name; sh.en0 = (u.st ?? 100) / 100; return sh; });
     const plan = { ...H.plan, ships: H.plan.ships.map(p => ({ ...p })) }, B = buildPlan(NO_TECH, plan).ships;
     if (!B.length) { S.hostiles = S.hostiles.filter(x => x !== H); continue; }
-    const bt = createBattle(A, B, rng32(Math.floor(rand(S) * 1e9)), { record: 1e9 }); while (!bt.done) bt.step(); const r = bt.result();
+    const seed = Math.floor(rand(S) * 1e9), battleId = uid('b');
+    S.battles.push({ id: battleId, eon: S.eon, sys: H.sys, seed, foe: planStrip(plan), mine: mine.map((u, i) => ({ name: u.name, en0: A[i].en0, design: { ...cloneDesign(u.design), paint: u.design.paint } })) });
+    const bt = createBattle(A, B, rng32(seed), { record: 1e9 }); while (!bt.done) bt.step(); const r = bt.result();
     const lostMine = [], lostTheirs = new Set();
     mine.forEach((u, i) => { const sh = bt.ships[i]; if (sh.dead) lostMine.push(u); else u.st = Math.max(1, Math.round(Math.max(0, sh.en) * 100)); });
     B.forEach((sh, i) => { if (bt.ships[mine.length + i].dead) lostTheirs.add(sh.plan); });
@@ -405,7 +410,7 @@ function fightHostiles(S, caps, rep) {
     const where = (S.systems.find(x => x.id === H.sys) || {}).name || '?', gone = !H.plan.ships.length;
     if (gone) S.hostiles = S.hostiles.filter(x => x !== H);
     const verdict = gone ? 'you swept them away' : r.winner === 0 ? 'you won the field' : r.winner === 1 ? 'they held the field' : 'neither side gave way';
-    rep.push({ kind: lostMine.length ? 'bad' : 'battle', text: 'Battle at ' + where + ': your ' + mine.length + ' ship' + (mine.length > 1 ? 's' : '') + ' against ' + H.plan.name + ' — ' + verdict
+    rep.push({ kind: lostMine.length ? 'bad' : 'battle', battle: battleId, text: 'Battle at ' + where + ': your ' + mine.length + ' ship' + (mine.length > 1 ? 's' : '') + ' against ' + H.plan.name + ' — ' + verdict
       + (lostMine.length ? '; you lost ' + lostMine.map(u => u.name).join(', ') : '') + '; they lost ' + lostTheirs.size + ' of ' + B.length + (gone ? '' : ', ' + H.plan.ships.length + ' remain') });
   }
 }
