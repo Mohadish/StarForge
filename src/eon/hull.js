@@ -133,16 +133,25 @@ export function hardPoints(hull, guns, room = 1) {
   }
   const onBelly = g => g.kind === 'weapon_orbital' || g.kind === 'hangar';          // bays sit along the belly
   const flank = guns.filter(g => !onBelly(g)).sort((a, b) => (ORDER[a.kind] ?? 3) - (ORDER[b.kind] ?? 3)), belly = guns.filter(onBelly);
-  // flank groups from the front backwards; squeezed if the hull is short for them
-  const cols = g => Math.ceil(g.n / 2), widths = flank.map(g => cols(g) * roomFor(g)), total = widths.reduce((a, w) => a + w + 0.25, 0), squeeze = Math.max(0.6, Math.min(1, hull.bw * 0.8 / Math.max(total, 0.1)));   // crowded hulls squeeze, but never past a readable gap
+  // flank groups from the front backwards. ROWS (his ask, 2026-10-16): when one line along each flank cannot hold them, the guns
+  // take more lines inward — like the plating's rings — as many as the hull's height affords amidships; only then does the line
+  // squeeze, and never past a readable gap
+  const half = (() => { const e = edgeAt(hull.poly, (hull.box.minx + hull.box.maxx) / 2); return e ? (e.max - e.min) / 2 : hull.bh / 2; })();
+  const rowGap = Math.max(0.6, ...flank.map(roomFor)), rowsMax = Math.max(1, Math.floor((half * 0.75 - 0.45) / rowGap) + 1);   // a row needs a gun's room; the innermost keeps off the spine and its mirror
+  const colsOf = (g, R) => Math.ceil(g.n / (2 * R)), widthOf = (g, R) => colsOf(g, R) * roomFor(g), totalOf = R => flank.reduce((a, g) => a + widthOf(g, R) + 0.25, 0);
+  let R = 1; while (R < rowsMax && totalOf(R) > hull.bw * 0.8) R++;
+  const widths = flank.map(g => widthOf(g, R)), total = totalOf(R), squeeze = Math.max(0.6, Math.min(1, hull.bw * 0.8 / Math.max(total, 0.1)));
   let front = hull.box.maxx - hull.bw * 0.1;
   flank.forEach((g, i) => {
-    const step = roomFor(g) * squeeze, w = widths[i] * squeeze, cx = groupX(g, front - w / 2), pairs = Math.floor(g.n / 2);
-    for (let c = 0; c < cols(g); c++) {
-      const x = cx + w / 2 - (c + 0.5) * step, e = edgeAt(hull.poly, x), y = Math.max(0.15, (e ? e.max : hull.bh / 2) * 0.75);
-      if (c < pairs) { at(g, x, y); at(g, x, -y); } else at(g, x, 0);                     // the odd one rides the spine
+    const step = roomFor(g) * squeeze, w = widths[i] * squeeze, cx = groupX(g, front - w / 2); let left = g.n, c = 0;
+    for (; left > 0 && c < 400; c++) {                                             // columns run on past the planned width where the hull was too thin for its inner rows
+      const x = cx + w / 2 - (c + 0.5) * step, e = edgeAt(hull.poly, x), yOut = Math.max(0.15, (e ? e.max : hull.bh / 2) * 0.75);
+      for (let r = 0; r < R && left > 0; r++) {
+        const y = yOut - r * rowGap; if (r > 0 && y < 0.45) break;                 // no room for an inner row here (the nose): the rest go on in the next column
+        if (left >= 2) { at(g, x, y); at(g, x, -y); left -= 2; } else { at(g, x, 0); left--; }   // the odd one rides the spine
+      }
     }
-    front -= w + 0.25 * squeeze;
+    front -= Math.max(w, c * step) + 0.25 * squeeze;
   });
   // belly groups: a row each along the spine, side by side, behind the flank groups so that an odd
   // flank gun riding the spine never lands on them
