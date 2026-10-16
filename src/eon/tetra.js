@@ -77,17 +77,18 @@ export function createTetra(canvas, { labels, colors, getState, onChange }) {
     onChange(limitMove(next, w0, reach));
     draw();
   }
+  // one step toward corner i (a corner's name, or the page's + button): at the cost of the other three
+  function pull(i) {
+    const { w } = getState(), P = posOf(w), V = CORNERS[i], d = Math.hypot(V[0] - P[0], V[1] - P[1], V[2] - P[2]) || 1, step = Math.min(d, 0.14);
+    move(weightsOf(P.map((v, k) => v + (V[k] - v) * step / d)));
+  }
 
   canvas.addEventListener('pointerdown', e => {
     const p = at(e), hit = canvas._hit; if (!hit) return;
     e.preventDefault(); canvas.setPointerCapture(e.pointerId); last = p;
     if (Math.hypot(p.x - hit.ball.x, p.y - hit.ball.y) < 18) { mode = 'ball'; return; }
     const i = hit.C.findIndex(c => Math.hypot(p.x - (c.x + (c.x - cx) * 0.16), p.y - (c.y + (c.y - cy) * 0.16)) < 34 || Math.hypot(p.x - c.x, p.y - c.y) < 14);
-    if (i >= 0) {                                      // pull one step toward that corner
-      const { w } = getState(), P = posOf(w), V = CORNERS[i], d = Math.hypot(V[0] - P[0], V[1] - P[1], V[2] - P[2]) || 1, step = Math.min(d, 0.14);
-      move(weightsOf(P.map((v, k) => v + (V[k] - v) * step / d)));
-      mode = null; return;
-    }
+    if (i >= 0) { pull(i); mode = null; return; }      // pull one step toward that corner
     mode = 'rotate';
   });
   canvas.addEventListener('pointermove', e => {
@@ -101,5 +102,5 @@ export function createTetra(canvas, { labels, colors, getState, onChange }) {
   const end = () => { mode = null; };
   canvas.addEventListener('pointerup', end); canvas.addEventListener('pointercancel', end);
 
-  return { draw };
+  return { draw, pull, to: w => move(w) };            // to(w): the page's reset — back to the centre, as far as the reach allows
 }

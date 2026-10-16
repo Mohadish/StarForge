@@ -2,7 +2,7 @@
 // Star system (the places of one system, colonies, ships), Design (modules as pieces on a board).
 import { $, clamp, fmt, signed, esc } from '../util.js';
 import { DOMAINS } from '../data/properties.js';
-import { XS, X_INFO, T, FIELD_IDS, newState, compute, endEon, uid, isIntegrated, giveAttention, sendShip, recallShip, settle, starEons, sysDistance,
+import { XS, X_INFO, T, CENTER, FIELD_IDS, newState, compute, endEon, uid, isIntegrated, giveAttention, sendShip, recallShip, settle, starEons, sysDistance,
   LY, VOY, SCALE, shipRange, forecast, fleetRange, sendFleet, lyBetween, peopleWord, upgrade, hostileIn, hostileWord, hostileWorth } from './model.js';
 import { KINDS, KIND_IDS, CLASS_NAME, GANTRY, GUN, PRESETS, applyPreset, allCapsules, designStats, isRelevant, dockFit, reachBand, fitModule, autoFit, traverseOf } from './modules.js';
 import { GALAXY, STARS } from './galaxy.js';
@@ -262,7 +262,7 @@ function presence(c) {
 // =====================================================================
 // EMPIRE
 // =====================================================================
-const reach = () => S.cohesion / T.focusCost;
+const reach = () => clamp(S.cohesion / 100, 0, 1);  // cohesion 0–100: the share of the centre-to-corner distance the focus may move this eon
 const tetra = createTetra($('eTetra'), {
   labels: XS.map(x => X_INFO[x].name), colors: XS.map(xColor),
   getState: () => ({ w: S.focus, w0: S.focusStart, reach: reach() }),
@@ -273,7 +273,7 @@ function renderTop(c) {
   const cell = (label, val, sub = '', neg = false) => `<div class="r"><span>${label}</span><b>${val}</b>${sub ? ` <small class="${neg ? 'neg' : ''}">${sub}</small>` : ''}</div>`;
   const dPeople = c.colonies.reduce((a, p) => a + p.dPeople, 0), dCoh = c.cohesionGain - c.moveCost;
   $('eStats').innerHTML = cell('Eon', S.eon) + cell('People', peopleWord(c.people), (dPeople < 0 ? '−' : '+') + peopleWord(Math.abs(dPeople)), dPeople < 0)
-    + cell('Research', fmt(c.research)) + cell('Reserves', fmt(S.reserves || 0), '+' + fmt(c.colonies.reduce((a, p) => a + p.toReserves, 0))) + cell('Cohesion', fmt(S.cohesion), signed(dCoh), dCoh < 0)
+    + cell('Research', fmt(c.research)) + cell('Reserves', fmt(S.reserves || 0), '+' + fmt(c.colonies.reduce((a, p) => a + p.toReserves, 0))) + cell('Cohesion', Math.round(S.cohesion) + ' %', signed(dCoh), dCoh < 0)
     + cell('Focus steady', plural(S.steady || 0, 'eon')) + cell('Between stars', (VOY.speed * c.warp).toFixed(1) + ' ly/eon');
 }
 
@@ -281,9 +281,9 @@ const starRow = v => { const n = Math.round(v); return `<span class="stars">${'�
 
 function renderEmpire(c, skipTetra) {
   const left = S.cohesion - c.moveCost;
-  $('eFocus').innerHTML = `<div class="fx">${XS.map((x, i) => `<div style="border-color:${xColor(x)}"><span style="color:${xColor(x)}">${X_INFO[x].name}</span><b>${pct(S.focus[i])}</b></div>`).join('')}</div>
-    <div class="tiny" style="margin-top:6px">${c.moved ? `Moving the focus this far costs <b>${c.moveCost.toFixed(1)}</b> cohesion (you have ${fmt(S.cohesion)}, ${fmt(left)} left)${c.setback ? ` and loses ${plural(c.setback, 'step')} of research in every field` : ''}.` : `The focus has not moved this eon${S.steady ? ` (steady for ${plural(S.steady, 'eon')})` : ''}.`}
-    The dashed circle is as far as your cohesion reaches.</div>`;
+  $('eFocus').innerHTML = `<div class="fx">${XS.map((x, i) => `<div style="border-color:${xColor(x)}"><span style="color:${xColor(x)}">${X_INFO[x].name}</span><b>${pct(S.focus[i])}</b><button class="x" data-fplus="${i}" title="a step toward ${X_INFO[x].name}, at the cost of the other three">+</button></div>`).join('')}</div>
+    <div class="tiny" style="margin-top:6px">${c.moved ? `Moving the focus this far costs <b>${c.moveCost.toFixed(1)}</b> cohesion (you have ${Math.round(S.cohesion)} %, ${Math.round(left)} % left)${c.shock > 0.5 ? ' — <b class="up">a shock to the people: happiness drops</b>' : ''}${c.setback ? `, and loses ${plural(c.setback, 'step')} of research in every field` : ''}.` : `The focus has not moved this eon${S.steady ? ` (steady for ${plural(S.steady, 'eon')})` : ''}.`}
+    The dashed circle is as far as your cohesion reaches (${Math.round(S.cohesion)} % of the way from the centre to a corner; it climbs ${c.cohesionGain.toFixed(1)} this eon, slower the higher it is). <button class="x" data-freset title="back toward the centre, as far as the reach allows">⌖ centre</button></div>`;
   const builds = c.colonies.flatMap(p => p.done.map(d => `${d.d.name} at ${p.pl.name}`));
   const on = c.fields.filter(f => f.points > 0).sort((a, b) => b.points - a.points).map(f => `${f.name} ${f.points}`).join(' · ');
   $('ePredict').innerHTML = `<div class="card">
@@ -561,7 +561,7 @@ function renderSystem(c) {
     h += `<h3>The colony</h3>
       <canvas id="sSurface" class="surface" title="the colony from above: city blocks (one per ${surf.per} M people), farm plots (one per ${SURF.farm} food), its structures as their outlines"></canvas>
       <div class="tiny" style="margin-bottom:6px">${surf.blocks} city block${surf.blocks === 1 ? '' : 's'} of ${surf.per} M${pc.full ? ' — <b class="up">up to the room\'s edge</b>' : ''} · ${pc.water ? `<span style="color:${surf.have >= surf.need ? 'var(--good)' : 'var(--bad)'}">${surf.have} of ${surf.need} farm plots</span> (${fmt(pc.food)} food for ${fmt(pc.eat)} eaten)` : '<b class="up">no water — no farms</b>'} · ${pc.factories} factor${pc.factories === 1 ? 'y' : 'ies'}${pc.newFactories ? ` <b class="down">+${pc.newFactories}</b>` : ''} · ${plural(P.structures.length, 'structure')}${pc.toReserves > 0 ? ` · <b class="down">+${fmt(pc.toReserves)} to the reserves</b>` : ''}</div>
-      <div class="tiny">${peopleWord(P.people)} people of ${peopleWord(pc.housing)} room <b class="${pc.dPeople < 0 ? 'up' : 'down'}">${pc.dPeople < 0 ? '−' : '+'}${peopleWord(Math.abs(pc.dPeople))}</b>${pc.houses > 0.05 ? ` · room <b class="down">+${peopleWord(pc.houses)}</b> built by the social share` : pc.full ? (pc.housing >= pc.roomCap - 1e-6 ? ' · <b class="up">the world is full</b>' : ' · <b class="up">room is full — more social people build more</b>') : ''}${!pc.water ? ' · <b class="up">no water: the settlers live on their stores — no growth</b>' : ''} · happiness ${Math.round(P.happiness)} · food ${signed(pc.surplus)}${pc.needI > 0 ? ` · sustain ${fmt(pc.needI)} industry / ${fmt(pc.needR)} research${pc.short > 0.005 ? ` <b class="up">${Math.round(pc.short * 100)} % short — unrest</b>` : ' ✓'}` : ''}</div>
+      <div class="tiny">${peopleWord(P.people)} people of ${peopleWord(pc.housing)} room <b class="${pc.dPeople < 0 ? 'up' : 'down'}">${pc.dPeople < 0 ? '−' : '+'}${peopleWord(Math.abs(pc.dPeople))}</b>${pc.houses > 0.05 ? ` · room <b class="down">+${peopleWord(pc.houses)}</b> built by the social share` : pc.full ? (pc.housing >= pc.roomCap - 1e-6 ? ' · <b class="up">the world is full</b>' : ' · <b class="up">room is full — more social people build more</b>') : ''}${!pc.water ? ' · <b class="up">no water: the settlers live on their stores — no growth</b>' : ''} · happiness ${Math.round(P.happiness)} · food ${signed(pc.surplus)}${pc.needI > 0 ? ` · sustain ${fmt(pc.needI)} industry / ${fmt(pc.needR)} research${pc.short > 0.005 ? ` <b class="up">${Math.round(pc.short * 100)} % short — unrest</b>` : ' ✓'}` : ''}${pc.pol.industry + pc.pol.social + pc.pol.research > 1 ? ` · pollution: <span title="an industrial world: people sicken">industrial ${Math.round(pc.pol.industry)}</span> · <span title="a soft society: industry and research slacken">docile ${Math.round(pc.pol.social)}</span> · <span title="a bookish society: the social share slackens">aloof ${Math.round(pc.pol.research)}</span> — a share held past half builds its own up; ease off and it clears` : ''}</div>
       <svg class="ptri" data-planet="${pl.id}" width="200" height="150" viewBox="0 0 200 150">
         <polygon points="100,16 22,134 178,134" fill="rgba(255,255,255,.03)" stroke="rgba(255,255,255,.35)"/>
         <text x="100" y="11" text-anchor="middle" fill="#ffb347" font-size="10" font-weight="700">INDUSTRY</text>
@@ -618,9 +618,9 @@ function drawSurface(cv, pc) {
   }
   g.setLineDash([]);
   if (!pc.water) { g.fillStyle = '#ff7979'; g.font = 'bold 11px sans-serif'; g.textAlign = 'center'; g.fillText('no water — no farms', cx, H - 10); g.textAlign = 'left'; }
-  // the factories: an industrial quarter to the left of the city, a small orange square each (one per pop at most)
-  const fx = W * 0.13, fy = H * 0.5, fac = Math.min(pc.factories, 400);
-  for (let i = 0; i < fac; i++) { const r = 5 * Math.sqrt(i), a = i * SURF.gold, x = fx + r * Math.cos(a), y = fy + r * Math.sin(a); g.fillStyle = 'rgba(255,179,71,.2)'; g.fillRect(x - 2.5, y - 2.5, 5, 5); g.strokeStyle = '#ffb347'; g.lineWidth = 1; g.strokeRect(x - 2.5, y - 2.5, 5, 5); }
+  // the factories: scattered round the city's rim (his call: not a quarter of their own), a small orange square each, growing outward
+  const fac = Math.min(pc.factories, 400);
+  for (let i = 0; i < fac; i++) { const [x, y] = spot(blocks + i * 1.7, step, 2); g.fillStyle = 'rgba(255,179,71,.2)'; g.fillRect(x - 2.5, y - 2.5, 5, 5); g.strokeStyle = '#ffb347'; g.lineWidth = 1; g.strokeRect(x - 2.5, y - 2.5, 5, 5); }
   // the structures: their outlines in a column at the right, the biggest first, a landed ship dashed
   const sts = P.structures.map(u => { const t = designStats(S, u.design, LAST.caps).t; return { u, hull: t.hull, dock: t.dock }; }).sort((a, b) => b.hull.area - a.hull.area);
   const colX = W * 0.86, slotH = Math.min(44, (H - 16) / Math.max(1, sts.length)); let y0 = 8 + slotH / 2;
@@ -999,6 +999,8 @@ document.addEventListener('click', e => {
   let t;
   if ((t = q('[data-tab]'))) return go(t.dataset.tab);
   if ((t = q('[data-att]'))) { giveAttention(S, t.dataset.att, +t.dataset.d); save(); return refresh(); }
+  if ((t = q('[data-fplus]'))) { tetra.pull(+t.dataset.fplus); save(); return refresh(); }
+  if ((t = q('[data-freset]'))) { tetra.to([...CENTER]); save(); return refresh(); }
   if ((t = q('[data-gfield]'))) { gField = gField === t.dataset.gfield ? null : t.dataset.gfield; return refresh(); }
   if ((t = q('[data-randseed]'))) { seedDraft = String(Math.floor(Math.random() * 1e6)); return refresh(); }
   if ((t = q('[data-newseed]'))) { const text = $('gSeed').value.trim() || '7'; if (confirm(`Start a new game in the galaxy of seed "${text}"? The game you are playing is lost.`)) startGame(text); return; }

@@ -32,7 +32,13 @@ export const FIELD_IDS = Object.keys(DOMAINS);
 
 export const T = {
   foodPerSocial: 1.6, foodPerSpare: 0.4, foodPerHead: 0.5, growthPerFood: 0.25, starvePerFood: 0.2,
-  cohesionPerSocial: 0.08, focusCost: 30,
+  // COHESION (his spec, 2026-10-16) runs 0–100 and climbs an asymptote: each eon adds rate × (1 − c/100)^curve — 85 comes in a
+  // reasonable time (~30 eons), 95 takes twice that, 100 (a hive mind) never quite. The reach of the focus is c/100 of the centre-to-corner distance; a move
+  // spends 100 × its length (exhausting the sphere leaves the floor, 3 %) and shocks the people by the share of the sphere it used
+  cohesionRate: 8, cohesionCurve: 1.3, cohesionFloor: 3, moveShock: 60,
+  // POLLUTION, per world: a share held past half for long builds one up — industrial (people sicken, fewer), docile (a soft
+  // society: industry and research slacken), aloof (a bookish one: the social share slackens); easing off cleans it up
+  pol: { rate: 10, max: 0.33, sicken: 0.01 },
   attention: 10,           // points of research attention to hand out between the nine fields
   steps: 10,               // hidden steps a field needs for one breakthrough
   wear: 0.6,               // a place keeps this much of a field's potential after each find taken from it
@@ -225,9 +231,13 @@ export function compute(S) {
 
   const ships = S.ships.map(u => ({ u, t: designStats(S, u.design, caps).t }));
 
+  // the focus this eon: how far cohesion lets it move, how far it has, what that costs, and the shock to the people
+  const reach = clamp(S.cohesion / 100, 0, 1), moveDist = focusDistance(S.focusStart, S.focus), moveCost = Math.min(S.cohesion, moveDist * 100);
+  const moved = moveDist > 0.005, shock = moved && reach > 1e-6 ? clamp(moveDist / reach, 0, 1) : 0;
   // colonies
   const colonies = S.places.filter(pl => pl.colony).map(pl => {
     const P = pl.colony, [si, sr, ss] = P.split, mp = P.people, factor = clamp(0.5 + P.happiness / 120, 0.5, 1.25);
+    const pol = P.pol || { industry: 0, research: 0, social: 0 }, docile = 1 - T.pol.max * pol.social / 100, aloof = 1 - T.pol.max * pol.research / 100;   // pollution's drag
     const flat = { industry: 0, research: 0, social: 0, upkeep: 0, housing: 0 }, gantries = [];
     // the gantries here: the colony's own docks, and any dock of yours parked in orbit
     for (const u of P.structures) {
@@ -237,9 +247,9 @@ export function compute(S) {
     }
     for (const { u, t } of ships) if (!u.dest && u.at === pl.id) for (const gt of t.gantries) gantries.push({ ...gt, of: u.name, at: pl.name });
     const people = { industry: mp * si, research: mp * sr, social: mp * ss };
-    const industry = Math.max(0, people.industry * factor + flat.industry + (P.factories || 0) * T.factoryOut - flat.upkeep);   // the factories: a flat trickle each
-    const research = people.research * factor + flat.research;
-    const social = people.social + flat.social;
+    const industry = Math.max(0, people.industry * factor * docile + flat.industry + (P.factories || 0) * T.factoryOut - flat.upkeep);   // the factories: a flat trickle each
+    const research = people.research * factor * docile + flat.research;
+    const social = people.social * aloof + flat.social;
     const housing = P.baseHousing + flat.housing;
     let left = industry, ahead = 0; const done = [], queue = [];
     for (const item of P.queue) {
@@ -274,10 +284,11 @@ export function compute(S) {
     const full = mp >= housing - 1e-6;
     if (dPeople > 0) dPeople = Math.max(0, Math.min(dPeople, housing - mp));        // nowhere to live = no growth
     if (mp > housing + 0.5) dPeople = Math.min(dPeople, -1);                        // overcrowded
-    dPeople -= mp * short * T.sustain.unrest;
-    const happyTarget = clamp(20 + 120 * ss - 60 * short, 0, 100), happiness = P.happiness + (happyTarget - P.happiness) * 0.3;
+    dPeople -= mp * short * T.sustain.unrest + mp * pol.industry / 100 * T.pol.sicken;   // unrest, and the sick of an industrial world
+    const happyTarget = clamp(20 + 120 * ss - 60 * short - T.moveShock * shock - 0.3 * pol.industry, 0, 100), happiness = P.happiness + (happyTarget - P.happiness) * 0.3;
+    const polNext = { industry: clamp(pol.industry + (si - 0.5) * T.pol.rate, 0, 100), research: clamp(pol.research + (sr - 0.5) * T.pol.rate, 0, 100), social: clamp(pol.social + (ss - 0.5) * T.pol.rate, 0, 100) };
     return { pl, P, people, factor, flat, industry, research, social, gantries, housing, full, queue, done, spare, food, eat, surplus, dPeople, happiness, happyTarget,
-      water, roomCap, houses, factories: P.factories || 0, newFactories, toReserves, needI, needR, short };
+      water, roomCap, houses, factories: P.factories || 0, newFactories, toReserves, needI, needR, short, pol, polNext };
   });
 
   // who is studying what: research power on the ground and in orbit, place by place
@@ -300,13 +311,13 @@ export function compute(S) {
       sources: sources.sort((a, b) => b.c - a.c), lean: leanOf(f, S.focus) };
   });
 
-  const cohesionGain = colonies.reduce((a, p) => a + p.social, 0) * T.cohesionPerSocial;
-  const moveDist = focusDistance(S.focusStart, S.focus), moveCost = moveDist * T.focusCost;
-  const moved = moveDist > 0.005, steadyNext = moved ? 0 : (S.steady || 0) + 1;
+  const pops = colonies.reduce((a, p) => a + p.P.people, 0), socialShare = pops > 0 ? colonies.reduce((a, p) => a + p.people.social, 0) / pops : 1 / 3;
+  const cohesionGain = T.cohesionRate * (0.5 + socialShare) * Math.pow(1 - clamp(S.cohesion / 100, 0, 1), T.cohesionCurve);
+  const steadyNext = moved ? 0 : (S.steady || 0) + 1;
   const setback = Math.floor(moveDist * T.focusSetback);
   const speed = T.integrate * (1 + Math.min(steadyNext, 10) * T.steadyBonus) * clamp(Math.sqrt(research / 33), 0.5, 3);
   for (const s of ships) s.range = shipRange(s.t, fleetWarp(passive));               // STAR TRAVEL: each ship's reach between stars, light years
-  return { colonies, ships, studied, research, sysResearch, fields, points, warp: fleetWarp(passive), free: T.attention - points, cohesionGain, moveDist, moveCost, moved, steadyNext, setback, speed,
+  return { colonies, ships, studied, research, sysResearch, fields, points, warp: fleetWarp(passive), free: T.attention - points, cohesionGain, reach, moveDist, moveCost, moved, shock, steadyNext, setback, speed,
     people: colonies.reduce((a, c) => a + c.P.people, 0) + S.ships.reduce((a, u) => a + (u.people || 0), 0), passive, caps };
 }
 
@@ -377,6 +388,7 @@ export function settle(S, shipId) {
 export const peopleWord = v => v >= 1 ? `${v >= 100 ? Math.round(v) : v.toFixed(v >= 10 ? 0 : 1)} M` : v > 0 ? `${Math.max(1, Math.round(v * 1000))} k` : '0';
 // an old save (version 8) brought up to date: people aboard ships to a ship's scale, crossings into voyages, landed ships marked
 export function upgrade(S) {
+  S.cohesion = Math.min(100, S.cohesion || 0);                                   // cohesion runs 0–100 now (2026-10-16); an older save may hold more
   if (S.version >= 9) { if (!S.hostiles) spawnHostiles(S); return S; }
   const caps = allCapsules(S);
   for (const u of S.ships) {
@@ -540,8 +552,9 @@ export function endEon(S) {
     rep.push({ kind: 'breakthrough', text: `Breakthrough in ${f.name}, found at ${b.origin}: ${b.name}` + (helped ? ` — helps integrate ${helped} older capsule${helped > 1 ? 's' : ''}` : ''), id: b.id });
   }
 
-  S.cohesion = Math.max(0, S.cohesion + c.cohesionGain - c.moveCost);
-  if (c.moved) rep.push({ kind: 'focus', text: `Society shifted its focus (−${c.moveCost.toFixed(1)} cohesion)` + (c.setback ? ` — ${c.setback} step${c.setback > 1 ? 's' : ''} of research lost in every field` : '') });
+  S.cohesion = clamp(S.cohesion + c.cohesionGain - c.moveCost, c.moved ? T.cohesionFloor : 0, 100);
+  if (c.moved) rep.push({ kind: 'focus', text: `Society shifted its focus (−${c.moveCost.toFixed(1)} cohesion${c.shock > 0.5 ? ', a shock to the people' : ''})` + (c.setback ? ` — ${c.setback} step${c.setback > 1 ? 's' : ''} of research lost in every field` : '') });
+  for (const pc of c.colonies) { const was = pc.pol, now = pc.polNext; pc.P.pol = now; for (const [k, word] of [['industry', 'industrial pollution — people sicken'], ['social', 'a docile society — industry and research slacken'], ['research', 'an aloof society — the social share slackens']]) if (now[k] >= 50 && was[k] < 50) rep.push({ kind: 'bad', text: `${pc.pl.name}: ${word}` }); }
   S.focusStart = [...S.focus];
   S.report = rep; S.eon++;
   return rep;
