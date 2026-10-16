@@ -549,14 +549,15 @@ export function designFromChips(S, stacks, budget, rng = rng32(1), caps = allCap
 // traits, and the game's civil chips — lab, habitat, dock (a 4 × 2 gantry a chip). Each stack's breakthrough CAPSULES go on the
 // modules it makes (miniaturization makes them smaller, and so on). The reactor, the weapons computer and the drive are fitted to
 // what the rest needs, the shields grown to cover the hull; the price and the bulk are what all that comes to.
-export function designFromStacks(S, stacks, { klass = 'starship', name = '', hull = 'dart', id = null, caps = allCapsules(S) } = {}) {
+// gunsPerChip: a weapon chip is two guns (the Painter's reading); the game makes it ONE, so odd counts exist and a lone gun can lead on the midline
+export function designFromStacks(S, stacks, { klass = 'starship', name = '', hull = 'dart', id = null, caps = allCapsules(S), gunsPerChip = 2 } = {}) {
   const d = { id: id || uid(), name, hull, modules: [] };
   if (klass === 'starship') d.modules.push({ id: uid(), kind: 'stardrive', caps: [], n: 1, k: 1 });
   const tune = (m, dl) => { if (!dl) return; for (const k of ['dmg', 'rof', 'rng', 'chg']) if (dl[k]) m[k] = dl[k]; };
   for (const s of stacks) {
     const h = Math.max(1, s.h || 1), dl = s.dials || null, cp = (s.caps || []).slice(), add = m => { m.caps = cp.slice(); m.src = s.id; d.modules.push(m); };
     if (s.kind === 'hangar') add(hangarFor(4 * h, (dl && dl.sz) || 1, s.role));
-    else if (KINDS[s.kind]?.mount) { const m = { id: uid(), kind: s.kind, n: 2 * h }; applyPreset(m, s.role && PRESETS[s.role] ? s.role : 'standard'); tune(m, dl); add(m); }
+    else if (KINDS[s.kind]?.mount) { const m = { id: uid(), kind: s.kind, n: gunsPerChip * h }; applyPreset(m, s.role && PRESETS[s.role] ? s.role : 'standard'); tune(m, dl); add(m); }
     else if (s.kind === 'armor') add({ id: uid(), kind: 'armor', n: 4 * h });
     else if (s.kind === 'shield') add({ id: uid(), kind: 'shield', n: 2 * h });
     else if (s.kind === 'fast') add({ id: uid(), kind: 'thruster', n: 2 * h });

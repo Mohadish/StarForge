@@ -26,12 +26,12 @@ export function shipFromCode(code) {
 export const designOf = rec => ({ id: rec.did || rec.id || rid('d'), name: rec.name || 'Ship', hull: rec.hull, modules: rec.modules.map(m => ({ ...m, id: m.id || rid('m'), caps: [] })) });
 // a design read back as the chips builder's tray (Fleet Generator): one weapon chip is two guns, a drone chip four drones,
 // armour four layers, shields two, fast two thrusters, a fabricator one — so a fixed design can be loosened into chips
-export function chipsOfDesign(design) {
+export function chipsOfDesign(design, gunsPerChip = 2) {               // gunsPerChip: the game reads a chip as ONE gun (battle.js designFromStacks)
   const out = [], add = (type, kind, h, role = null) => { const x = out.find(c => c.kind === kind && c.role === role); if (x) x.h += h; else out.push({ type, kind, h, role }); };
   for (const m of design.modules) {
     const n = m.n || 1;
     if (m.kind === 'hangar') add('weapon', 'hangar', Math.max(1, Math.round(n * (m.cnt || 1))),m.preset && m.preset !== 'standard' ? m.preset : null);
-    else if (KINDS[m.kind]?.mount && !KINDS[m.kind].orbital) add('weapon', m.kind, Math.max(1, Math.round(n / 2)), m.preset && m.preset !== 'standard' && m.preset !== 'custom' ? m.preset : null);
+    else if (KINDS[m.kind]?.mount && !KINDS[m.kind].orbital) add('weapon', m.kind, Math.max(1, Math.round(n / gunsPerChip)), m.preset && m.preset !== 'standard' && m.preset !== 'custom' ? m.preset : null);
     else if (m.kind === 'armor') add('trait', 'armor', Math.max(1, Math.round(n / 4)));
     else if (m.kind === 'shield') add('trait', 'shield', Math.max(1, Math.round(n / 2)));
     else if (m.kind === 'thruster') add('trait', 'fast', Math.max(1, Math.round(n / 2)));

@@ -136,21 +136,35 @@ export function hardPoints(hull, guns, room = 1) {
   // flank groups from the front backwards. ROWS (his ask, 2026-10-16): when one line along each flank cannot hold them, the guns
   // take more lines inward — like the plating's rings — as many as the hull's height affords amidships; only then does the line
   // squeeze, and never past a readable gap
-  const half = (() => { const e = edgeAt(hull.poly, (hull.box.minx + hull.box.maxx) / 2); return e ? (e.max - e.min) / 2 : hull.bh / 2; })();
+  const poly = hull.poly, symY = poly.every(([x, y]) => poly.some(([x2, y2]) => Math.abs(x2 - x) < 1e-6 && Math.abs(y2 + y) < 1e-6));   // mirrored across the spine
+  const fitY = (x, y) => { for (let k = 0; k <= 6; k++) { const yy = y * (1 - k / 6); if (inside(poly, x, yy)) return yy; } return null; };   // the nearest spot toward the spine that IS hull — a gun never sits where there is none (his ask, 2026-10-16)
+  const anySpot = x => {                                                           // some hull near x, for a gun that found none where it was meant to go
+    for (const dx of [0, 0.5, -0.5, 1, -1, 1.5, -1.5, 2, -2, 3, -3]) { const e = edgeAt(poly, x + dx); if (!e) continue; for (const f of [0, 0.3, -0.3, 0.6, -0.6, 0.9, -0.9]) { const y = f >= 0 ? e.max * f : e.min * -f; if (inside(poly, x + dx, y)) return [x + dx, y]; } }
+    return [(hull.box.minx + hull.box.maxx) / 2, 0];
+  };
+  const half = (() => { const e = edgeAt(poly, (hull.box.minx + hull.box.maxx) / 2); return e ? (e.max - e.min) / 2 : hull.bh / 2; })();
   const rowGap = Math.max(0.6, ...flank.map(roomFor)), rowsMax = Math.max(1, Math.floor((half * 0.75 - 0.45) / rowGap) + 1);   // a row needs a gun's room; the innermost keeps off the spine and its mirror
   const colsOf = (g, R) => Math.ceil(g.n / (2 * R)), widthOf = (g, R) => colsOf(g, R) * roomFor(g), totalOf = R => flank.reduce((a, g) => a + widthOf(g, R) + 0.25, 0);
   let R = 1; while (R < rowsMax && totalOf(R) > hull.bw * 0.8) R++;
   const widths = flank.map(g => widthOf(g, R)), total = totalOf(R), squeeze = Math.max(0.6, Math.min(1, hull.bw * 0.8 / Math.max(total, 0.1)));
   let front = hull.box.maxx - hull.bw * 0.1;
   flank.forEach((g, i) => {
-    const step = roomFor(g) * squeeze, w = widths[i] * squeeze, cx = groupX(g, front - w / 2); let left = g.n, c = 0;
+    // an ODD count on a mirrored hull: one gun leads the group on the midline, the rest pair up behind it (1 → midline; 2 → a pair;
+    // 3 → midline + a pair …, his ask 2026-10-16); on a lopsided hull the odd one just takes the one side that has hull
+    const step = roomFor(g) * squeeze, w = widths[i] * squeeze, cx = groupX(g, front - w / 2); let left = g.n, c = 0, lead = symY && g.n % 2 === 1;
     for (; left > 0 && c < 400; c++) {                                             // columns run on past the planned width where the hull was too thin for its inner rows
-      const x = cx + w / 2 - (c + 0.5) * step, e = edgeAt(hull.poly, x), yOut = Math.max(0.15, (e ? e.max : hull.bh / 2) * 0.75);
+      const x = cx + w / 2 - (c + 0.5) * step, e = edgeAt(poly, x); if (!e) continue;   // no hull at this x at all
+      let keep = 0.45, leadHere = false;                                           // how close to the spine an inner row may come here
+      if (lead && inside(poly, x, 0)) { at(g, x, 0); left--; lead = false; leadHere = true; keep = rowGap * 0.9; }
+      const yUp = Math.max(0.15, e.max * 0.75), yDn = Math.min(-0.15, e.min * 0.75);
       for (let r = 0; r < R && left > 0; r++) {
-        const y = yOut - r * rowGap; if (r > 0 && y < 0.45) break;                 // no room for an inner row here (the nose): the rest go on in the next column
-        if (left >= 2) { at(g, x, y); at(g, x, -y); left -= 2; } else { at(g, x, 0); left--; }   // the odd one rides the spine
+        const u = yUp - r * rowGap, d = yDn + r * rowGap; if ((r > 0 || leadHere) && (u < keep || d > -keep)) break;   // no room for a row here (the nose, or beside the midline gun on a thin hull): the rest go on in the next column
+        const up = fitY(x, u), dn = fitY(x, d);
+        if (left >= 2 && up != null && dn != null) { at(g, x, up); at(g, x, dn); left -= 2; }
+        else if (up != null || dn != null) { at(g, x, up != null ? up : dn); left--; }   // one side only: a lopsided hull, or the last gun
       }
     }
+    if (left > 0) { const [mx, my] = anySpot((hull.box.minx + hull.box.maxx) / 2); while (left-- > 0) at(g, mx, my); }   // never dropped: a hull with no room left stacks them amidships
     front -= Math.max(w, c * step) + 0.25 * squeeze;
   });
   // belly groups: a row each along the spine, side by side, behind the flank groups so that an odd
@@ -161,7 +175,7 @@ export function hardPoints(hull, guns, room = 1) {
   let bleft = Math.max(tail, end - btotal);
   belly.forEach((g, i) => {
     const step = roomFor(g), cx = groupX(g, bleft + bw[i] / 2);
-    for (let k = 0; k < g.n; k++) at(g, cx + (k - (g.n - 1) / 2) * step, by);
+    for (let k = 0; k < g.n; k++) { const x = cx + (k - (g.n - 1) / 2) * step; if (inside(poly, x, by)) at(g, x, by); else { const [sx, sy] = anySpot(x); at(g, sx, sy); } }   // on hull, or the nearest hull to where it was meant to go
     bleft += bw[i] + 0.3;
   });
   return out;

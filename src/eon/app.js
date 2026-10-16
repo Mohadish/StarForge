@@ -622,7 +622,7 @@ const hullEd = createHullEditor($('hullEd'), {
 // (battle.js designFromStacks) and the price and the bulk follow — a capital gun is a given size, two of them twice that
 const gameChips = createChipEditor({ palette: $('cPalette'), tray: $('cTray'), info: $('cInfo'), sheet: $('cSheet'), dropZones: ['#dPaint'] },
   { extra: { ...CIVIL, names: { fast: 'Thrusters' } }, onChange: chipsChanged, infoExtra: capsuleHtml, onInfoClick: capsuleClick, labels: { weapon: 'Military', role: 'Roles', trait: 'Utilities' },
-    groupBy: s => s.kind === 'fast' ? 'Energy & thrust' : s.type === 'weapon' ? 'Military' : 'Utilities', groupOrder: ['Energy & thrust', 'Utilities', 'Military'], openOnClick: true, onRender: placeInfo, autoChips });   // "Fast" is the thrusters here (his call)
+    groupBy: s => s.kind === 'fast' ? 'Energy & thrust' : s.type === 'weapon' ? 'Military' : 'Utilities', groupOrder: ['Energy & thrust', 'Utilities', 'Military'], openOnClick: true, onRender: placeInfo, autoChips, gunsPerChip: 1 });   // "Fast" is the thrusters here (his call); a weapon chip is one gun
 // the systems the design sizes for itself — not chips, but shown among them (his ask, 2026-10-15): the reactor, the star drive and
 // the thrusters under Energy & thrust, the weapons computer first under Military, shields added for cover under Utilities; each
 // with its size (×k) and count (×n), which grow with what the piles ask for
@@ -648,7 +648,7 @@ let chipsFor = null, fitGunsFor = null;              // the design whose chips a
 const stacksOut = () => gameChips.stacks.map(s => ({ id: s.id, type: s.type, kind: s.kind, h: s.h, role: s.role, ...(s.dials ? { dials: { ...s.dials } } : {}), ...(s.caps && s.caps.length ? { caps: s.caps.slice() } : {}) }));
 function rebuildFromChips(d, c) {
   d.chips = stacksOut();
-  const made = designFromStacks(S, d.chips, { klass: d.klass, name: d.name, hull: d.hull || undefined, id: d.id, caps: c ? c.caps : allCapsules(S) });
+  const made = designFromStacks(S, d.chips, { klass: d.klass, name: d.name, hull: d.hull || undefined, id: d.id, caps: c ? c.caps : allCapsules(S), gunsPerChip: 1 });   // a chip is ONE gun here (odd counts: a lone gun leads on the midline)
   d.modules = made.modules; if (!d.hull) d.hull = made.hull;
 }
 function chipsChanged() { const d = design(); if (!d || chipsFor !== d.id || d.klass === 'structure') return; rebuildFromChips(d, LAST); fitGunsFor = d.id; save(); refresh(); }
@@ -774,7 +774,7 @@ function renderDesign(c) {
   if (document.activeElement !== $('dName')) $('dName').value = d.name;
   if (!d.klass) d.klass = designStats(S, d, c.caps).t.klass;                     // an older design: its class from what it carries
   const chip = d.klass !== 'structure';                                           // a SHIP: chips on the painted ship · a STRUCTURE: modules one by one
-  if (chip && chipsFor !== d.id) { gameChips.set(d.chips || chipsOfDesign(d)); chipsFor = d.id; rebuildFromChips(d, c); }
+  if (chip && chipsFor !== d.id) { gameChips.set(d.chips || chipsOfDesign(d, 1)); chipsFor = d.id; rebuildFromChips(d, c); }
   showMode(chip);
   const KL = { starship: 'a star drive: it crosses between stars', platform: 'thrusters only: a ship or a platform that moves inside its own system and cannot leave it', structure: 'no engine: built on the ground' };
   $('dKlass').innerHTML = [['starship', 'Starship'], ['platform', 'Platform · in-system'], ['structure', 'Structure']].map(([k, l]) => `<button class="${d.klass === k ? 'go' : 'x'}" data-dklass="${k}" style="flex:1" title="${KL[k]}">${l}</button>`).join('');
@@ -946,7 +946,7 @@ document.addEventListener('click', e => {
     if (d.klass === 'structure' && shipDesignCount() >= MAX_SHIP_DESIGNS) return say(`${MAX_SHIP_DESIGNS} ship designs at most — delete one first (refits come later)`);
     leaveOutline();
     if (k === 'structure') { d.klass = k; d.modules = d.modules.filter(m => !KINDS[m.kind].engine); chipsFor = null; }
-    else { if (d.klass === 'structure') { d.chips = chipsOfDesign(d); chipsFor = null; } d.klass = k; if (chipsFor === d.id) rebuildFromChips(d, LAST); }
+    else { if (d.klass === 'structure') { d.chips = chipsOfDesign(d, 1); chipsFor = null; } d.klass = k; if (chipsFor === d.id) rebuildFromChips(d, LAST); }
     selMod = null; save(); return refresh();
   }
   if ((t = q('[data-settle]'))) { toastErr(settle(S, t.dataset.settle)); save(); return refresh(); }

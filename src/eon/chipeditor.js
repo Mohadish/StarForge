@@ -79,7 +79,8 @@ const DRONE_ROLES = ['standard', 'sniper', 'capital', 'antiarmor', 'antishield',
 // labels: the palette rows' names ({ weapon, role, trait }) · groupBy(stack) → a group's name, groupOrder [names]: the tray in groups under headers (the game)
 // openOnClick: a click on a stack opens its details (no ▾ needed) · onRender(openId): after every render (the game places the details panel)
 // autoChips(group) → [{ label, sub, color, title }]: chips shown first in that group that are not stacks (the game's reactor, drive, weapons computer)
-export function createChipEditor({ palette, tray, info, sheet, dropZones = [] }, { onChange, extra = null, infoExtra = null, onInfoClick = null, labels = null, groupBy = null, groupOrder = [], openOnClick = false, onRender = null, autoChips = null } = {}) {
+// gunsPerChip: how many guns a weapon chip stands for in the details' wording (2 here and in the Fleet Generator; the game says 1)
+export function createChipEditor({ palette, tray, info, sheet, dropZones = [] }, { onChange, extra = null, infoExtra = null, onInfoClick = null, labels = null, groupBy = null, groupOrder = [], openOnClick = false, onRender = null, autoChips = null, gunsPerChip = 2 } = {}) {
   ensure(); tray.classList.add('ce-tray'); info.classList.add('ce-info'); sheet.classList.add('ce-sheet'); info.hidden = true;
   let stacks = [], sel = null, open = null, nextId = 1, ship = null;
   const LIST = { weapon: CHIPS.weapon, role: CHIPS.role, trait: [...CHIPS.trait, ...((extra && extra.trait) || [])] }, nameOf = (type, key) => (LIST[type] || []).find(c => c[0] === key)?.[1] || key;
@@ -147,7 +148,7 @@ export function createChipEditor({ palette, tray, info, sheet, dropZones = [] },
     let html = `<div class="top"><b>${label(s)}${s.h > 1 ? ' ×' + s.h : ''}</b>`;
     if (KINDS[s.kind]?.mount && s.kind !== 'hangar') {
       const p = PRESETS[s.role] || PRESETS.standard, base = { dmg: p.dmg, rof: p.rof, rng: p.rng, chg: 1 };
-      html += `<span class="muted">${2 * s.h} guns · role</span><select data-srole>${['standard', ...CHIPS.role.map(c => c[0])].map(id => `<option value="${id}" ${(s.role || 'standard') === id ? 'selected' : ''}>${PRESETS[id].name}</option>`).join('')}</select><span class="muted">${esc(p.what)}</span><button class="x" data-sclose>✕</button></div>`;
+      html += `<span class="muted">${gunsPerChip * s.h} gun${gunsPerChip * s.h === 1 ? '' : 's'} · role</span><select data-srole>${['standard', ...CHIPS.role.map(c => c[0])].map(id => `<option value="${id}" ${(s.role || 'standard') === id ? 'selected' : ''}>${PRESETS[id].name}</option>`).join('')}</select><span class="muted">${esc(p.what)}</span><button class="x" data-sclose>✕</button></div>`;
       html += `<div class="dials">${step({ key: 'dmg', label: 'damage' }, '×' + (dl.dmg || base.dmg), 'damage dial: bigger shots — bulkier, dearer, harder to aim')}${step({ key: 'rof', label: 'rate' }, '×' + (dl.rof || base.rof), 'rate of fire dial')}${step({ key: 'rng', label: 'reach' }, '×' + (dl.rng || base.rng), 'range dial')}${s.kind === 'weapon_missile' ? step({ key: 'chg', label: 'load' }, '×' + (dl.chg || 1), 'missiles carried') : ''}${Object.keys(dl).length ? '<button class="x" data-sreset>back to the role</button>' : ''}</div>`;
       for (const x of mods) {
         const v = x.v, d = v.damage * t.powerFactor * t.fireFactor, aim = Math.min(98, v.accuracy + t.bonus), pd = (x.mod.role || PRESETS[x.mod.preset]?.role) === 'pd';
