@@ -97,7 +97,7 @@ function buildSystem(R, sys, places) {
     }
     const W = WORLDS[worldFor(R, t, star)], name = `${sys.name} ${ROMAN[pn++]}`;
     add(name, W, W.kind === 'giant' ? 'a gas giant — nothing can land, it can only be studied from orbit' : `a ${W.name}, never settled`, W.likes, W.cool, at);
-    if (R() < (W.kind === 'giant' ? 0.5 : 0.25)) add(name + 'a', WORLDS.moon, `a moon of ${name}, never settled`, WORLDS.moon.likes, WORLDS.moon.cool, { ...at, moon: true });
+    if (R() < (W.kind === 'giant' ? 0.5 : 0.25)) add(name + 'a', WORLDS.moon, `a moon of ${name}, never settled`, WORLDS.moon.likes, WORLDS.moon.cool, { ...at, moon: true, water: R() < 0.4 });   // some moons hold water (farms need it)
   }
 }
 

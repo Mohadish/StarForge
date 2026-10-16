@@ -49,14 +49,26 @@ export const T = {
   starSpeed: 5.4,          // map distance a plain star drive covers between stars in one eon = 1.2 light years (VOY.speed × LY; was 12)
   sectionEons: 1,          // a hull too big for the gantry: eons spent joining it, for every extra section
   // a NEW COLONY's natural room (millions of people) before any habitat is built: a living world takes many, a harsh one few
-  room: { living: 60, ocean: 30, other: 5 },
+  room: { living: 60, ocean: 30, ice: 15, other: 5 },
+  // HIS ECONOMY (2026-10-16): the social share feeds everyone first and what is left of it builds ROOM (no habitats to order), up
+  // to the world's cap — "a thousand" on a living world; a harsh world's bubbles allow far less (placeholders until the bubbles
+  // are designed). The industry share builds the queue, then FACTORIES (one per pop at most, each a flat trickle of industry),
+  // then RESERVES — stored industry, the empire's money. A big society must keep industry and research at work for its own sake
+  // (SUSTAIN): nothing to 100 M, 30 % / 20 % of its pops' worth at 500 M and past; short of it, unrest.
+  housePerSocial: 0.5,     // room (M) a million social people build in an eon, once everyone is fed
+  cap: { living: 1000, ocean: 800, ice: 300, other: 100 },
+  factoryCost: 10, factoryOut: 1,
+  sustain: { from: 100, to: 500, industry: 0.3, research: 0.2, unrest: 0.03 },
 };
+// WATER: farms grow only where there is water — living, ocean and ice worlds, and some moons (a moon's water is rolled at
+// birth; an older save's moons draw it from their id, so the same moon always answers the same)
+export const waterOf = pl => { const w = worldOf(pl); if (w === 'living' || w === 'ocean' || w === 'ice') return true; if (pl.kind !== 'moon') return false; if (pl.water != null) return !!pl.water; let h = 0; for (const ch of String(pl.id)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h % 5 < 2; };
 // PEOPLE are counted in MILLIONS on a world. A habitat on a SHIP holds a thousandth of a planet's (his call, 2026-10-15: "a
 // habitat on a planet, one unit is a million people; on a ship, a thousand"); a ship that LANDS as a colony's first building
 // works at an outpost's scale — its fabricators and labs at a hundredth, its habitats at a thousandth — and at the GRADE it
 // arrived in (the stamina it had left: a hard crossing lands people and equipment worn).
 export const SCALE = { shipHousing: 1 / 1000, landed: { industry: 1 / 100, research: 1 / 100, social: 1 / 100, housing: 1 / 1000 } };
-const WORLD_BY_COLOR = { '#5fc48a': 'living', '#4fa3ff': 'ocean' };
+const WORLD_BY_COLOR = { '#5fc48a': 'living', '#4fa3ff': 'ocean', '#bfe6ff': 'ice' };
 export const worldOf = pl => WORLD_BY_COLOR[pl.color] || 'other';
 
 // STAR TRAVEL (his design, 2026-10-15). Distances between stars in LIGHT YEARS (LY map units each — a neighbouring star is
@@ -112,7 +124,7 @@ function rand(S) {
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 }
 const perField = v => Object.fromEntries(FIELD_IDS.map(f => [f, typeof v === 'function' ? v(f) : v]));
-const newColony = (people, baseHousing = 0) => ({ people, baseHousing, split: [1 / 3, 1 / 3, 1 / 3], happiness: 60, queue: [], structures: [] });
+const newColony = (people, baseHousing = 0) => ({ people, baseHousing, split: [1 / 3, 1 / 3, 1 / 3], happiness: 60, queue: [], structures: [], factories: 0 });
 
 // a starting design: a silhouette and a list of modules ({ kind, n?, w/h for a gantry, k for a reactor })
 function design(name, hull, kinds) {
@@ -225,7 +237,7 @@ export function compute(S) {
     }
     for (const { u, t } of ships) if (!u.dest && u.at === pl.id) for (const gt of t.gantries) gantries.push({ ...gt, of: u.name, at: pl.name });
     const people = { industry: mp * si, research: mp * sr, social: mp * ss };
-    const industry = Math.max(0, people.industry * factor + flat.industry - flat.upkeep);
+    const industry = Math.max(0, people.industry * factor + flat.industry + (P.factories || 0) * T.factoryOut - flat.upkeep);   // the factories: a flat trickle each
     const research = people.research * factor + flat.research;
     const social = people.social + flat.social;
     const housing = P.baseHousing + flat.housing;
@@ -246,14 +258,26 @@ export function compute(S) {
       queue.push({ item, d, ds, noDock, fit, sections, cost, need, spend, joining, joinNeed, joinLeft, finishes, eta });
       if (finishes) done.push({ item, d, ds, sections });
     }
-    const spare = left;
-    const food = social * T.foodPerSocial + spare * T.foodPerSpare, eat = mp * T.foodPerHead, surplus = food - eat;
+    // WATER → FOOD (his spec, 2026-10-16): farms only where there is water; without it the settlers live on their stores — no
+    // food, no growth, no famine — until supply lines exist (later)
+    const water = waterOf(pl), eat = mp * T.foodPerHead, food = water ? social * T.foodPerSocial : 0, surplus = water ? food - eat : 0;
+    // the social share feeds everyone FIRST; what is left of it builds ROOM, up to the world's cap
+    const roomCap = T.cap[worldOf(pl)] ?? T.cap.other, socialSpare = water ? Math.max(0, people.social - eat / T.foodPerSocial) : 0;
+    const houses = Math.max(0, Math.min(socialSpare * T.housePerSocial, roomCap - housing));
+    // the industry share builds the queue; with nothing left to build it builds FACTORIES (one per pop at most), and past that it
+    // piles up RESERVES — stored industry, the empire's money
+    const spare = left, canBuild = Math.max(0, Math.floor(mp) - (P.factories || 0)), newFactories = Math.min(canBuild, Math.floor(spare / T.factoryCost)), toReserves = spare - newFactories * T.factoryCost;
+    // SUSTAIN: a big society needs industry and research at work for its own sake; short of it, unrest — people leave, the mood sours
+    const ramp = Math.pow(clamp((mp - T.sustain.from) / (T.sustain.to - T.sustain.from), 0, 1), 2), needI = ramp * T.sustain.industry * mp, needR = ramp * T.sustain.research * mp;
+    const short = Math.max(0, needI > 0 ? 1 - industry / needI : 0, needR > 0 ? 1 - research / needR : 0);
     let dPeople = surplus >= 0 ? surplus * T.growthPerFood : surplus * T.starvePerFood;
     const full = mp >= housing - 1e-6;
     if (dPeople > 0) dPeople = Math.max(0, Math.min(dPeople, housing - mp));        // nowhere to live = no growth
     if (mp > housing + 0.5) dPeople = Math.min(dPeople, -1);                        // overcrowded
-    const happyTarget = clamp(20 + 120 * ss, 0, 100), happiness = P.happiness + (happyTarget - P.happiness) * 0.3;
-    return { pl, P, people, factor, flat, industry, research, social, gantries, housing, full, queue, done, spare, food, eat, surplus, dPeople, happiness, happyTarget };
+    dPeople -= mp * short * T.sustain.unrest;
+    const happyTarget = clamp(20 + 120 * ss - 60 * short, 0, 100), happiness = P.happiness + (happyTarget - P.happiness) * 0.3;
+    return { pl, P, people, factor, flat, industry, research, social, gantries, housing, full, queue, done, spare, food, eat, surplus, dPeople, happiness, happyTarget,
+      water, roomCap, houses, factories: P.factories || 0, newFactories, toReserves, needI, needR, short };
   });
 
   // who is studying what: research power on the ground and in orbit, place by place
@@ -440,7 +464,12 @@ export function endEon(S) {
     const before = P.people;
     P.people = Math.max(1, P.people + pc.dPeople);
     if (pc.surplus < 0) rep.push({ kind: 'bad', text: `${name}: not enough food — ${(before - P.people).toFixed(1)} people lost` });
+    if (pc.short > 0.05) rep.push({ kind: 'bad', text: `${name}: unrest — a society of ${peopleWord(before)} needs ${Math.round(pc.needI)} industry and ${Math.round(pc.needR)} research at work and is ${Math.round(pc.short * 100)} % short` });
     P.happiness = pc.happiness;
+    // the social share's houses, the industry share's factories and reserves (his economy, 2026-10-16)
+    P.baseHousing = Math.max(P.baseHousing, Math.min(pc.roomCap - pc.flat.housing, P.baseHousing + pc.houses));
+    if (pc.newFactories > 0) { P.factories = (P.factories || 0) + pc.newFactories; rep.push({ kind: 'build', text: `${name}: ${pc.newFactories} factor${pc.newFactories === 1 ? 'y' : 'ies'} built with the industry nothing in the queue needed` }); }
+    if (pc.toReserves > 0) S.reserves = (S.reserves || 0) + pc.toReserves;
   }
 
   // ships: at rest they get their stamina back (only in a star system); under way inside a system they count down; between

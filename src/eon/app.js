@@ -273,7 +273,7 @@ function renderTop(c) {
   const cell = (label, val, sub = '', neg = false) => `<div class="r"><span>${label}</span><b>${val}</b>${sub ? ` <small class="${neg ? 'neg' : ''}">${sub}</small>` : ''}</div>`;
   const dPeople = c.colonies.reduce((a, p) => a + p.dPeople, 0), dCoh = c.cohesionGain - c.moveCost;
   $('eStats').innerHTML = cell('Eon', S.eon) + cell('People', peopleWord(c.people), (dPeople < 0 ? '−' : '+') + peopleWord(Math.abs(dPeople)), dPeople < 0)
-    + cell('Research', fmt(c.research)) + cell('Cohesion', fmt(S.cohesion), signed(dCoh), dCoh < 0)
+    + cell('Research', fmt(c.research)) + cell('Reserves', fmt(S.reserves || 0), '+' + fmt(c.colonies.reduce((a, p) => a + p.toReserves, 0))) + cell('Cohesion', fmt(S.cohesion), signed(dCoh), dCoh < 0)
     + cell('Focus steady', plural(S.steady || 0, 'eon')) + cell('Between stars', (VOY.speed * c.warp).toFixed(1) + ' ly/eon');
 }
 
@@ -553,15 +553,15 @@ function renderSystem(c) {
   // the colony
   if (pc) {
     const P = pc.P, w = P.split, mx = w[0] * PT[0].x + w[1] * PT[1].x + w[2] * PT[2].x, my = w[0] * PT[0].y + w[1] * PT[1].y + w[2] * PT[2].y;
-    const queue = pc.queue.filter(q => !q.gone).map(q => `<div class="dcard" style="cursor:default"><div class="n"><span>${esc(q.d.name)}</span><button class="x" data-unq="${q.item.id}" data-planet="${pl.id}">✕</button></div>
+    const queue = pc.queue.filter(q => !q.gone).map(q => `<div class="dcard" style="cursor:default"><div class="n"><span>${esc(q.d.name)}</span><span>${!q.noDock && q.need > 1e-6 && (S.reserves || 0) >= q.need ? `<button class="x" data-buynow="${q.item.id}" data-planet="${pl.id}" title="pay what is left from the reserves">⚡ Buy now (${fmt(q.need)})</button> ` : ''}<button class="x" data-unq="${q.item.id}" data-planet="${pl.id}">✕</button></span></div>
       <div class="prog"><div style="width:${100 * Math.min(1, (q.item.progress + q.spend) / q.cost)}%;background:var(--cost)"></div></div>
       <div class="tiny">${q.noDock ? '<b class="up">waiting — there is no space dock here to put it together in</b>' : `${fmt(q.item.progress)} / ${fmt(q.cost)} · ${q.finishes ? '<b class="down">finished this eon</b>' : q.joining ? `paid for — joining the sections, ${plural(q.joinLeft, 'eon')} left` : Number.isFinite(q.eta) ? 'ready in ' + plural(q.eta, 'eon') : 'nobody in industry'}`}${q.sections > 1 ? ` · <b class="up">too big for the ${q.fit.w} × ${q.fit.h} gantry: built in ${q.sections} sections, ${extraCost(q.fit)}</b>` : ''}${q.ds.klass !== 'structure' && q.ds.housing > 0 ? ` · takes ${peopleWord(Math.max(0, Math.min(q.ds.housing * SCALE.shipHousing, P.people - 5)))} people aboard` : ''}</div></div>`).join('');
     const slips = pc.gantries.slice().sort((a, b) => b.w * b.h - a.w * a.h);
     const surf = surfaceCounts(pc);
     h += `<h3>The colony</h3>
       <canvas id="sSurface" class="surface" title="the colony from above: city blocks (one per ${surf.per} M people), farm plots (one per ${SURF.farm} food), its structures as their outlines"></canvas>
-      <div class="tiny" style="margin-bottom:6px">${surf.blocks} city block${surf.blocks === 1 ? '' : 's'} of ${surf.per} M${pc.full ? ' — <b class="up">up to the room\'s edge</b>' : ''} · <span style="color:${surf.have >= surf.need ? 'var(--good)' : 'var(--bad)'}">${surf.have} of ${surf.need} farm plots</span> (${fmt(pc.food)} food for ${fmt(pc.eat)} eaten) · ${plural(P.structures.length, 'structure')}</div>
-      <div class="tiny">${peopleWord(P.people)} people of ${peopleWord(pc.housing)} room <b class="${pc.dPeople < 0 ? 'up' : 'down'}">${pc.dPeople < 0 ? '−' : '+'}${peopleWord(Math.abs(pc.dPeople))}</b>${pc.full ? ' · <b class="up">housing is full — build habitats</b>' : ''} · happiness ${Math.round(P.happiness)} · food ${signed(pc.surplus)}</div>
+      <div class="tiny" style="margin-bottom:6px">${surf.blocks} city block${surf.blocks === 1 ? '' : 's'} of ${surf.per} M${pc.full ? ' — <b class="up">up to the room\'s edge</b>' : ''} · ${pc.water ? `<span style="color:${surf.have >= surf.need ? 'var(--good)' : 'var(--bad)'}">${surf.have} of ${surf.need} farm plots</span> (${fmt(pc.food)} food for ${fmt(pc.eat)} eaten)` : '<b class="up">no water — no farms</b>'} · ${pc.factories} factor${pc.factories === 1 ? 'y' : 'ies'}${pc.newFactories ? ` <b class="down">+${pc.newFactories}</b>` : ''} · ${plural(P.structures.length, 'structure')}${pc.toReserves > 0 ? ` · <b class="down">+${fmt(pc.toReserves)} to the reserves</b>` : ''}</div>
+      <div class="tiny">${peopleWord(P.people)} people of ${peopleWord(pc.housing)} room <b class="${pc.dPeople < 0 ? 'up' : 'down'}">${pc.dPeople < 0 ? '−' : '+'}${peopleWord(Math.abs(pc.dPeople))}</b>${pc.houses > 0.05 ? ` · room <b class="down">+${peopleWord(pc.houses)}</b> built by the social share` : pc.full ? (pc.housing >= pc.roomCap - 1e-6 ? ' · <b class="up">the world is full</b>' : ' · <b class="up">room is full — more social people build more</b>') : ''}${!pc.water ? ' · <b class="up">no water: the settlers live on their stores — no growth</b>' : ''} · happiness ${Math.round(P.happiness)} · food ${signed(pc.surplus)}${pc.needI > 0 ? ` · sustain ${fmt(pc.needI)} industry / ${fmt(pc.needR)} research${pc.short > 0.005 ? ` <b class="up">${Math.round(pc.short * 100)} % short — unrest</b>` : ' ✓'}` : ''}</div>
       <svg class="ptri" data-planet="${pl.id}" width="200" height="150" viewBox="0 0 200 150">
         <polygon points="100,16 22,134 178,134" fill="rgba(255,255,255,.03)" stroke="rgba(255,255,255,.35)"/>
         <text x="100" y="11" text-anchor="middle" fill="#ffb347" font-size="10" font-weight="700">INDUSTRY</text>
@@ -609,14 +609,18 @@ function drawSurface(cv, pc) {
   const step = 6.5, rRoom = step * Math.sqrt(roomBlocks) + 4;
   g.strokeStyle = pc.full ? 'rgba(255,121,121,.6)' : 'rgba(255,255,255,.28)'; g.setLineDash([3, 4]); g.lineWidth = 1; g.beginPath(); g.arc(cx, cy, rRoom, 0, 7); g.stroke(); g.setLineDash([]);
   for (let i = 0; i < blocks; i++) { const [x, y] = spot(i, step, 0); g.fillStyle = 'rgba(232,240,255,.16)'; g.fillRect(x - 2.5, y - 2.5, 5, 5); g.strokeStyle = '#e8f0ff'; g.strokeRect(x - 2.5, y - 2.5, 5, 5); }
-  // the farms, round the city: fed plots green, the ones it is short of red and dashed, spare ones faint
-  const plots = Math.max(need, have), fstep = 11;
+  // the farms, round the city: fed plots green, the ones it is short of red and dashed, spare ones faint — none without water
+  const plots = pc.water ? Math.max(need, have) : 0, fstep = 11;
   for (let i = 0; i < plots; i++) {
     const [x, y] = spot(i, fstep, rRoom + 12), fed = i < have, spare = i >= need;
     g.setLineDash(fed ? [] : [2, 2]); g.strokeStyle = fed ? (spare ? 'rgba(126,243,176,.45)' : '#7ef3b0') : '#ff7979'; g.fillStyle = fed ? `rgba(126,243,176,${spare ? 0.06 : 0.16})` : 'rgba(255,121,121,.08)';
     g.fillRect(x - 4, y - 4, 8, 8); g.strokeRect(x - 4, y - 4, 8, 8);
   }
   g.setLineDash([]);
+  if (!pc.water) { g.fillStyle = '#ff7979'; g.font = 'bold 11px sans-serif'; g.textAlign = 'center'; g.fillText('no water — no farms', cx, H - 10); g.textAlign = 'left'; }
+  // the factories: an industrial quarter to the left of the city, a small orange square each (one per pop at most)
+  const fx = W * 0.13, fy = H * 0.5, fac = Math.min(pc.factories, 400);
+  for (let i = 0; i < fac; i++) { const r = 5 * Math.sqrt(i), a = i * SURF.gold, x = fx + r * Math.cos(a), y = fy + r * Math.sin(a); g.fillStyle = 'rgba(255,179,71,.2)'; g.fillRect(x - 2.5, y - 2.5, 5, 5); g.strokeStyle = '#ffb347'; g.lineWidth = 1; g.strokeRect(x - 2.5, y - 2.5, 5, 5); }
   // the structures: their outlines in a column at the right, the biggest first, a landed ship dashed
   const sts = P.structures.map(u => { const t = designStats(S, u.design, LAST.caps).t; return { u, hull: t.hull, dock: t.dock }; }).sort((a, b) => b.hull.area - a.hull.area);
   const colX = W * 0.86, slotH = Math.min(44, (H - 16) / Math.max(1, sts.length)); let y0 = 8 + slotH / 2;
@@ -1001,6 +1005,11 @@ document.addEventListener('click', e => {
   if ((t = q('[data-opensys]'))) return openSystem(t.dataset.opensys);
   if ((t = q('[data-gplace]'))) return openSystem(placeOf(t.dataset.gplace).sys, t.dataset.gplace);
   if ((t = q('[data-unq]'))) { const P = placeOf(t.dataset.planet).colony; P.queue = P.queue.filter(x => x.id !== t.dataset.unq); save(); return refresh(); }
+  if ((t = q('[data-buynow]'))) {                      // BUY NOW: the rest of a queue item paid from the reserves (stored industry)
+    const pc = LAST.colonies.find(x => x.pl.id === t.dataset.planet), qi = pc && pc.queue.find(x => x.item && x.item.id === t.dataset.buynow); if (!qi || qi.noDock) return;
+    if ((S.reserves || 0) < qi.need - 1e-6) return say('Not enough in the reserves');
+    S.reserves -= qi.need; qi.item.progress += qi.need; save(); return refresh();
+  }
   if ((t = q('[data-add]'))) return enqueue(t.dataset.add, document.querySelector(`[data-addsel="${t.dataset.add}"]`).value);
   if ((t = q('[data-send]'))) { toastErr(sendShip(S, t.dataset.send, document.querySelector(`[data-dest="${t.dataset.send}"]`).value)); save(); return refresh(); }
   if ((t = q('[data-recall]'))) { recallShip(S, t.dataset.recall); save(); return refresh(); }
