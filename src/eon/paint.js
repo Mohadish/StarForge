@@ -258,25 +258,46 @@ export function paintHull(cv, poly, img, style, opt = {}, decoImg = null) {
   const rearX = y => { let best = Infinity; for (let i = 0; i < P.length; i++) { const [ax, ay] = P[i], [bx, by] = P[(i + 1) % P.length]; if ((ay <= y) !== (by <= y)) { const x = ax + (y - ay) * (bx - ax) / (by - ay); if (x < best) best = x; } } return best; };
   const E = (() => {
     if (!o.engines || !style.engines?.length) return null;
-    const h = wEdge, N = 48, dy = (y1 - y0) / N;
+    const h = wEdge, N = 64, dy = (y1 - y0) / N, pitchE = 0.85;
     const face = []; for (let i = 0; i <= N; i++) { const y = y0 + dy * i, x = rearX(y), x2 = rearX(y + dy * 0.5); face.push({ y, x, ok: isFinite(x) && isFinite(x2) && Math.abs(x2 - x) <= dy * 0.5 * 1.3 }); }
-    let run = null, cur = null; for (const f of face) { if (f.ok) { if (!cur) cur = { y0: f.y, y1: f.y }; cur.y1 = f.y; if (!run || cur.y1 - cur.y0 > run.y1 - run.y0) run = cur; } else cur = null; }
-    if (!run) { const back = P.reduce((a, p) => p[0] < a[0] ? p : a); run = { y0: back[1] - h * 0.5, y1: back[1] + h * 0.5 }; }
-    if (symY) { const half = Math.min(oy - run.y0, run.y1 - oy); if (half > 0) run = { y0: oy - half, y1: oy + half }; else run = { y0: oy - h * 0.5, y1: oy + h * 0.5 }; }
-    const want = o.engineN || (rings.length <= 2 ? 1 : rings.length <= 6 ? 2 : rings.length <= 9 ? 3 : 4), span = run.y1 - run.y0, pitchE = 0.85;
-    let eh = engineH, perRow = Math.max(1, Math.floor(span / (eh * pitchE))), rows = Math.ceil(want / perRow);
-    if (rows > 3) { rows = 3; perRow = Math.ceil(want / 3); eh = Math.min(eh, span / (perRow * pitchE)); }
-    const n = Math.min(want, perRow * rows), counts = []; for (let r = 0, left = n; r < rows; r++) { const c = Math.ceil(left / (rows - r)); counts.push(c); left -= c; }
-    const types = style.engines.length, spots = []; let front = x0;                 // back row first, so the front row overlaps it
-    for (let r = rows - 1; r >= 0; r--) {
-      const c = counts[r]; if (!c) continue;
-      for (let i = 0; i < c; i++) {
-        const pair = Math.min(i, c - 1 - i), sp = style.engines[(style.freeEngines ? i + r : pair + r) % types], w = eh * sp.w / sp.h;
-        const y = run.y0 + span * (i + 0.5) / c, xr = rearX(y), x = (isFinite(xr) ? xr : x0) + w * 0.35 + r * w * 0.45;
-        spots.push({ x, y, w, sp, flip: !style.freeEngines && i > c - 1 - i }); front = Math.max(front, x + w / 2);
-      }
+    // EVERY rear-facing run of the stern, not only the longest (his ask, 2026-10-16: a stern with a mid nacelle put every engine on
+    // that thin tip, shrunk to fit): each run takes its share of the engines by its length, at the engines' natural size; a
+    // mirrored hull keeps the halves alike — the run astride the axis is centred, the side runs come in mirrored pairs
+    const runs = []; let cur = null;
+    for (const f of face) { if (f.ok) { if (!cur) { cur = { y0: f.y, y1: f.y }; runs.push(cur); } cur.y1 = f.y; } else cur = null; }
+    let use = runs.filter(r => r.y1 - r.y0 >= engineH * 0.55);                        // a run must hold most of an engine
+    if (symY) {
+      const mirrorOf = r => use.find(q => Math.abs((oy - q.y1) - (r.y0 - oy)) < dy * 1.6 && Math.abs((oy - q.y0) - (r.y1 - oy)) < dy * 1.6);
+      use = use.filter(r => (r.y0 <= oy && r.y1 >= oy) || mirrorOf(r)).map(r => r.y0 <= oy && r.y1 >= oy ? { y0: oy - Math.min(oy - r.y0, r.y1 - oy), y1: oy + Math.min(oy - r.y0, r.y1 - oy) } : r);
     }
-    return { eh, rows, n, spots, front };
+    if (!use.length) { const back = P.reduce((a, p) => p[0] < a[0] ? p : a); use = [{ y0: (symY ? oy : back[1]) - h * 0.5, y1: (symY ? oy : back[1]) + h * 0.5 }]; }
+    use.sort((a, b) => a.y0 - b.y0);
+    const want = o.engineN || (rings.length <= 2 ? 1 : rings.length <= 6 ? 2 : rings.length <= 9 ? 3 : 4), spanAll = use.reduce((a, r) => a + r.y1 - r.y0, 0);
+    // the share of each run: by length, in whole engines, mirrored runs alike (so the hull may get one more than asked, never fewer)
+    const share = use.map(r => want * (r.y1 - r.y0) / spanAll), counts = share.map(Math.floor);
+    for (let given = counts.reduce((a, c) => a + c, 0); given < want;) {
+      let best = -1; for (let i = 0; i < use.length; i++) if (best < 0 || share[i] - counts[i] > share[best] - counts[best]) best = i;
+      counts[best]++; given++;
+      if (symY) { const r = use[best], m = use.findIndex((q, i) => i !== best && Math.abs((oy - q.y1) - (r.y0 - oy)) < dy * 1.6 && Math.abs((oy - q.y0) - (r.y1 - oy)) < dy * 1.6); if (m >= 0) { counts[m]++; given++; } }
+    }
+    const types = style.engines.length, spots = []; let front = x0, rowsUsed = 1, ehAll = engineH, n = 0;
+    use.forEach((run, ri) => {
+      const c0 = counts[ri]; if (!c0) return;
+      const span = run.y1 - run.y0, rank = symY ? Math.round(Math.abs((run.y0 + run.y1) / 2 - oy) / Math.max(dy, 1e-6)) : ri;   // mirrored runs share a rank: the same engine art on both
+      let eh = engineH, perRow = Math.max(1, Math.floor(span / (eh * pitchE))), rows = Math.ceil(c0 / perRow);
+      if (rows > 3) { rows = 3; perRow = Math.ceil(c0 / 3); eh = Math.min(eh, span / (perRow * pitchE)); }
+      const cnt = Math.min(c0, perRow * rows), rowCounts = []; for (let r = 0, left = cnt; r < rows; r++) { const c = Math.ceil(left / (rows - r)); rowCounts.push(c); left -= c; }
+      rowsUsed = Math.max(rowsUsed, rows); ehAll = Math.min(ehAll, eh); n += cnt;
+      for (let r = rows - 1; r >= 0; r--) {                                             // back row first, so the front row overlaps it
+        const c = rowCounts[r]; if (!c) continue;
+        for (let i = 0; i < c; i++) {
+          const pair = Math.min(i, c - 1 - i), sp = style.engines[(style.freeEngines ? i + r + rank : pair + r + rank) % types], w = eh * sp.w / sp.h;
+          const y = run.y0 + span * (i + 0.5) / c, xr = rearX(y), x = (isFinite(xr) ? xr : x0) + w * 0.35 + r * w * 0.45;
+          spots.push({ x, y, w, h: eh, sp, flip: !style.freeEngines && (symY ? y > oy + 1e-6 : i > c - 1 - i) }); front = Math.max(front, x + w / 2);
+        }
+      }
+    });
+    return { eh: ehAll, rows: rowsUsed, n, spots, front };
   })();
   // ---- the HARD POINTS: where the guns sit, by the game's own rule (hull.js), each on a turret MOUNT from the style's
   // decoration set — one mount per weapon kind, sized like the engines × the gun's size; slid onto the plating when the
@@ -402,8 +423,8 @@ export function paintHull(cv, poly, img, style, opt = {}, decoImg = null) {
     } }
     // the ENGINES, from the plan
     if (E) for (const s of E.spots) {
-      g.save(); g.translate(s.x, s.y); g.scale(style.flipEngines ? -1 : 1, s.flip ? -1 : 1); g.drawImage(sheet, s.sp.x, s.sp.y, s.sp.w, s.sp.h, -s.w / 2, -E.eh / 2, s.w, E.eh); g.restore();
-      if (first) { cones.push([s.x - s.w / 2, s.y - E.eh / 2, s.w * 0.36, E.eh]); nozzles.push([s.x - s.w / 2 + E.eh * 0.1, s.y, E.eh]); }   // the cone: the back third of the sprite — the wash keeps off it; the nozzle: where the glow goes
+      g.save(); g.translate(s.x, s.y); g.scale(style.flipEngines ? -1 : 1, s.flip ? -1 : 1); g.drawImage(sheet, s.sp.x, s.sp.y, s.sp.w, s.sp.h, -s.w / 2, -s.h / 2, s.w, s.h); g.restore();
+      if (first) { cones.push([s.x - s.w / 2, s.y - s.h / 2, s.w * 0.36, s.h]); nozzles.push([s.x - s.w / 2 + s.h * 0.1, s.y, s.h]); }   // the cone: the back third of the sprite — the wash keeps off it; the nozzle: where the glow goes
     }
   };
   pass(g0, img, decoImg, true);

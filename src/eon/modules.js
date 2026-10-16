@@ -322,7 +322,9 @@ export function autoFit(S, design, caps = allCapsules(S)) {
     if (t.powerUse > 0 && !first('reactor')) { design.modules.push({ id: newId(), kind: 'reactor', caps: [], n: 1, k: 0.5 }); touched.add('a reactor added'); changed = true; }
     for (const kind of ['stardrive', 'weapon_system', 'reactor']) { const m = first(kind); if (m && fitModule(S, design, m.id, caps)) { touched.add(KINDS[kind].name.toLowerCase() + ' sized'); changed = true; } }
     const sh = first('shield'), now = designStats(S, design, caps).t;
-    if (sh && now.cover < 0.99 && (sh.n || 1) < 8) { sh.n = (sh.n || 1) + 1; touched.add('shields added'); changed = true; }
+    // shields until the hull is covered: as many as the cover asks for at once (the old cap of 8 left a big hull at 97 % and
+    // every shield chip he added went nowhere until the fifth, 2026-10-16); the bulk they add is caught by the next round
+    if (sh && now.cover < 0.99 && (sh.n || 1) < 200) { sh.n = Math.max((sh.n || 1) + 1, Math.ceil((sh.n || 1) / Math.max(now.cover, 0.02))); touched.add('shields added'); changed = true; }
     if (!changed) break;
   }
   return [...touched];

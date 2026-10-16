@@ -8,7 +8,7 @@ import { KINDS, KIND_IDS, CLASS_NAME, GANTRY, GUN, PRESETS, applyPreset, allCaps
 import { GALAXY, STARS } from './galaxy.js';
 import { createTetra } from './tetra.js';
 import { drawHull } from './hullview.js';
-import { hullDef, hullsFor, setUserHulls, bboxOf, areaOf, HULL_VOLUME } from './hull.js';
+import { hullDef, hullsFor, setUserHulls, bboxOf, areaOf, HULL_VOLUME, fieldBubble } from './hull.js';
 import { createHullEditor } from './hulledit.js';
 import { mountNav } from './nav.js';
 import { lookOf as fleetLook, lookFromColors, styleChoices, spriteOf, thumbOf } from './skins.js';
@@ -196,7 +196,11 @@ function paintMain(d) {
     if (poly.length >= 3) { const ox = G.W / 2 - center[0] * px, oy = G.H / 2 - center[1] * px; g.beginPath(); poly.forEach(([x, y], i) => i ? g.lineTo(ox + x * px, oy + y * px) : g.moveTo(ox + x * px, oy + y * px)); g.closePath(); g.fillStyle = lk.washA; g.globalAlpha = 0.35; g.fill('evenodd'); g.globalAlpha = 1; }
   }
   if (R && sheets.tur && sheets.st.turrets) drawTurrets(g, R.hardpoints, sheets);
-  cv._paint = { turrets: !!(R && sheets.tur && sheets.st.turrets), hardpoints: R ? R.hardpoints.length : 0, px };   // what the last paint did (a probe for tests)
+  if (!editing && DS.shields.length) {                // the shields' field: one purple bubble round the ship, as big as the cover (hull.js fieldBubble, as the plan view had it)
+    const bub = fieldBubble(hull, DS.t.cover), ox = G.W / 2 - center[0] * px, oy = G.H / 2 - center[1] * px;
+    g.save(); g.beginPath(); g.ellipse(ox + bub.cx * px, oy + bub.cy * px, Math.max(0.1, bub.rx * px), Math.max(0.1, bub.ry * px), 0, 0, 7); g.fillStyle = 'rgba(207,137,255,.07)'; g.fill(); g.strokeStyle = 'rgba(207,137,255,.85)'; g.lineWidth = 1.5; g.setLineDash([6, 5]); g.stroke(); g.restore();
+  }
+  cv._paint = { turrets: !!(R && sheets.tur && sheets.st.turrets), hardpoints: R ? R.hardpoints.length : 0, px, bubble: !editing && DS.shields.length > 0, cover: DS.t.cover };   // what the last paint did (a probe for tests)
   const t = DS.t;                                    // the two numbers that matter most, big: the price and the size
   g.textAlign = 'center'; g.font = 'bold 30px sans-serif'; g.fillStyle = '#ffd26a'; g.fillText(`${ICON.cost} ${fmt(t.cost)}`, G.X, 42);
   g.font = '15px sans-serif'; g.fillStyle = '#e8f0ff'; g.fillText(`${ICON.volume} ${plural(t.squares, 'square')} · ${fmt(t.volume)} volume`, G.X, 66);
