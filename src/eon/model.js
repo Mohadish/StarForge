@@ -165,10 +165,10 @@ function design(name, hull, kinds) {
 }
 export const cloneDesign = d => ({ id: d.id, name: d.name, hull: d.hull, modules: d.modules.map(m => ({ ...m, caps: [...m.caps] })) });
 
-export function newState(seed = 7) {
-  const G = generateGalaxy(seed);                       // the same seed always gives the same galaxy
+export function newState(seed = 7, o = {}) {           // o.galaxy: { count, radius } for a bigger sector (galaxy.js galaxyOf)
+  const G = generateGalaxy(seed, o.galaxy || {});       // the same seed always gives the same galaxy
   const S = {
-    version: 9, seed, rolls: 0, eon: 1, derelicts: [],
+    version: 9, seed, rolls: 0, eon: 1, derelicts: [], galaxy: { count: G.count, radius: G.radius },
     focus: [...CENTER], focusStart: [...CENTER], cohesion: 6, steady: 0,
     attention: perField(0), steps: perField(0), found: perField(0),
     breakthroughs: [], report: [], ships: [],

@@ -11,7 +11,7 @@ const seedOf = text => { const s = String(text).trim(); if (/^\d{1,9}$/.test(s))
 let bad = 0, refused = 0;
 const check = (row, now, eon) => { const diff = Object.keys(now).filter(k => now[k] !== row[k]); if (diff.length) { bad++; if (bad <= 5) console.log(`eon ${eon}: differs in ${diff.map(k => `${k} ${row[k]} → ${now[k]}`).join(', ')}`); } };
 if (log.kind === 'world') {
-  const W = createWorld(log.seedText, log.empires.length);
+  const W = createWorld(log.seedText, log.empires.length, { galaxy: log.galaxy || null });
   for (const row of log.eons) {
     for (const S of W.empires) if (!S.dead) { const errs = applyWorldEon(W, S, log.empires[S.empire].actions, W.eon); refused += errs.length; for (const e of errs) console.log(`eon ${W.eon} ${S.name}: ${e.a.type} refused — ${e.err}`); }
     worldEndEon(W);

@@ -5,7 +5,7 @@ import { DOMAINS } from '../data/properties.js';
 import { XS, X_INFO, T, CENTER, FIELD_IDS, newState, compute, endEon, uid, isIntegrated, giveAttention, sendShip, recallShip, settle, starEons, sysDistance,
   LY, VOY, SCALE, shipRange, forecast, fleetRange, sendFleet, lyBetween, peopleWord, upgrade, hostileIn, hostileWord, hostileWorth, ZONE, bubbles, zoneOfSys, effectiveLy } from './model.js';
 import { KINDS, KIND_IDS, CLASS_NAME, GANTRY, GUN, PRESETS, applyPreset, allCapsules, designStats, isRelevant, dockFit, reachBand, fitModule, autoFit, traverseOf } from './modules.js';
-import { GALAXY, STARS } from './galaxy.js';
+import { GALAXY, STARS, galaxyOf } from './galaxy.js';
 import { createTetra } from './tetra.js';
 import { drawHull } from './hullview.js';
 import { hullDef, hullsFor, setUserHulls, bboxOf, areaOf, HULL_VOLUME, fieldBubble } from './hull.js';
@@ -32,7 +32,7 @@ let S = load();
 // THE WORLD (world.js; his ask, 2026-10-16 "when you take over, the AI stops"): other empires on the same galaxy, each with a head of
 // its own (ai.js) that plays on while you play yours — from a replay you stopped, or a new game against AI empires. Null = alone.
 let W = null;
-try { const w = JSON.parse(localStorage.getItem(KEY + '.world') || 'null'); if (w && w.snap) { W = createWorld(w.seedText, w.n); worldRestore(W, w.snap); W.me = w.me; S = W.empires[W.me]; } } catch (e) { W = null; }
+try { const w = JSON.parse(localStorage.getItem(KEY + '.world') || 'null'); if (w && w.snap) { W = createWorld(w.seedText, w.n, { galaxy: w.galaxy || null }); worldRestore(W, w.snap); W.me = w.me; S = W.empires[W.me]; } } catch (e) { W = null; }
 const foreignEmpires = () => W ? W.empires.map((E, k) => ({ E, k, col: E.look.colA })).filter(x => x.E !== S && !x.E.dead) : [];   // the other empires, as they are (not a summary)
 const sysOfPlaceOf = (E, id) => (E.places.find(p => p.id === id) || {}).sys;
 let tab = 'empire', newIds = new Set();
@@ -248,7 +248,7 @@ function showMode(chip) {
 const ringR = sysId => { const c = LAST; if (!c) return 0; return Math.max(0, ...c.ships.filter(s => !s.u.dest && placeOf(s.u.at)?.sys === sysId).map(s => s.range || 0)); };
 
 function load() { try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (s && (s.version === 8 || s.version === 9)) return upgrade(s); } catch (e) { /* new game */ } return newState(); }
-function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); if (W && !REPLAY) localStorage.setItem(KEY + '.world', JSON.stringify({ seedText: W.seedText, n: W.n, me: W.me, snap: worldSnapshot(W) })); else localStorage.removeItem(KEY + '.world'); } catch (e) { /* ignore */ } }   // the world too, while you play in one (a replay is not kept)
+function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); if (W && !REPLAY) localStorage.setItem(KEY + '.world', JSON.stringify({ seedText: W.seedText, n: W.n, galaxy: W.galaxy, me: W.me, snap: worldSnapshot(W) })); else localStorage.removeItem(KEY + '.world'); } catch (e) { /* ignore */ } }   // the world too, while you play in one (a replay is not kept)
 function loadHulls() { try { return JSON.parse(localStorage.getItem(HULL_KEY) || '[]') || []; } catch (e) { return []; } }
 function saveHulls() { try { localStorage.setItem(HULL_KEY, JSON.stringify(HULLS)); } catch (e) { /* ignore */ } setUserHulls(HULLS); }
 
@@ -345,12 +345,13 @@ function fitCanvas(cv) { const w = cv.clientWidth, h = cv.clientHeight; if (cv.w
 function drawGalaxy(c) {
   const cv = $('gMap'); if (!cv || !cv.clientWidth) return;
   const G = fitCanvas(cv), g = cv.getContext('2d'), mine = presence(c);
-  G.cx += gView.x; G.cy += gView.y; G.k = Math.max(20, Math.min(G.w, G.h) / 2 - 34) / GALAXY.radius * gView.z; G.pos = {}; G.fleet = {}; G.battle = {};
+  const RAD = (S.galaxy && S.galaxy.radius) || GALAXY.radius;   // a bigger sector (galaxy.js galaxyOf) draws to the same frame
+  G.cx += gView.x; G.cy += gView.y; G.k = Math.max(20, Math.min(G.w, G.h) / 2 - 34) / RAD * gView.z; G.pos = {}; G.fleet = {}; G.battle = {};
   for (const s of S.systems) G.pos[s.id] = { x: G.cx + s.x * G.k, y: G.cy + s.y * G.k };
   cv._geo = G;
   g.clearRect(0, 0, G.w, G.h);
   // the disc
-  const R = G.k * GALAXY.radius * 1.07, gr = g.createRadialGradient(G.cx, G.cy, 0, G.cx, G.cy, R);
+  const R = G.k * RAD * 1.07, gr = g.createRadialGradient(G.cx, G.cy, 0, G.cx, G.cy, R);
   gr.addColorStop(0, 'rgba(150,170,255,.11)'); gr.addColorStop(0.7, 'rgba(120,140,255,.04)'); gr.addColorStop(1, 'rgba(120,140,255,0)');
   g.fillStyle = gr; g.beginPath(); g.arc(G.cx, G.cy, R, 0, 7); g.fill();
   g.strokeStyle = 'rgba(170,210,255,.12)'; g.setLineDash([2, 6]); g.beginPath(); g.arc(G.cx, G.cy, R * 0.98, 0, 7); g.stroke(); g.setLineDash([]);
@@ -414,12 +415,12 @@ function drawGalaxy(c) {
     if (foe) { g.strokeStyle = '#ff5c5c'; g.lineWidth = 1.5; g.setLineDash([3, 3]); g.beginPath(); g.arc(p.x, p.y, size + 6, 0, 7); g.stroke(); g.setLineDash([]); g.lineWidth = 1; g.fillStyle = '#ff7979'; g.font = 'bold 9px sans-serif'; g.fillText('⚔ ' + hostileWorth(foe), p.x, p.y - size - 8); }
     let label = s.name, labelCol = s.home || here ? '#e8f0ff' : '#8598bb', bold = !!(s.home || here);
     if (GE) {                                          // GOD MODE: every empire's colonies as rings (one ring per empire, outward), every fleet as a triangle in a slot of its own
-      const SLOT = [[1, -1], [-1, -1], [1, 1], [-1, 1]]; let ring = 0;
+      const SLOT = [[1, -1], [-1, -1], [1, 1], [-1, 1], [0, -1.6]]; let ring = 0;   // a slot per empire round the star (the fifth above it)
       GE.forEach((E, k) => {
         if (E.dead) return; const col = E.look.colA, cols = E.places.filter(pl => pl.colony && pl.sys === s.id), ships = GODC && GODC[k] ? GODC[k].ships.filter(x => !x.u.dest && (E.places.find(pl => pl.id === x.u.at) || {}).sys === s.id) : [];
         if (cols.length) { const hm = cols.some(pl => pl.id === E.homePlace); g.strokeStyle = col; g.lineWidth = hm ? 2.5 : 1.5; g.setLineDash(hm ? [] : [4, 3]); g.beginPath(); g.arc(p.x, p.y, size + 4 + 3 * ring++, 0, 7); g.stroke(); g.setLineDash([]); g.lineWidth = 1; if (hm) { label = s.name + ' · ' + E.name; labelCol = col; bold = true; } }
         if (ships.length) {
-          const [sx, sy] = SLOT[k % 4], x = p.x + sx * (size + 15), y = p.y + sy * (size + 7), key = s.id + '|' + k, on = godPick && godPick.kind === 'fleet' && godPick.k === k && godPick.sys === s.id; G.gfleet[key] = { x, y, k, sys: s.id };
+          const [sx, sy] = SLOT[k % SLOT.length], x = p.x + sx * (size + 15), y = p.y + sy * (size + 7), key = s.id + '|' + k, on = godPick && godPick.kind === 'fleet' && godPick.k === k && godPick.sys === s.id; G.gfleet[key] = { x, y, k, sys: s.id };
           g.fillStyle = on ? '#fff' : col; g.beginPath(); g.moveTo(x, y - 8); g.lineTo(x + 8, y + 7); g.lineTo(x - 8, y + 7); g.closePath(); g.fill();
           if (on || gHover === key) { g.strokeStyle = on ? col : 'rgba(255,255,255,.6)'; g.lineWidth = 1.5; g.beginPath(); g.arc(x, y + 1, 13, 0, 7); g.stroke(); g.lineWidth = 1; }
           g.font = 'bold 11px sans-serif'; g.textAlign = sx > 0 ? 'left' : 'right'; g.fillStyle = on ? '#fff' : col; g.fillText(String(ships.length), x + sx * 12, y + 5); g.textAlign = 'center';
@@ -541,7 +542,7 @@ function renderGalaxy(c) {
   const have = mine ? [mine.colonies ? `${mine.colonies} ${mine.colonies === 1 ? 'colony' : 'colonies'}` : '', mine.ships ? plural(mine.ships, 'ship') : ''].filter(Boolean).join(' and ') : '';
   const top = `<h2>The galaxy</h2>
     <div class="tiny">${S.systems.length} star systems, all grown from one seed. The same seed always gives the same galaxy — any number or word will do.</div>
-    <div style="display:flex;gap:6px;margin:6px 0 4px;align-items:center"><span class="tiny">Seed</span><input type="text" id="gSeed" value="${esc(seedDraft ?? S.seedText ?? S.seed)}" style="flex:1;min-width:0"><button data-randseed title="put a random seed in the box">Random</button><select data-foes title="alone against the galaxy's hostile fleets, or against AI empires that play for the galaxy as you do">${[[1, 'alone'], [2, 'vs 1 AI empire'], [3, 'vs 2 AI empires'], [4, 'vs 3 AI empires']].map(([v, w]) => `<option value="${v}" ${v === foesDraft ? 'selected' : ''}>${w}</option>`).join('')}</select><button class="go" data-newseed>New game from this seed</button></div>
+    <div style="display:flex;gap:6px;margin:6px 0 4px;align-items:center"><span class="tiny">Seed</span><input type="text" id="gSeed" value="${esc(seedDraft ?? S.seedText ?? S.seed)}" style="flex:1;min-width:0"><button data-randseed title="put a random seed in the box">Random</button><select data-foes title="alone against the galaxy's hostile fleets, or against AI empires that play for the galaxy as you do">${[[1, 'alone'], [2, 'vs 1 AI empire'], [3, 'vs 2 AI empires'], [4, 'vs 3 AI empires'], [5, 'vs 4 AI empires']].map(([v, w]) => `<option value="${v}" ${v === foesDraft ? 'selected' : ''}>${w}</option>`).join('')}</select><select data-stars title="how big a sector: the same density, more room">${[50, 100, 150].map(v => `<option value="${v}" ${v === starsDraft ? 'selected' : ''}>${v} stars</option>`).join('')}</select><button class="go" data-newseed>New game from this seed</button></div>
     <h3>Show where a field is rich</h3>
     <div>${FIELD_IDS.map(f => `<button class="x ${gField === f ? 'go' : ''}" data-gfield="${f}" style="margin:0 4px 4px 0">${DOMAINS[f].name}</button>`).join('')}</div>
     <div class="tiny">${gField ? `The bigger the purple halo, the more ${DOMAINS[gField].name} there is to find in that system. Click the field again to switch it off.` : 'Pick a field and the map marks the systems worth going to for it.'}</div>`;
@@ -725,14 +726,14 @@ function seedOf(text) {                               // a number is used as it 
   let h = 2166136261; for (const ch of s) { h ^= ch.codePointAt(0); h = Math.imul(h, 16777619); }
   return h >>> 0;
 }
-function startGame(text, n = 1) {                     // n > 1: a WORLD of n empires, you the first, the rest played by ai.js
-  const seedText = String(text).trim() || '7';
+function startGame(text, n = 1, stars = GALAXY.count) {   // n > 1: a WORLD of n empires, you the first, the rest played by ai.js; stars: the sector's size (galaxyOf)
+  const seedText = String(text).trim() || '7', galaxy = galaxyOf(stars);
   leaveOutline(); REPLAY = null; GOD = false; godPick = null;
-  if (n > 1) { W = createWorld(seedText, n); W.me = 0; S = W.empires[0]; }
-  else { W = null; S = newState(seedOf(seedText)); S.seedText = seedText; }
+  if (n > 1) { W = createWorld(seedText, n, { galaxy }); W.me = 0; S = W.empires[0]; }
+  else { W = null; S = newState(seedOf(seedText), { galaxy }); S.seedText = seedText; }
   freshView(); save(); refresh();
 }
-let foesDraft = 1;                                   // the "against" choice in the galaxy panel: 1 = alone (hostile fleets), 2–4 = that many empires in all
+let foesDraft = 1, starsDraft = GALAXY.count;        // the "against" and "stars" choices in the galaxy panel: alone (hostile fleets) or 2–5 empires in all; 50 / 100 / 150 stars
 function freshView() { curDesign = S.designs[0]?.id || null; selMod = null; chipsFor = null; gMode = 'system'; gView = { z: 1, x: 0, y: 0 }; selSys = gSel = S.homeSys; selPlace = S.homePlace || 'home'; newIds = new Set(); seedDraft = null; picks = new Map(); pickScope = null; sendTo = null; }   // a new game, or another empire's eyes: nothing chosen yet
 
 // =====================================================================
@@ -1307,7 +1308,7 @@ document.addEventListener('click', e => {
   if ((t = q('[data-freset]'))) { tetra.to([...CENTER]); save(); return refresh(); }
   if ((t = q('[data-gfield]'))) { gField = gField === t.dataset.gfield ? null : t.dataset.gfield; return refresh(); }
   if ((t = q('[data-randseed]'))) { seedDraft = String(Math.floor(Math.random() * 1e6)); return refresh(); }
-  if ((t = q('[data-newseed]'))) { const text = $('gSeed').value.trim() || '7', n = +($('gPanel').querySelector('[data-foes]')?.value || 1); if (confirm(`Start a new game in the galaxy of seed "${text}"${n > 1 ? ` against ${n - 1} AI empire${n > 2 ? 's' : ''}` : ''}? The game you are playing is lost.`)) startGame(text, n); return; }
+  if ((t = q('[data-newseed]'))) { const text = $('gSeed').value.trim() || '7', n = +($('gPanel').querySelector('[data-foes]')?.value || 1), stars = +($('gPanel').querySelector('[data-stars]')?.value || GALAXY.count); if (confirm(`Start a new game in the galaxy of seed "${text}" (${stars} stars)${n > 1 ? ` against ${n - 1} AI empire${n > 2 ? 's' : ''}` : ''}? The game you are playing is lost.`)) startGame(text, n, stars); return; }
   if ((t = q('[data-opensys]'))) return openSystem(t.dataset.opensys);
   if ((t = q('[data-gplace]'))) return openSystem(placeOf(t.dataset.gplace).sys, t.dataset.gplace);
   if ((t = q('[data-unq]'))) { const P = placeOf(t.dataset.planet).colony; P.queue = P.queue.filter(x => x.id !== t.dataset.unq); save(); return refresh(); }
@@ -1404,7 +1405,7 @@ function replayLoad(log) {
   const world = !!log && log.kind === 'world' && Array.isArray(log.empires);
   if (!log || log.seedText == null || !(world || Array.isArray(log.actions))) return say('That is not a game log');
   leaveOutline(); GOD = false; godPick = null;
-  if (world) { W = createWorld(log.seedText, log.empires.length); S = W.empires[0]; }
+  if (world) { W = createWorld(log.seedText, log.empires.length, { galaxy: log.galaxy || null }); S = W.empires[0]; }
   else { W = null; S = newState(seedOf(log.seedText)); S.seedText = String(log.seedText); }
   const acts = world ? log.empires.flatMap(e => e.actions) : log.actions;
   REPLAY = { log, world: W, view: 0, last: log.eons && log.eons.length ? Math.max(...log.eons.map(e => e.eon)) : Math.max(0, ...acts.map(a => a.eon)) + 1, snaps: new Map(), ended: false };
@@ -1463,7 +1464,7 @@ document.addEventListener('click', e => {
   const gs = e.target.closest('[data-gship]'); if (gs && godEmpires()) { const [k, id] = gs.dataset.gship.split('|'); godPick = { kind: 'ship', k: +k, id }; return refresh(); }
   if (e.target.closest('[data-gback]') && godEmpires()) { if (godPick && godPick.kind === 'ship') { const E = W.empires[godPick.k], u = E.ships.find(x => x.id === godPick.id), pl = u && !u.dest && E.places.find(p => p.id === u.at); godPick = pl ? { kind: 'fleet', k: godPick.k, sys: pl.sys } : null; } else godPick = null; return refresh(); }
 });
-document.addEventListener('change', e => { if (e.target.matches('[data-rview]')) return replayView(+e.target.value); if (e.target.matches('[data-reon]')) return replayGoto(+e.target.value); if (e.target.matches('[data-foes]')) foesDraft = +e.target.value; });
+document.addEventListener('change', e => { if (e.target.matches('[data-rview]')) return replayView(+e.target.value); if (e.target.matches('[data-reon]')) return replayGoto(+e.target.value); if (e.target.matches('[data-foes]')) foesDraft = +e.target.value; if (e.target.matches('[data-stars]')) starsDraft = +e.target.value; });
 document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('[data-reon]')) replayGoto(+e.target.value); });
 window.sbsReplay = replayLoad;                       // for tests: load a log by hand
 window.sbsReplayGoto = replayGoto;

@@ -136,5 +136,7 @@ export function generateGalaxy(seed, o = {}) {
     }
     systems.push(sys);
   });
-  return { systems, places, home: 's' + homeAt };
+  return { systems, places, home: 's' + homeAt, count, radius };
 }
+// a bigger galaxy keeps the same density: the radius grows with the square root of the stars (50 → 100, 150 → 173)
+export const galaxyOf = stars => ({ count: Math.max(10, Math.round(stars || GALAXY.count)), radius: Math.round(GALAXY.radius * Math.sqrt((stars || GALAXY.count) / GALAXY.count)) });

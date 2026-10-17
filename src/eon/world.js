@@ -19,7 +19,10 @@ import { applyAction } from './replay.js';
 // matched with it. A homeworld taken = the empire is gone.
 // FOR NOW (his call, 2026-10-17: "blockades will take over planets" — until the ground war is built): a blockade held WORLD.siege
 // eons takes the colonies there; only an ARMED ship of theirs resting in the system breaks it (a settler does not).
-export const WORLD = { siege: 3, names: ['Sol', 'Rival', 'Third', 'Fourth'], colors: [['#7fb3ff', '#ffb347'], ['#ff8a6b', '#f5a3c7'], ['#7ef3b0', '#ffe08a'], ['#cf89ff', '#5fe3d0']], styles: ['utopia2', 'greeble1', 'mushroom1', 'utopia1'], hulls: ['umfwajfq', 'ug1cdtqc', 'u51lsbay', 'u3fkxd5m'] };   // each empire: a colour pair, a plating style, a SILHOUETTE of its own — HIS silhouettes from hullpack.js (his call, 2026-10-17: "don't use darts"): Hammerhead III, Britanica, USS, pick axe
+// each empire: a name, a colour pair (his 2026-10-17: 4th yellow, 5th purple), a plating style, a SILHOUETTE of its own — HIS
+// silhouettes from hullpack.js ("don't use darts, use the ones I've created"): Hammerhead III, Britanica, USS, pick axe, Dart II
+export const WORLD = { siege: 3, names: ['Sol', 'Rival', 'Third', 'Fourth', 'Fifth'], colors: [['#7fb3ff', '#ffb347'], ['#ff8a6b', '#f5a3c7'], ['#7ef3b0', '#ffe08a'], ['#ffd94a', '#ff9f43'], ['#c084fc', '#5fe3d0']], styles: ['utopia2', 'greeble1', 'mushroom1', 'crate1', 'crystal1'], hulls: ['umfwajfq', 'ug1cdtqc', 'u51lsbay', 'u3fkxd5m', 'u68ap7qe'] };
+export const MAX_EMPIRES = 5;
 export const seedOf = text => { const s = String(text).trim(); if (/^\d{1,9}$/.test(s)) return Number(s); let h = 2166136261; for (const ch of s) { h ^= ch.codePointAt(0); h = Math.imul(h, 16777619); } return h >>> 0; };
 const worldRand = W => { let t = (W.seed + Math.imul(0x6D2B79F5, ++W.rolls)) >>> 0; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 const sysOfPlace = (S, id) => (S.places.find(p => p.id === id) || {}).sys;
@@ -39,11 +42,13 @@ function moveHome(S, pl) {
   for (const s of S.systems) s.home = s.id === pl.sys;
   S.homeSys = pl.sys; S.homePlace = pl.id;
 }
-export function createWorld(seedText, n = 2) {
-  const seed = seedOf(seedText), W = { seedText, seed, n, eon: 1, rolls: 0, empires: [], sieges: {}, events: [], winner: null, me: null, brains: null };   // me / brains: a human plays empire `me`, the rest have heads (ai.js) — the game sets them
+// o.galaxy: { count, radius } (galaxy.js galaxyOf) — a bigger sector for more empires (his ask: 150 stars, five empires)
+export function createWorld(seedText, n = 2, o = {}) {
+  n = Math.max(2, Math.min(MAX_EMPIRES, n));
+  const seed = seedOf(seedText), W = { seedText, seed, n, galaxy: o.galaxy || null, eon: 1, rolls: 0, empires: [], sieges: {}, events: [], winner: null, me: null, brains: null };   // me / brains: a human plays empire `me`, the rest have heads (ai.js) — the game sets them
   const taken = [];
   for (let i = 0; i < n; i++) {
-    const S = newState(seed); S.seedText = String(seedText); S.hostiles = []; S.empire = i; S.name = WORLD.names[i] || `Empire ${i + 1}`; S.homePlace = 'home';
+    const S = newState(seed, { galaxy: o.galaxy }); S.seedText = String(seedText); S.hostiles = []; S.empire = i; S.name = WORLD.names[i] || `Empire ${i + 1}`; S.homePlace = 'home';
     S.look = { style: WORLD.styles[i % WORLD.styles.length], colA: WORLD.colors[i % WORLD.colors.length][0], colB: WORLD.colors[i % WORLD.colors.length][1], hull: WORLD.hulls[i % WORLD.hulls.length] };
     if (i > 0) { const pl = pickHome(S, taken); if (!pl) throw new Error('no world left for another empire'); moveHome(S, pl); }
     taken.push(S.homeSys); W.empires.push(S);
