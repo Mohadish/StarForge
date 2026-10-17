@@ -1452,7 +1452,7 @@ function renderReplayBar() {
   const events = W ? (REPLAY.log.events || []).filter(e => e.eon === eon - 1) : [];
   const who = W ? `<select data-rview title="look through this empire's eyes">${W.empires.map((E, i) => `<option value="${i}" ${i === REPLAY.view ? 'selected' : ''}>${esc(E.name)}${E.dead ? ' (fallen)' : ''}</option>`).join('')}</select><button class="${GOD ? 'go' : 'x'}" data-rgod title="the galaxy map shows every empire — spheres, colonies, fleets, ships under way — and the panel a scoreboard; click any fleet or ship">👁 God mode${GOD ? ' ✓' : ''}</button>` : '';
   bar.hidden = false; bar.innerHTML = `<b>REPLAY</b>${who}<span class="tiny">seed “${esc(REPLAY.log.seedText)}” · eon ${eon} of ${REPLAY.last}${ended ? ' · the end' : ''}${S.dead ? ' · <b style="color:var(--bad)">this empire has fallen</b>' : ''}${acts.length ? ' · this eon: ' + acts.map(a => esc(word(a))).join(' · ') : ' · no orders this eon'}${events.length ? ' · <b style="color:var(--bad)">' + events.slice(0, 3).map(e => esc(e.text)).join(' · ') + (events.length > 3 ? ` · and ${events.length - 3} more` : '') + '</b>' : ''}</span><span style="flex:1"></span>
-    <button class="x" data-rgoto="1" title="back to the start">⏮</button><button class="x" data-rstep="-10" title="ten eons back">⏪ 10</button><button class="x" data-rstep="-1" title="an eon back">◀</button><input type="number" data-reon value="${eon}" min="1" max="${REPLAY.last}" title="go to an eon (Enter)" style="width:66px"><button class="go" data-rstep="1" ${ended ? 'disabled' : ''}>▶ next</button><button class="x" data-rstep="10" ${ended ? 'disabled' : ''} title="ten eons on">⏩ 10</button><button class="x" data-rgoto="${REPLAY.last}" title="to the end" ${ended ? 'disabled' : ''}>⏭</button><button class="x" data-rstop title="stop the replay here and play on yourself${W ? ' — the other empires stand still from here' : ''}">✕ stop here</button>`;
+    <button class="x" data-rgoto="1" title="back to the start">⏮</button><button class="x" data-rstep="-10" title="ten eons back (Page Up)">⏪ 10</button><button class="x" data-rstep="-1" title="an eon back (←)">◀</button><input type="number" data-reon value="${eon}" min="1" max="${REPLAY.last}" title="go to an eon (Enter)" style="width:66px"><button class="go" data-rstep="1" ${ended ? 'disabled' : ''} title="an eon on (→)">▶ next</button><button class="x" data-rstep="10" ${ended ? 'disabled' : ''} title="ten eons on (Page Down)">⏩ 10</button><button class="x" data-rgoto="${REPLAY.last}" title="to the end" ${ended ? 'disabled' : ''}>⏭</button><button class="x" data-rstop title="stop the replay here and play on yourself${W ? ' — the other empires stand still from here' : ''}">✕ stop here</button>`;
 }
 $('eReplay').onclick = () => $('eReplayFile').click();
 $('eReplayFile').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; f.text().then(t => { try { replayLoad(JSON.parse(t)); } catch (x) { say('Could not read that file as a game log'); } }); };
@@ -1465,7 +1465,13 @@ document.addEventListener('click', e => {
   if (e.target.closest('[data-gback]') && godEmpires()) { if (godPick && godPick.kind === 'ship') { const E = W.empires[godPick.k], u = E.ships.find(x => x.id === godPick.id), pl = u && !u.dest && E.places.find(p => p.id === u.at); godPick = pl ? { kind: 'fleet', k: godPick.k, sys: pl.sys } : null; } else godPick = null; return refresh(); }
 });
 document.addEventListener('change', e => { if (e.target.matches('[data-rview]')) return replayView(+e.target.value); if (e.target.matches('[data-reon]')) return replayGoto(+e.target.value); if (e.target.matches('[data-foes]')) foesDraft = +e.target.value; if (e.target.matches('[data-stars]')) starsDraft = +e.target.value; });
-document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('[data-reon]')) replayGoto(+e.target.value); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.target.matches('[data-reon]')) return replayGoto(+e.target.value);
+  // REPLAY KEYS (his ask, 2026-10-17): ← → an eon back / on, Page Up / Page Down ten eons; not while typing, not with the arena open
+  if (!REPLAY || ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) || !$('arenaWrap').hidden) return;
+  const step = { ArrowRight: 1, ArrowLeft: -1, PageDown: 10, PageUp: -10 }[e.key]; if (!step) return;
+  e.preventDefault(); if (step > 0 && REPLAY.ended) return; replayStep(step);
+});
 window.sbsReplay = replayLoad;                       // for tests: load a log by hand
 window.sbsReplayGoto = replayGoto;
 window.sbsDebug = { get S() { return S; }, get W() { return W; }, refresh, save };   // for tests only: the live state and world
