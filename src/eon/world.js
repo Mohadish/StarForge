@@ -141,7 +141,8 @@ function fightEmpires(W, rep) {
       Si.ships = Si.ships.filter(u => !lostA.includes(u)); Sj.ships = Sj.ships.filter(u => !lostB.includes(u));
       const verdict = r.winner === 0 ? `${Si.name} won the field` : r.winner === 1 ? `${Sj.name} won the field` : 'neither side gave way';
       const text = `Battle at ${where}: ${Si.name}'s ${A0.length} against ${Sj.name}'s ${B0.length} — ${verdict}; ${Si.name} lost ${lostA.length}, ${Sj.name} lost ${lostB.length}`;
-      rep.push({ kind: 'battle', text, sys, a: Si.empire, b: Sj.empire });
+      const worthA = Math.round(A.reduce((s, sh) => s + sh.cost, 0)), worthB = Math.round(B.reduce((s, sh) => s + sh.cost, 0));
+      rep.push({ kind: 'battle', text, sys, where, a: Si.empire, b: Sj.empire, nA: A0.length, nB: B0.length, worthA, worthB, lostA: lostA.length, lostB: lostB.length, winner: r.winner === 0 ? Si.empire : r.winner === 1 ? Sj.empire : null, size: worthA + worthB });   // the figures too: the log's battle history (his ask, 2026-10-17)
       Si.report.push({ kind: lostA.length ? 'bad' : 'battle', battle: Si.battles.at(-1).id, text }); Sj.report.push({ kind: lostB.length ? 'bad' : 'battle', battle: Sj.battles.at(-1).id, text });
     }
   }
@@ -212,10 +213,25 @@ export function campaignEon(W, brains, log) {
   for (const b of brains) if (b && !b.S.dead) b.plan();
   const before = log.events.length; for (const e of W.events) if (e.eon === W.eon && !log.events.includes(e)) log.events.push(e);   // invasions land inside the eon
   const { rep } = worldEndEon(W);
-  for (const r of rep) log.events.push({ eon: W.eon - 1, kind: r.kind, text: r.text });
+  for (const r of rep) log.events.push({ ...r, eon: W.eon - 1 });
   for (const b of brains) if (b && !b.S.dead) b.after();
   log.eons.push(logRow(W));
   return log.events.slice(before);
+}
+// THE BATTLE HISTORY of a run (his ask, 2026-10-17: "the big battles on that log, a way to go back and watch them"): every battle
+// with its figures, and the HIGHLIGHTS — the battles at least HIGHLIGHT.times the run's median size (both fleets' worth), the
+// biggest first, at most HIGHLIGHT.max — plus every homeworld's fall and the win, in eon order. finishLog writes them into the log.
+export const HIGHLIGHT = { times: 3, max: 25, minShips: 6 };
+export function finishLog(W, log, brains) {
+  log.summary = campaignSummary(W, log, brains);
+  const battles = log.events.filter(e => e.kind === 'battle' && e.size != null);
+  const sizes = battles.map(b => b.size).sort((p, q) => p - q), median = sizes.length ? sizes[Math.floor(sizes.length / 2)] : 0;
+  let big = battles.filter(b => b.size >= HIGHLIGHT.times * median && b.nA + b.nB >= HIGHLIGHT.minShips).sort((p, q) => q.size - p.size).slice(0, HIGHLIGHT.max);
+  if (big.length < 3) big = battles.slice().sort((p, q) => q.size - p.size).slice(0, 3);   // a quiet run: its three biggest, whatever they were
+  const marks = log.events.filter(e => e.kind === 'fall' || e.kind === 'win' || (e.kind === 'capture' && /HOMEWORLD/.test(e.text)));
+  log.battles = battles; log.baseline = { median, battles: battles.length };
+  log.highlights = [...big, ...marks].sort((p, q) => p.eon - q.eon || (p.kind === 'battle' ? -1 : 1));
+  return log;
 }
 export const campaignSummary = (W, log, brains) => `seed "${W.seedText}", ${W.n} empires: ${W.eon - 1} eons · ` + W.empires.map((S, i) => { const b = brains && brains[i] ? brains[i].B : null, f = log.empires[i].focus; return `${S.name}${f && f !== 'default' ? ` (${f})` : ''}: ${S.dead ? 'FALLEN' : `${S.places.filter(p => p.colony).length} colonies, home ${peopleWord(S.places.find(p => p.id === S.homePlace).colony.people)}`}${b ? ` · ${b.settled} settled, ${b.taken} taken (${b.invasions} landings), ${b.lost} ships lost` : ''} · ${S.breakthroughs.length} breakthroughs, cohesion ${Math.round(S.cohesion)}`; }).join(' | ') + (W.winner != null ? ` · ${W.empires[W.winner].name} holds the galaxy` : ' · no winner') + ` · ${log.events.length} events`;
 export { hostileWorth };

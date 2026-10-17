@@ -152,6 +152,15 @@
 /* a ship's FULL SPEC on a right-click (2026-10-16): the design as built, and every ship's own state — stamina, strain, where it is */
 #shipPop{position:fixed;z-index:90;width:440px;max-width:calc(100vw - 24px);max-height:82vh;overflow:auto;background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:12px;box-shadow:0 14px 40px rgba(0,0,0,.65)}
 #shipPop[hidden]{display:none}
+/* the run's battle history (2026-10-17): the big fights and the falls, click one to go there */
+#battlePop{position:fixed;z-index:90;width:520px;max-width:calc(100vw - 24px);max-height:70vh;overflow:auto;background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:12px;box-shadow:0 14px 40px rgba(0,0,0,.65)}
+#battlePop[hidden]{display:none}
+#battlePop h2{display:flex;align-items:center;gap:8px;margin:0 0 6px}
+#battlePop h2 .x{margin-left:auto}
+#battlePop .unit{display:grid;grid-template-columns:1fr auto;gap:2px 8px;padding:6px 4px;border-top:1px solid var(--line)}
+#battlePop .unit:hover{background:rgba(255,255,255,.04)}
+#battlePop .unit .st{font-weight:700;color:var(--good)}
+#battlePop .unit .tiny{grid-column:1/3}
 #shipPop .sum{grid-template-columns:1fr 1fr}
 #shipPop h2{display:flex;align-items:center;gap:8px;margin:0 0 6px}
 #shipPop h2 .x{margin-left:auto}

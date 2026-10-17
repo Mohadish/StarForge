@@ -8,7 +8,7 @@ import fs from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { galaxyOf, GALAXY } from '../../src/eon/galaxy.js';
-import { createWorld, living, MAX_EMPIRES, newLog, campaignEon, campaignSummary } from '../../src/eon/world.js';
+import { createWorld, living, MAX_EMPIRES, newLog, campaignEon, finishLog } from '../../src/eon/world.js';
 import { makeBrain } from '../../src/eon/ai.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -29,8 +29,8 @@ for (let eon = 0; eon < MAX_EONS; eon++) {
   const live = living(W); if (live.every(S => brains[S.empire].stuck() && W.eon - brains[S.empire].stuck() > 200)) { console.log(`  eon ${W.eon}: every empire has been out of reach of the others for 200 eons — a stalemate`); break; }
   if (eon === MAX_EONS - 1) console.log('  out of eons');
 }
-const summary = campaignSummary(W, log, brains);
-log.summary = summary; console.log(summary);
+finishLog(W, log, brains); console.log(log.summary);
+console.log(`battle history: ${log.battles.length} battles, median size ${Math.round(log.baseline.median)} · highlights: ${log.highlights.filter(h => h.kind === 'battle').map(h => `eon ${h.eon} ${h.where} (${h.nA + h.nB} ships, ${Math.round(h.size)})`).join(', ') || 'none'}`);
 fs.mkdirSync(join(here, 'out'), { recursive: true });
 fs.writeFileSync(join(here, 'out', `${outName}.json`), JSON.stringify(log));
 console.log(`written tools/play/out/${outName}.json`);

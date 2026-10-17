@@ -21,7 +21,7 @@ import { paintHull, recipeWith, RECIPE } from './paint.js';
 import { STYLES, loadStyle } from './styles.js';
 import { buildPlan, planCode } from './fleetplan.js';
 import { applyEon } from './replay.js';
-import { WORLD, MAX_EMPIRES, createWorld, worldEndEon, worldSnapshot, worldRestore, worldPlayEon, applyWorldEon, ownerOf, invade, invasionOdds, newLog, campaignEon, campaignSummary } from './world.js';
+import { WORLD, MAX_EMPIRES, createWorld, worldEndEon, worldSnapshot, worldRestore, worldPlayEon, applyWorldEon, ownerOf, invade, invasionOdds, newLog, campaignEon, finishLog, HIGHLIGHT } from './world.js';
 import { makeBrain } from './ai.js';
 import { designSpecHtml, modulesLine } from './spec.js';
 mountNav('eon', { into: document.getElementById('topbar') });
@@ -782,10 +782,29 @@ function simRun() {                                  // chunks of ~40 ms, so the
 function simStop(toReplay = true) { if (!SIM) return; SIM.running = false; if (toReplay) simFinish(); else SIM = null; }
 function simFinish() {                               // the simulation becomes a replay: its world as it stands, its snapshots, its log (⤓ to keep it)
   if (!SIM) return; const { W: w, log, brains, snaps, snapEvery } = SIM; SIM = null;
-  log.summary = campaignSummary(w, log, brains);
+  finishLog(w, log, brains);
   REPLAY = { log, world: w, view: 0, last: log.eons.length ? log.eons.at(-1).eon : w.eon, snaps, snapEvery, ended: true };
   S = w.empires[0]; gMode = 'god'; refresh(); say(w.winner != null ? `${w.empires[w.winner].name} holds the galaxy — the simulation is a replay now: rewind it, or save its log` : 'The simulation stopped — it is a replay now: rewind it, or save its log');
 }
+// THE BATTLE HISTORY (his ask, 2026-10-17): the run's big battles and the falls, from the log — click one to go to that eon and
+// watch it (the battle as the attacker recorded it, God mode on so the badge is there too)
+function battleListHtml() {
+  const log = REPLAY && REPLAY.log; if (!log) return '';
+  const hs = log.highlights || [], names = (log.empires || []).map(e => e.name), col = k => (W && W.empires[k] && W.empires[k].look.colA) || '#fff';
+  if (!hs.length) return `<div class="tiny">${log.battles ? 'No battle stood out in this run.' : 'This log was written before the battle history existed — run it again to get one.'}</div>`;
+  return `<div class="tiny" style="margin-bottom:6px">${log.battles ? `${log.battles.length} battles in the run, median size ${fmt(log.baseline.median)}; a highlight is ${HIGHLIGHT.times}× that or more.` : ''}</div>` + hs.map(h => h.kind === 'battle'
+    ? `<div class="unit" data-bgo="${h.eon}|${h.sys}|${h.a}" style="cursor:pointer" title="go to eon ${h.eon + 1} and watch it"><span><b>eon ${h.eon}</b> · ${esc(h.where || h.sys)} — <b style="color:${col(h.a)}">${esc(names[h.a] || '?')}</b> ${h.nA} <span class="tiny">(${fmt(h.worthA)})</span> vs <b style="color:${col(h.b)}">${esc(names[h.b] || '?')}</b> ${h.nB} <span class="tiny">(${fmt(h.worthB)})</span></span><span class="st">${h.winner == null ? 'draw' : esc(names[h.winner]) + ' won'}</span><div class="tiny">${h.nA + h.nB} ships, ${fmt(h.size)} of worth · lost ${h.lostA} / ${h.lostB} · ▶ watch</div></div>`
+    : `<div class="unit" data-bgo="${h.eon}||" style="cursor:pointer" title="go to eon ${h.eon + 1}"><span><b>eon ${h.eon}</b> · ${h.kind === 'win' ? '🏆' : '☠'} ${esc(h.text)}</span><span></span></div>`).join('');
+}
+function openBattleList(x, y) { const el = $('battlePop'); if (!el || !REPLAY) return; el.innerHTML = `<h2><span>⚔ The run's battles</span><button class="x" data-bclose title="close (Esc)">✕</button></h2>${battleListHtml()}`; el.hidden = false; const r = el.getBoundingClientRect(); el.style.left = Math.max(12, Math.min(x, innerWidth - r.width - 12)) + 'px'; el.style.top = Math.max(60, Math.min(y, innerHeight - r.height - 12)) + 'px'; }
+function closeBattleList() { const el = $('battlePop'); if (el) el.hidden = true; }
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-blist]')) return openBattleList(e.clientX - 200, e.clientY + 16);
+  if (e.target.closest('[data-bclose]')) return closeBattleList();
+  const g = e.target.closest('[data-bgo]'); if (g) { const [eon, sys, k] = g.dataset.bgo.split('|'); closeBattleList(); replayGoto(+eon + 1); if (sys && W) { if (!GOD && W) { GOD = true; gMode = 'god'; go('galaxy'); } const E = W.empires[+k], b = E && (E.battles || []).find(x => x.sys === sys); if (b) watchBattle(b.id, E); else say('That battle is not in the record at this eon'); } return; }
+  const el = $('battlePop'); if (el && !el.hidden && !e.target.closest('#battlePop') && !e.target.closest('[data-blist]')) closeBattleList();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeBattleList(); });
 function saveLog() {                                 // the replay's log as a file (the tool's format: load it again any time)
   const log = REPLAY && REPLAY.log; if (!log) return;
   const blob = new Blob([JSON.stringify(log)], { type: 'application/json' }), a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `world-${log.seedText}-${log.n}x${(log.galaxy && log.galaxy.count) || GALAXY.count}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
@@ -1520,7 +1539,7 @@ function renderReplayBar() {
   const events = W ? (REPLAY.log.events || []).filter(e => e.eon === eon - 1) : [];
   const who = W ? `<select data-rview title="look through this empire's eyes">${W.empires.map((E, i) => `<option value="${i}" ${i === REPLAY.view ? 'selected' : ''}>${esc(E.name)}${E.dead ? ' (fallen)' : ''}</option>`).join('')}</select><button class="${GOD ? 'go' : 'x'}" data-rgod title="the galaxy map shows every empire — spheres, colonies, fleets, ships under way — and the panel a scoreboard; click any fleet or ship">👁 God mode${GOD ? ' ✓' : ''}</button>` : '';
   bar.hidden = false; bar.innerHTML = `<b>REPLAY</b>${who}<span class="tiny">seed “${esc(REPLAY.log.seedText)}” · eon ${eon} of ${REPLAY.last}${ended ? ' · the end' : ''}${S.dead ? ' · <b style="color:var(--bad)">this empire has fallen</b>' : ''}${acts.length ? ' · this eon: ' + acts.map(a => esc(word(a))).join(' · ') : ' · no orders this eon'}${events.length ? ' · <b style="color:var(--bad)">' + events.slice(0, 3).map(e => esc(e.text)).join(' · ') + (events.length > 3 ? ` · and ${events.length - 3} more` : '') + '</b>' : ''}</span><span style="flex:1"></span>
-    <button class="x" data-rgoto="1" title="back to the start">⏮</button><button class="x" data-rstep="-10" title="ten eons back (Page Up)">⏪ 10</button><button class="x" data-rstep="-1" title="an eon back (←)">◀</button><input type="number" data-reon value="${eon}" min="1" max="${REPLAY.last}" title="go to an eon (Enter)" style="width:66px"><button class="go" data-rstep="1" ${ended ? 'disabled' : ''} title="an eon on (→)">▶ next</button><button class="x" data-rstep="10" ${ended ? 'disabled' : ''} title="ten eons on (Page Down)">⏩ 10</button><button class="x" data-rgoto="${REPLAY.last}" title="to the end" ${ended ? 'disabled' : ''}>⏭</button><button class="x" data-rsave title="save this campaign's log as a file (load it again with ▶ replay…)">⤓ log</button><button class="x" data-rstop title="stop the replay here and play on yourself${W ? ' — the other empires play on with their heads' : ''}">✕ take over</button>`;
+    <button class="x" data-rgoto="1" title="back to the start">⏮</button><button class="x" data-rstep="-10" title="ten eons back (Page Up)">⏪ 10</button><button class="x" data-rstep="-1" title="an eon back (←)">◀</button><input type="number" data-reon value="${eon}" min="1" max="${REPLAY.last}" title="go to an eon (Enter)" style="width:66px"><button class="go" data-rstep="1" ${ended ? 'disabled' : ''} title="an eon on (→)">▶ next</button><button class="x" data-rstep="10" ${ended ? 'disabled' : ''} title="ten eons on (Page Down)">⏩ 10</button><button class="x" data-rgoto="${REPLAY.last}" title="to the end" ${ended ? 'disabled' : ''}>⏭</button><button class="x" data-blist title="the run's big battles and the falls — click one to go there and watch">⚔ battles${REPLAY.log.highlights ? ` (${REPLAY.log.highlights.filter(h => h.kind === 'battle').length})` : ''}</button><button class="x" data-rsave title="save this campaign's log as a file (load it again with ▶ replay…)">⤓ log</button><button class="x" data-rstop title="stop the replay here and play on yourself${W ? ' — the other empires play on with their heads' : ''}">✕ take over</button>`;
 }
 $('eReplay').onclick = () => $('eReplayFile').click();
 $('eSetup').onclick = () => { go('galaxy'); const d = $('gSetup'); if (d) { d.open = true; d.scrollIntoView({ behavior: 'smooth', block: 'start' }); const s = $('gSeed'); if (s) s.focus(); } };   // straight to the New game / simulation block
