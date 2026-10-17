@@ -385,17 +385,22 @@ function drawGalaxy(c) {
   // derelicts, where they broke down (in God mode everyone's)
   for (const E of GE || [S]) for (const w of E.derelicts || []) { const a = G.pos[w.A], b = G.pos[w.B]; if (!a || !b) continue; const x = a.x + (b.x - a.x) * w.pos, y = a.y + (b.y - a.y) * w.pos; g.strokeStyle = '#8a93a8'; g.lineWidth = 1.5; g.beginPath(); g.moveTo(x - 4, y - 4); g.lineTo(x + 4, y + 4); g.moveTo(x + 4, y - 4); g.lineTo(x - 4, y + 4); g.stroke(); g.lineWidth = 1; }
   // ships crossing between stars (in God mode every empire's, in its colour; each dot is clickable)
+  // ships under way travel as FLEETS: one dot per fleet (the ships that left together, or alone), its count beside it — in God mode
+  // a click opens the whole fleet (his ask, 2026-10-17: "I'm clicking at a fleet in transit and I see one ship")
   const flights = GE ? GE.flatMap((E, k) => E.dead || !GODC || !GODC[k] ? [] : GODC[k].ships.map(s => ({ u: s.u, k, E, col: E.look.colA }))) : c.ships.map(s => ({ u: s.u, k: null, E: S, col: '#7ef3b0' }));
-  for (const { u, k: ek, E, col } of flights) {
-    if (!u.dest) continue;
+  const convoys = new Map();
+  for (const f of flights) { const u = f.u; if (!u.dest) continue; const V = u.voy, key = `${f.k}|${V && V.fleet ? V.fleet : V ? `${V.A}>${V.B}@${(V.pos ?? 0).toFixed(2)}` : `${u.at}>${u.dest}@${u.eta}`}`; (convoys.get(key) || convoys.set(key, { ...f, ids: [] }).get(key)).ids.push(u.id); }
+  for (const [key, { u, k: ek, E, col, ids }] of convoys) {
     const pOf = id => (E.places.find(p => p.id === id) || {}).sys;
     const V = u.voy, a = V ? G.pos[V.A] : G.pos[pOf(u.at)], b = V ? G.pos[V.B] : G.pos[pOf(u.dest)]; if (!a || !b || a === b) continue;
     const k = V ? clamp(V.pos ?? 0, 0.02, 1) : clamp(1 - u.eta / (u.trip || u.eta || 1), 0.06, 1), x = a.x + (b.x - a.x) * k, y = a.y + (b.y - a.y) * k;
-    const on = GE && godPick && godPick.kind === 'ship' && godPick.k === ek && godPick.id === u.id;
+    const on = GE && godPick && ((godPick.kind === 'ship' && godPick.k === ek && ids.includes(godPick.id)) || (godPick.kind === 'transit' && godPick.key === key));
     g.setLineDash([4, 5]); g.strokeStyle = col; g.globalAlpha = 0.45; g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke(); g.setLineDash([]); g.globalAlpha = 1;
-    g.fillStyle = on ? '#fff' : col; g.beginPath(); g.arc(x, y, on ? 5 : 3.5, 0, 7); g.fill();
-    if (on) { g.strokeStyle = col; g.lineWidth = 1.5; g.beginPath(); g.arc(x, y, 9, 0, 7); g.stroke(); g.lineWidth = 1; }
-    if (GE) G.gship[ek + '|' + u.id] = { x, y, k: ek, id: u.id };
+    const rad = ids.length > 1 ? 4.5 : 3.5;
+    g.fillStyle = on ? '#fff' : col; g.beginPath(); g.arc(x, y, on ? rad + 1.5 : rad, 0, 7); g.fill();
+    if (on) { g.strokeStyle = col; g.lineWidth = 1.5; g.beginPath(); g.arc(x, y, rad + 6, 0, 7); g.stroke(); g.lineWidth = 1; }
+    if (ids.length > 1) { g.fillStyle = on ? '#fff' : col; g.font = 'bold 10px sans-serif'; g.textAlign = 'left'; g.fillText(String(ids.length), x + rad + 3, y + 4); g.textAlign = 'center'; }
+    if (GE) G.gship[key] = { x, y, k: ek, id: u.id, ids, key };
   }
   g.textAlign = 'center';
   for (const s of S.systems) {
@@ -488,7 +493,7 @@ $('gMap').addEventListener('mousemove', e => {
     gHover = id; gHoverFleet = !!gf; $('gMap').style.cursor = id ? 'pointer' : 'default';
     let h = '';
     if (gf) { const [sys, k] = gf.split('|'), E = GE[+k], n = GODC[+k].ships.filter(x => !x.u.dest && (E.places.find(pl => pl.id === x.u.at) || {}).sys === sys).length; h = `<b style="color:${E.look.colA}">${esc(E.name)}'s fleet at ${esc(sysOf(sys).name)}</b> — ${plural(n, 'ship')}. Click it for the ships.`; }
-    else if (gs) { const E = GE[gs.k], u = E.ships.find(x => x.id === gs.id); if (u) { const to = E.places.find(p => p.id === u.dest); h = `<b style="color:${E.look.colA}">${esc(E.name)}'s ${esc(u.name)}</b> → ${esc(to ? to.name : '?')} · ${plural(u.eta, 'eon')}. Click it for its card.`; } }
+    else if (gs) { const E = GE[gs.k], u = E.ships.find(x => x.id === gs.id); if (u) { const to = E.places.find(p => p.id === u.dest); h = `<b style="color:${E.look.colA}">${esc(E.name)}'s ${gs.ids.length > 1 ? `fleet of ${plural(gs.ids.length, 'ship')}` : esc(u.name)}</b> → ${esc(to ? to.name : '?')} · ${plural(u.eta, 'eon')}. Click it for ${gs.ids.length > 1 ? 'the ships' : 'its card'}.`; } }
     else if (id) h = sysBlurb(sysOf(id));
     $('gHover').innerHTML = h; if (LAST) drawGalaxy(LAST); return;
   }
@@ -503,7 +508,7 @@ $('gMap').addEventListener('click', e => {
   const bt = battleAt(e); if (bt) return watchBattle(bt.id, bt.k != null && W ? W.empires[bt.k] : S);
   if (godEmpires()) {
     const gf = godFleetAt(e); if (gf) { const [sys, k] = gf.split('|'); godPick = { kind: 'fleet', k: +k, sys }; gSel = sys; gMode = 'god'; return refresh(); }
-    const gs = godShipAt(e); if (gs) { godPick = { kind: 'ship', k: gs.k, id: gs.id }; gMode = 'god'; return refresh(); }
+    const gs = godShipAt(e); if (gs) { godPick = gs.ids.length > 1 ? { kind: 'transit', k: gs.k, ids: gs.ids, key: gs.key } : { kind: 'ship', k: gs.k, id: gs.id }; gMode = 'god'; return refresh(); }
     const id = sysAt(e); if (!id) return; godPick = null; gSel = id; gMode = 'god'; return refresh();
   }
   const f = fleetAt(e), id = f || sysAt(e); if (!id) return;
@@ -520,7 +525,7 @@ $('gMap').addEventListener('dblclick', e => { if (fleetAt(e) || godFleetAt(e) ||
   cv.addEventListener('contextmenu', e => {          // a right-click (not a drag) on a fleet icon or a ship under way: its full spec
     e.preventDefault(); if (panMoved || !LAST) return;
     const GE = godEmpires();
-    if (GE) { const gf = godFleetAt(e); if (gf) { const [sys, k] = gf.split('|'), E = GE[+k]; return openShipPop(+k, GODC[+k].ships.filter(x => !x.u.dest && sysOfPlaceOf(E, x.u.at) === sys).map(x => x.u.id), e.clientX, e.clientY); } const gs = godShipAt(e); if (gs) return openShipPop(gs.k, [gs.id], e.clientX, e.clientY); }
+    if (GE) { const gf = godFleetAt(e); if (gf) { const [sys, k] = gf.split('|'), E = GE[+k]; return openShipPop(+k, GODC[+k].ships.filter(x => !x.u.dest && sysOfPlaceOf(E, x.u.at) === sys).map(x => x.u.id), e.clientX, e.clientY); } const gs = godShipAt(e); if (gs) return openShipPop(gs.k, gs.ids, e.clientX, e.clientY); }
     const f = fleetAt(e); if (f) openShipPop(null, LAST.ships.filter(x => !x.u.dest && placeOf(x.u.at)?.sys === f).map(x => x.u.id), e.clientX, e.clientY);
   });
   cv.addEventListener('wheel', e => {
@@ -581,6 +586,11 @@ function godPanel(s) {
   if (godPick && godPick.kind === 'ship') {           // one ship's card
     const E = GE[godPick.k], sh = GODC[godPick.k] && GODC[godPick.k].ships.find(x => x.u.id === godPick.id);
     if (sh) return h + `<h3 style="margin-top:12px;color:${E.look.colA}">${esc(E.name)}'s ${esc(sh.u.name)}</h3>` + godShipLine(E, godPick.k, sh, true);
+    godPick = null;
+  }
+  if (godPick && godPick.kind === 'transit') {        // a fleet under way, ship by ship (God mode sees everything; a player will not, later)
+    const E = GE[godPick.k], c = GODC[godPick.k], ships = c ? c.ships.filter(x => godPick.ids.includes(x.u.id)) : [], u0 = ships[0] && ships[0].u, to = u0 && E.places.find(p => p.id === u0.dest);
+    if (ships.length) return h + `<h3 style="margin-top:12px;display:flex;justify-content:space-between;align-items:center"><span style="color:${E.look.colA}">${esc(E.name)}'s fleet under way to ${esc(to ? to.name : '?')} — ${plural(ships.length, 'ship')}, worth ${fmt(ships.reduce((a, x) => a + x.t.cost, 0))} · ${plural(u0.eta, 'eon')}</span><button class="x" data-gback>◂ the star</button></h3><div class="tiny" style="margin-bottom:4px">Click a ship for its card; right-click the dot on the map for the whole fleet's spec.</div>` + ships.sort((a, b) => b.t.cost - a.t.cost).map(x => godShipLine(E, godPick.k, x, false)).join('');
     godPick = null;
   }
   if (godPick && godPick.kind === 'fleet') {          // one fleet, ship by ship
