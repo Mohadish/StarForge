@@ -21,7 +21,7 @@ import { paintHull, recipeWith, RECIPE } from './paint.js';
 import { STYLES, loadStyle } from './styles.js';
 import { buildPlan, planCode } from './fleetplan.js';
 import { applyEon } from './replay.js';
-import { WORLD, createWorld, worldEndEon, worldSnapshot, worldRestore, worldPlayEon, applyWorldEon, ownerOf, invade, invasionOdds } from './world.js';
+import { WORLD, MAX_EMPIRES, createWorld, worldEndEon, worldSnapshot, worldRestore, worldPlayEon, applyWorldEon, ownerOf, invade, invasionOdds, newLog, campaignEon, campaignSummary } from './world.js';
 import { makeBrain } from './ai.js';
 import { designSpecHtml, modulesLine } from './spec.js';
 mountNav('eon', { into: document.getElementById('topbar') });
@@ -32,7 +32,8 @@ let S = load();
 // THE WORLD (world.js; his ask, 2026-10-16 "when you take over, the AI stops"): other empires on the same galaxy, each with a head of
 // its own (ai.js) that plays on while you play yours — from a replay you stopped, or a new game against AI empires. Null = alone.
 let W = null;
-try { const w = JSON.parse(localStorage.getItem(KEY + '.world') || 'null'); if (w && w.snap) { W = createWorld(w.seedText, w.n, { galaxy: w.galaxy || null }); worldRestore(W, w.snap); W.me = w.me; S = W.empires[W.me]; } } catch (e) { W = null; }
+try { const w = JSON.parse(localStorage.getItem(KEY + '.world') || 'null'); if (w && w.snap) { W = createWorld(w.seedText, w.n, { galaxy: w.galaxy || null }); worldRestore(W, w.snap); W.me = w.me; W.focus = w.focus || null; S = W.empires[W.me]; } } catch (e) { W = null; }
+const brainFor = (w, E) => makeBrain(w, E, { focus: w.focus ? w.focus[E.empire] : 'default' });   // an AI empire's head, leaning the way the setup said
 const foreignEmpires = () => W ? W.empires.map((E, k) => ({ E, k, col: E.look.colA })).filter(x => x.E !== S && !x.E.dead) : [];   // the other empires, as they are (not a summary)
 const sysOfPlaceOf = (E, id) => (E.places.find(p => p.id === id) || {}).sys;
 let tab = 'empire', newIds = new Set();
@@ -45,7 +46,8 @@ let gView = { z: 1, x: 0, y: 0 }, gMode = 'system';   // the galaxy map's zoom a
 // any ship"): in a world replay the galaxy shows EVERY empire — spheres, colonies, fleets, ships under way — and the panel is a
 // scoreboard plus whatever is at the chosen star; a fleet opens its ships one by one, a ship its card. Read-only.
 let GOD = false, godPick = null, GODC = null;       // on/off · { kind: 'fleet', k, sys } | { kind: 'ship', k, id } · every empire's compute() this refresh
-const godEmpires = () => GOD && REPLAY && REPLAY.world ? REPLAY.world.empires : null;
+let SIM = null;                                      // a SIMULATION running in the game (every empire an AI): { W, log, brains, cap, running, snaps }
+const godEmpires = () => GOD && W && ((REPLAY && REPLAY.world) || SIM) ? W.empires : null;
 const empireLook = E => { const L = E.look || {}, lk = lookFromColors(L.style || styleChoices()[0].id, L.colA || '#7fb3ff', L.colB || '#ffb347'); lk.wash = 0.6; lk.lights = 0.5; lk.key += '|god'; return lk; };
 // FLEETS, Master of Orion's way (his ask, 2026-10-15): your ships at a star are STACKS by design — "Corvette ×30" — each with a
 // count to send. Pick some, then click where they go: a star on the galaxy map (only ships that can cross between stars are
@@ -248,7 +250,7 @@ function showMode(chip) {
 const ringR = sysId => { const c = LAST; if (!c) return 0; return Math.max(0, ...c.ships.filter(s => !s.u.dest && placeOf(s.u.at)?.sys === sysId).map(s => s.range || 0)); };
 
 function load() { try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (s && (s.version === 8 || s.version === 9)) return upgrade(s); } catch (e) { /* new game */ } return newState(); }
-function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); if (W && !REPLAY) localStorage.setItem(KEY + '.world', JSON.stringify({ seedText: W.seedText, n: W.n, galaxy: W.galaxy, me: W.me, snap: worldSnapshot(W) })); else localStorage.removeItem(KEY + '.world'); } catch (e) { /* ignore */ } }   // the world too, while you play in one (a replay is not kept)
+function save() { if (SIM) return; try { localStorage.setItem(KEY, JSON.stringify(S)); if (W && !REPLAY) localStorage.setItem(KEY + '.world', JSON.stringify({ seedText: W.seedText, n: W.n, galaxy: W.galaxy, me: W.me, focus: W.focus || null, snap: worldSnapshot(W) })); else localStorage.removeItem(KEY + '.world'); } catch (e) { /* ignore */ } }   // the world too, while you play in one (a replay or a running simulation is not kept)
 function loadHulls() { try { return JSON.parse(localStorage.getItem(HULL_KEY) || '[]') || []; } catch (e) { return []; } }
 function saveHulls() { try { localStorage.setItem(HULL_KEY, JSON.stringify(HULLS)); } catch (e) { /* ignore */ } setUserHulls(HULLS); }
 
@@ -542,7 +544,7 @@ function renderGalaxy(c) {
   const have = mine ? [mine.colonies ? `${mine.colonies} ${mine.colonies === 1 ? 'colony' : 'colonies'}` : '', mine.ships ? plural(mine.ships, 'ship') : ''].filter(Boolean).join(' and ') : '';
   const top = `<h2>The galaxy</h2>
     <div class="tiny">${S.systems.length} star systems, all grown from one seed. The same seed always gives the same galaxy — any number or word will do.</div>
-    <div style="display:flex;gap:6px;margin:6px 0 4px;align-items:center"><span class="tiny">Seed</span><input type="text" id="gSeed" value="${esc(seedDraft ?? S.seedText ?? S.seed)}" style="flex:1;min-width:0"><button data-randseed title="put a random seed in the box">Random</button><select data-foes title="alone against the galaxy's hostile fleets, or against AI empires that play for the galaxy as you do">${[[1, 'alone'], [2, 'vs 1 AI empire'], [3, 'vs 2 AI empires'], [4, 'vs 3 AI empires'], [5, 'vs 4 AI empires']].map(([v, w]) => `<option value="${v}" ${v === foesDraft ? 'selected' : ''}>${w}</option>`).join('')}</select><select data-stars title="how big a sector: the same density, more room">${[50, 100, 150].map(v => `<option value="${v}" ${v === starsDraft ? 'selected' : ''}>${v} stars</option>`).join('')}</select><button class="go" data-newseed>New game from this seed</button></div>
+    ${setupHtml()}
     <h3>Show where a field is rich</h3>
     <div>${FIELD_IDS.map(f => `<button class="x ${gField === f ? 'go' : ''}" data-gfield="${f}" style="margin:0 4px 4px 0">${DOMAINS[f].name}</button>`).join('')}</div>
     <div class="tiny">${gField ? `The bigger the purple halo, the more ${DOMAINS[gField].name} there is to find in that system. Click the field again to switch it off.` : 'Pick a field and the map marks the systems worth going to for it.'}</div>`;
@@ -575,7 +577,7 @@ function godShipLine(E, k, s, big) {
     ${big ? `<div class="tiny">${where}</div><div class="tiny">${stats}</div>${u.design.chips ? `<div class="tiny">fitted: ${u.design.chips.filter(c => !c.off).map(c => `${c.kind.replace('weapon_', '')}${c.role ? ' ' + c.role : ''} ×${c.h}`).join(', ')}</div>` : ''}` : ''}</div>`;
 }
 function godPanel(s) {
-  const GE = godEmpires(), W = REPLAY.world, sysName = id => sysOf(id)?.name || id;
+  const GE = godEmpires(), W = REPLAY && REPLAY.world ? REPLAY.world : SIM.W, sysName = id => sysOf(id)?.name || id;   // a replay's world, or the simulation's
   const board = GE.map((E, k) => {
     const c = GODC[k], col = E.look.colA; if (!c) return `<div class="shiprow"><div class="n"><span><i class="dot" style="background:${col}"></i><b style="color:${col}">${esc(E.name)}</b> <span class="tiny">· fallen</span></span></div></div>`;
     const cols = E.places.filter(p => p.colony), people = cols.reduce((a, p) => a + p.colony.people, 0), rest = c.ships.filter(x => !x.u.dest).length, away = c.ships.length - rest, worth = c.ships.reduce((a, x) => a + x.t.cost, 0);
@@ -726,14 +728,69 @@ function seedOf(text) {                               // a number is used as it 
   let h = 2166136261; for (const ch of s) { h ^= ch.codePointAt(0); h = Math.imul(h, 16777619); }
   return h >>> 0;
 }
-function startGame(text, n = 1, stars = GALAXY.count) {   // n > 1: a WORLD of n empires, you the first, the rest played by ai.js; stars: the sector's size (galaxyOf)
+function startGame(text, n = 1, stars = GALAXY.count, { me = 0, focus = null } = {}) {   // n > 1: a WORLD of n empires, you `me`, the rest played by ai.js (each leaning its focus); stars: the sector's size (galaxyOf)
   const seedText = String(text).trim() || '7', galaxy = galaxyOf(stars);
-  leaveOutline(); REPLAY = null; GOD = false; godPick = null;
-  if (n > 1) { W = createWorld(seedText, n, { galaxy }); W.me = 0; S = W.empires[0]; }
+  leaveOutline(); simStop(false); REPLAY = null; GOD = false; godPick = null;
+  if (n > 1) { W = createWorld(seedText, n, { galaxy }); W.me = me; W.focus = focus; S = W.empires[me]; }
   else { W = null; S = newState(seedOf(seedText), { galaxy }); S.seedText = seedText; }
   freshView(); save(); refresh();
 }
-let foesDraft = 1, starsDraft = GALAXY.count;        // the "against" and "stars" choices in the galaxy panel: alone (hostile fleets) or 2–5 empires in all; 50 / 100 / 150 stars
+// THE SETUP (his ask, 2026-10-17: "instead of starting as a game: how many stars, how many empires, which are AIs and which are
+// players — by default all AI — each one's focus; then run it and see"): the galaxy panel's New game block. All AI → a SIMULATION
+// runs in the game itself (the same heads, the same world — no tool, no other engine), eon by eon in the background, God mode on,
+// and ends as a replay to scrub; any empire marked You → a game, the rest played by the heads.
+const FOCUS_CHOICES = [['default', 'default (exterminate)'], ['mid', 'mid — never moves'], ['expand', 'Expansion'], ['exploit', 'Exploitation'], ['explore', 'Exploration'], ['exterm', 'Extermination']];
+let setup = { seed: null, stars: GALAXY.count, n: 3, who: ['ai', 'ai', 'ai', 'ai', 'ai'], focus: ['default', 'default', 'default', 'default', 'default'], cap: 1200 };
+function setupHtml() {
+  const n = setup.n, rows = Array.from({ length: n }, (_, i) => `<div class="shiprow" style="display:grid;grid-template-columns:auto 1fr auto auto;gap:8px;align-items:center;padding:4px 8px"><i class="dot" style="background:${WORLD.colors[i % WORLD.colors.length][0]}"></i><b>${WORLD.names[i]}</b>
+    <select data-su="who|${i}" ${n === 1 ? 'disabled' : ''} title="an AI plays it, or you do">${[['ai', 'AI'], ['you', 'You']].map(([v, w]) => `<option value="${v}" ${(n === 1 ? 'you' : setup.who[i]) === v ? 'selected' : ''}>${w}</option>`).join('')}</select>
+    <select data-su="focus|${i}" ${setup.who[i] === 'you' && n > 1 ? 'disabled' : ''} title="the focus this empire's head leans to">${FOCUS_CHOICES.map(([v, w]) => `<option value="${v}" ${setup.focus[i] === v ? 'selected' : ''}>${w}</option>`).join('')}</select></div>`).join('');
+  const sim = n > 1 && setup.who.slice(0, n).every(w => w === 'ai');
+  return `<details id="gSetup" open><summary style="cursor:pointer"><b>New game or simulation</b></summary>
+    <div style="display:flex;gap:6px;margin:6px 0 4px;align-items:center;flex-wrap:wrap"><span class="tiny">Seed</span><input type="text" id="gSeed" value="${esc(setup.seed ?? seedDraft ?? S.seedText ?? S.seed)}" style="flex:1;min-width:80px"><button data-randseed title="put a random seed in the box">Random</button>
+      <select data-su="stars" title="how big a sector: the same density, more room">${[50, 100, 150, 200].map(v => `<option value="${v}" ${v === setup.stars ? 'selected' : ''}>${v} stars</option>`).join('')}</select>
+      <select data-su="n" title="how many empires in all (1 = you alone against the hostile fleets)">${[1, 2, 3, 4, 5].map(v => `<option value="${v}" ${v === setup.n ? 'selected' : ''}>${v === 1 ? '1 empire — alone' : v + ' empires'}</option>`).join('')}</select></div>
+    ${rows}
+    <div style="display:flex;gap:6px;align-items:center;margin-top:4px;flex-wrap:wrap">${sim ? `<span class="tiny">Simulate to eon</span><input type="number" data-su="cap" value="${setup.cap}" min="10" max="5000" style="width:72px"><button class="go" data-newseed>▶ Simulate — every empire an AI</button>` : `<button class="go" data-newseed>▶ Start — you play ${WORLD.names[setup.who.slice(0, n).indexOf('you') < 0 ? 0 : setup.who.slice(0, n).indexOf('you')]}</button>`}</div>
+    <div class="tiny" style="margin-top:4px">${sim ? 'The heads play every empire inside the game — no outside engine, no tokens; it runs in the background and ends as a replay you can scrub with God mode on.' : 'Mark every empire AI to watch them fight it out instead.'}</div></details>`;
+}
+function simStart() {
+  const seedText = String($('gSeed')?.value || setup.seed || '7').trim() || '7', n = setup.n, focus = setup.focus.slice(0, n);
+  leaveOutline(); REPLAY = null; godPick = null;
+  W = createWorld(seedText, n, { galaxy: galaxyOf(setup.stars) }); W.me = null; W.focus = focus; S = W.empires[0];
+  const log = newLog(W, { player: 'game', focus });
+  const brains = W.empires.map((E, k) => makeBrain(W, E, { focus: focus[k], onAct: (E2, a) => log.empires[E2.empire].actions.push({ eon: W.eon, ...a }) }));
+  SIM = { W, log, brains, cap: Math.max(10, Math.min(5000, +setup.cap || 1200)), running: false, snaps: new Map([[1, worldSnapshot(W)]]), snapEvery: 50, t0: performance.now() };
+  GOD = true; gMode = 'god'; freshView(); go('galaxy'); simRun();
+}
+function simRun() {                                  // chunks of ~40 ms, so the page breathes; the map redraws every ten eons
+  if (!SIM || SIM.running) return; SIM.running = true;
+  const tick = () => {
+    if (!SIM || !SIM.running) return;
+    const t0 = performance.now(); let drew = false;
+    while (SIM.running && SIM.W.winner == null && SIM.W.eon <= SIM.cap && performance.now() - t0 < 40) {
+      campaignEon(SIM.W, SIM.brains, SIM.log); S = SIM.W.empires[REPLAY ? 0 : (S.empire ?? 0)];
+      if (SIM.W.eon % SIM.snapEvery === 0) SIM.snaps.set(SIM.W.eon, worldSnapshot(SIM.W));
+      if (SIM.W.eon % 10 === 0) { refresh(); drew = true; }
+    }
+    if (!drew) renderReplayBar();
+    if (SIM.W.winner != null || SIM.W.eon > SIM.cap) return simFinish();
+    setTimeout(tick, 0);
+  };
+  setTimeout(tick, 0);
+}
+function simStop(toReplay = true) { if (!SIM) return; SIM.running = false; if (toReplay) simFinish(); else SIM = null; }
+function simFinish() {                               // the simulation becomes a replay: its world as it stands, its snapshots, its log (⤓ to keep it)
+  if (!SIM) return; const { W: w, log, brains, snaps, snapEvery } = SIM; SIM = null;
+  log.summary = campaignSummary(w, log, brains);
+  REPLAY = { log, world: w, view: 0, last: log.eons.length ? log.eons.at(-1).eon : w.eon, snaps, snapEvery, ended: true };
+  S = w.empires[0]; gMode = 'god'; refresh(); say(w.winner != null ? `${w.empires[w.winner].name} holds the galaxy — the simulation is a replay now: rewind it, or save its log` : 'The simulation stopped — it is a replay now: rewind it, or save its log');
+}
+function saveLog() {                                 // the replay's log as a file (the tool's format: load it again any time)
+  const log = REPLAY && REPLAY.log; if (!log) return;
+  const blob = new Blob([JSON.stringify(log)], { type: 'application/json' }), a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `world-${log.seedText}-${log.n}x${(log.galaxy && log.galaxy.count) || GALAXY.count}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+let foesDraft = 1, starsDraft = GALAXY.count;        // (older drafts, kept for the quick "new game" button)
 function freshView() { curDesign = S.designs[0]?.id || null; selMod = null; chipsFor = null; gMode = 'system'; gView = { z: 1, x: 0, y: 0 }; selSys = gSel = S.homeSys; selPlace = S.homePlace || 'home'; newIds = new Set(); seedDraft = null; picks = new Map(); pickScope = null; sendTo = null; }   // a new game, or another empire's eyes: nothing chosen yet
 
 // =====================================================================
@@ -1308,7 +1365,11 @@ document.addEventListener('click', e => {
   if ((t = q('[data-freset]'))) { tetra.to([...CENTER]); save(); return refresh(); }
   if ((t = q('[data-gfield]'))) { gField = gField === t.dataset.gfield ? null : t.dataset.gfield; return refresh(); }
   if ((t = q('[data-randseed]'))) { seedDraft = String(Math.floor(Math.random() * 1e6)); return refresh(); }
-  if ((t = q('[data-newseed]'))) { const text = $('gSeed').value.trim() || '7', n = +($('gPanel').querySelector('[data-foes]')?.value || 1), stars = +($('gPanel').querySelector('[data-stars]')?.value || GALAXY.count); if (confirm(`Start a new game in the galaxy of seed "${text}" (${stars} stars)${n > 1 ? ` against ${n - 1} AI empire${n > 2 ? 's' : ''}` : ''}? The game you are playing is lost.`)) startGame(text, n, stars); return; }
+  if ((t = q('[data-newseed]'))) {
+    const text = $('gSeed').value.trim() || '7', n = setup.n, who = setup.who.slice(0, n), sim = n > 1 && who.every(w => w === 'ai');
+    if (!confirm(sim ? `Simulate ${n} AI empires on ${setup.stars} stars (seed "${text}") up to eon ${setup.cap}? The game you are playing is lost.` : `Start a new game in the galaxy of seed "${text}" (${setup.stars} stars${n > 1 ? `, ${n} empires` : ''})? The game you are playing is lost.`)) return;
+    setup.seed = text; if (sim) simStart(); else startGame(text, n, setup.stars, { me: Math.max(0, who.indexOf('you')), focus: setup.focus.slice(0, n) }); return;
+  }
   if ((t = q('[data-opensys]'))) return openSystem(t.dataset.opensys);
   if ((t = q('[data-gplace]'))) return openSystem(placeOf(t.dataset.gplace).sys, t.dataset.gplace);
   if ((t = q('[data-unq]'))) { const P = placeOf(t.dataset.planet).colony; P.queue = P.queue.filter(x => x.id !== t.dataset.unq); save(); return refresh(); }
@@ -1387,8 +1448,9 @@ $('dNew').onclick = () => { leaveOutline(); const full = shipDesignCount() >= MA
 $('dCopy').onclick = () => { const d = design(); if (!d) return; if ((d.klass || DS?.t.klass) !== 'structure' && shipDesignCount() >= MAX_SHIP_DESIGNS) return say(`${MAX_SHIP_DESIGNS} ship designs at most — delete one first (refits come later)`); leaveOutline(); const c = JSON.parse(JSON.stringify(d)); c.id = uid('d'); c.name = d.name + ' II'; for (const m of c.modules) m.id = uid('m'); S.designs.push(c); curDesign = c.id; selMod = null; chipsFor = null; save(); refresh(); };
 $('dDel').onclick = () => { const d = design(); if (!d || !confirm(`Delete the design "${d.name}"? What is already built stays.`)) return; leaveOutline(); S.designs = S.designs.filter(x => x.id !== d.id); curDesign = S.designs[0]?.id || null; selMod = null; chipsFor = null; save(); refresh(); };
 $('eEnd').onclick = () => {
-  if (REPLAY) return REPLAY.ended ? say('The replay is at its end — rewind it, or stop it here to play on') : replayStep(1);
-  if (W) { worldPlayEon(W, (w, E) => makeBrain(w, E)); S = W.empires[W.me]; newIds = new Set(S.report.filter(r => r.kind === 'breakthrough').map(r => r.id)); }   // the other empires' heads give their orders, the world ends the eon
+  if (SIM) return say('A simulation is running — pause or stop it in the bar above');
+  if (REPLAY) return REPLAY.ended ? say('The replay is at its end — rewind it, or take over to play on') : replayStep(1);
+  if (W) { worldPlayEon(W, brainFor); S = W.empires[W.me]; newIds = new Set(S.report.filter(r => r.kind === 'breakthrough').map(r => r.id)); }   // the other empires' heads give their orders, the world ends the eon
   else { const rep = endEon(S); newIds = new Set(rep.filter(r => r.kind === 'breakthrough').map(r => r.id)); }
   save(); refresh();
 };
@@ -1411,7 +1473,7 @@ function replayLoad(log) {
   REPLAY = { log, world: W, view: 0, last: log.eons && log.eons.length ? Math.max(...log.eons.map(e => e.eon)) : Math.max(0, ...acts.map(a => a.eon)) + 1, snaps: new Map(), ended: false };
   freshView(); replaySnap(); replayApply(); save(); go('empire');
 }
-function replaySnap() { if (!REPLAY) return; const e = replayEon(); if (e === 1 || e % SNAP === 0) REPLAY.snaps.set(e, REPLAY.world ? worldSnapshot(REPLAY.world) : JSON.stringify(S)); }   // the state at the start of the eon, before its orders
+function replaySnap() { if (!REPLAY) return; const e = replayEon(); if (e === 1 || e % (REPLAY.snapEvery || SNAP) === 0) REPLAY.snaps.set(e, REPLAY.world ? worldSnapshot(REPLAY.world) : JSON.stringify(S)); }   // the state at the start of the eon, before its orders
 function replayApply() {
   if (!REPLAY) return;
   if (REPLAY.world) { for (const E of REPLAY.world.empires) if (!E.dead) { const errs = applyWorldEon(REPLAY.world, E, REPLAY.log.empires[E.empire].actions, REPLAY.world.eon); if (errs.length) console.warn('replay: orders refused', E.name, errs); } }
@@ -1445,26 +1507,38 @@ function replayView(i) {                             // a world replay: look thr
   leaveOutline(); REPLAY.view = i; S = REPLAY.world.empires[i]; freshView(); save(); refresh();
 }
 function renderReplayBar() {
-  const bar = $('replayBar'); if (!bar) return; if (!REPLAY) { bar.hidden = true; return; }
+  const bar = $('replayBar'); if (!bar) return;
+  if (SIM) {                                         // the SIMULATION bar: where it is, pause / run / stop, whose eyes, God mode
+    const w = SIM.W, secs = (performance.now() - SIM.t0) / 1000, alive = w.empires.filter(E => !E.dead).length, last = SIM.log.events.slice(-2).map(e => esc(e.text)).join(' · ');
+    bar.hidden = false; bar.innerHTML = `<b>SIMULATION</b><select data-rview title="look through this empire's eyes">${w.empires.map((E, i) => `<option value="${i}" ${E === S ? 'selected' : ''}>${esc(E.name)}${E.dead ? ' (fallen)' : ''}</option>`).join('')}</select><button class="${GOD ? 'go' : 'x'}" data-rgod title="everything, everyone">👁 God mode${GOD ? ' ✓' : ''}</button><span class="tiny">seed “${esc(w.seedText)}” · ${w.empires[0].systems.length} stars · eon <b>${w.eon}</b> of ${SIM.cap} · ${alive} of ${w.n} empires standing · ${(w.eon / Math.max(0.1, secs)).toFixed(1)} eons/s${last ? ' · ' + last : ''}</span><span style="flex:1"></span>${SIM.running ? `<button class="x" data-simpause title="pause the simulation (the world waits)">❚❚ pause</button>` : `<button class="go" data-simrun title="run on">▶ run</button>`}<input type="number" data-simcap value="${SIM.cap}" min="${w.eon}" max="5000" title="run to this eon" style="width:72px"><button class="x" data-simstop title="stop here: the simulation becomes a replay you can rewind, save or take over">⏹ stop → replay</button>`;
+    return;
+  }
+  if (!REPLAY) { bar.hidden = true; return; }
   const W = REPLAY.world, eon = replayEon(), ended = REPLAY.ended;
   const word = a => a.type === 'send' ? `send ${a.n} × ${designWord(a.design)} ${sysWord(a.from)} → ${a.toPlace ? (placeOf(a.toPlace)?.name || a.toPlace) : sysWord(a.to)}` : a.type === 'settle' ? `settle ${placeOf(a.place)?.name || a.place}` : a.type === 'build' ? `build ${designWord(a.design)}` : a.type === 'buynow' ? 'buy now' : a.type === 'split' ? `split ${a.split.map(v => Math.round(v * 100)).join(' / ')}` : a.type === 'design' ? `design ${a.design.name}` : a.type === 'focus' ? 'move the focus' : a.type;
   const acts = (W ? REPLAY.log.empires[REPLAY.view].actions : REPLAY.log.actions).filter(a => a.eon === eon);
   const events = W ? (REPLAY.log.events || []).filter(e => e.eon === eon - 1) : [];
   const who = W ? `<select data-rview title="look through this empire's eyes">${W.empires.map((E, i) => `<option value="${i}" ${i === REPLAY.view ? 'selected' : ''}>${esc(E.name)}${E.dead ? ' (fallen)' : ''}</option>`).join('')}</select><button class="${GOD ? 'go' : 'x'}" data-rgod title="the galaxy map shows every empire — spheres, colonies, fleets, ships under way — and the panel a scoreboard; click any fleet or ship">👁 God mode${GOD ? ' ✓' : ''}</button>` : '';
   bar.hidden = false; bar.innerHTML = `<b>REPLAY</b>${who}<span class="tiny">seed “${esc(REPLAY.log.seedText)}” · eon ${eon} of ${REPLAY.last}${ended ? ' · the end' : ''}${S.dead ? ' · <b style="color:var(--bad)">this empire has fallen</b>' : ''}${acts.length ? ' · this eon: ' + acts.map(a => esc(word(a))).join(' · ') : ' · no orders this eon'}${events.length ? ' · <b style="color:var(--bad)">' + events.slice(0, 3).map(e => esc(e.text)).join(' · ') + (events.length > 3 ? ` · and ${events.length - 3} more` : '') + '</b>' : ''}</span><span style="flex:1"></span>
-    <button class="x" data-rgoto="1" title="back to the start">⏮</button><button class="x" data-rstep="-10" title="ten eons back (Page Up)">⏪ 10</button><button class="x" data-rstep="-1" title="an eon back (←)">◀</button><input type="number" data-reon value="${eon}" min="1" max="${REPLAY.last}" title="go to an eon (Enter)" style="width:66px"><button class="go" data-rstep="1" ${ended ? 'disabled' : ''} title="an eon on (→)">▶ next</button><button class="x" data-rstep="10" ${ended ? 'disabled' : ''} title="ten eons on (Page Down)">⏩ 10</button><button class="x" data-rgoto="${REPLAY.last}" title="to the end" ${ended ? 'disabled' : ''}>⏭</button><button class="x" data-rstop title="stop the replay here and play on yourself${W ? ' — the other empires stand still from here' : ''}">✕ stop here</button>`;
+    <button class="x" data-rgoto="1" title="back to the start">⏮</button><button class="x" data-rstep="-10" title="ten eons back (Page Up)">⏪ 10</button><button class="x" data-rstep="-1" title="an eon back (←)">◀</button><input type="number" data-reon value="${eon}" min="1" max="${REPLAY.last}" title="go to an eon (Enter)" style="width:66px"><button class="go" data-rstep="1" ${ended ? 'disabled' : ''} title="an eon on (→)">▶ next</button><button class="x" data-rstep="10" ${ended ? 'disabled' : ''} title="ten eons on (Page Down)">⏩ 10</button><button class="x" data-rgoto="${REPLAY.last}" title="to the end" ${ended ? 'disabled' : ''}>⏭</button><button class="x" data-rsave title="save this campaign's log as a file (load it again with ▶ replay…)">⤓ log</button><button class="x" data-rstop title="stop the replay here and play on yourself${W ? ' — the other empires play on with their heads' : ''}">✕ take over</button>`;
 }
 $('eReplay').onclick = () => $('eReplayFile').click();
 $('eReplayFile').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; f.text().then(t => { try { replayLoad(JSON.parse(t)); } catch (x) { say('Could not read that file as a game log'); } }); };
 document.addEventListener('click', e => {
   const s = e.target.closest('[data-rstep]'); if (s) return replayStep(+s.dataset.rstep); const g = e.target.closest('[data-rgoto]'); if (g) return replayGoto(+g.dataset.rgoto);
-  if (e.target.closest('[data-rstop]')) { if (REPLAY.world) { W.me = REPLAY.view; W.brains = null; say(`The game is yours as ${S.name} — the other empires play on`); } REPLAY = null; GOD = false; godPick = null; if (gMode === 'god') gMode = 'system'; save(); return refresh(); }   // a world goes on: the others get heads (worldPlayEon)
+  if (e.target.closest('[data-rstop]')) { if (REPLAY.world) { W.me = REPLAY.view; W.brains = null; W.focus = W.focus || (REPLAY.log.empires || []).map(x => x.focus || 'default'); say(`The game is yours as ${S.name} — the other empires play on`); } REPLAY = null; GOD = false; godPick = null; if (gMode === 'god') gMode = 'system'; save(); return refresh(); }   // a world goes on: the others get heads (worldPlayEon)
+  if (e.target.closest('[data-rsave]')) return saveLog();
+  if (e.target.closest('[data-simpause]')) { if (SIM) SIM.running = false; return renderReplayBar(); }
+  if (e.target.closest('[data-simrun]')) { if (SIM) { const cap = +($('replayBar').querySelector('[data-simcap]')?.value || SIM.cap); SIM.cap = Math.max(SIM.W.eon, cap); simRun(); } return; }
+  if (e.target.closest('[data-simstop]')) return simStop(true);
   if (e.target.closest('[data-rgod]')) { GOD = !GOD; godPick = null; gMode = GOD ? 'god' : 'system'; if (GOD) go('galaxy'); else refresh(); return; }
   const gf = e.target.closest('[data-gfleet]'); if (gf && godEmpires()) { const [sys, k] = gf.dataset.gfleet.split('|'); godPick = { kind: 'fleet', k: +k, sys }; gSel = sys; return refresh(); }
   const gs = e.target.closest('[data-gship]'); if (gs && godEmpires()) { const [k, id] = gs.dataset.gship.split('|'); godPick = { kind: 'ship', k: +k, id }; return refresh(); }
   if (e.target.closest('[data-gback]') && godEmpires()) { if (godPick && godPick.kind === 'ship') { const E = W.empires[godPick.k], u = E.ships.find(x => x.id === godPick.id), pl = u && !u.dest && E.places.find(p => p.id === u.at); godPick = pl ? { kind: 'fleet', k: godPick.k, sys: pl.sys } : null; } else godPick = null; return refresh(); }
 });
-document.addEventListener('change', e => { if (e.target.matches('[data-rview]')) return replayView(+e.target.value); if (e.target.matches('[data-reon]')) return replayGoto(+e.target.value); if (e.target.matches('[data-foes]')) foesDraft = +e.target.value; if (e.target.matches('[data-stars]')) starsDraft = +e.target.value; });
+document.addEventListener('change', e => { if (e.target.matches('[data-rview]')) { if (SIM) { S = SIM.W.empires[+e.target.value]; freshView(); gMode = GOD ? 'god' : 'system'; return refresh(); } return replayView(+e.target.value); }
+  if (e.target.matches('[data-simcap]')) { if (SIM) SIM.cap = Math.max(SIM.W.eon, +e.target.value || SIM.cap); return; } if (e.target.matches('[data-reon]')) return replayGoto(+e.target.value); if (e.target.matches('[data-foes]')) foesDraft = +e.target.value; if (e.target.matches('[data-stars]')) starsDraft = +e.target.value;
+  const su = e.target.closest('[data-su]'); if (su) { const [k, i] = su.dataset.su.split('|'); if (k === 'stars' || k === 'n' || k === 'cap') setup[k] = +su.value; else setup[k][+i] = su.value; setup.seed = $('gSeed') ? $('gSeed').value : setup.seed; renderGalaxy(LAST); } });
 document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target.matches('[data-reon]')) return replayGoto(+e.target.value);
   // REPLAY KEYS (his ask, 2026-10-17): ← → an eon back / on, Page Up / Page Down ten eons; not while typing, not with the arena open

@@ -23,6 +23,7 @@ import { applyAction } from './replay.js';
 // silhouettes from hullpack.js ("don't use darts, use the ones I've created"): Hammerhead III, Britanica, USS, pick axe, Dart II
 export const WORLD = { siege: 3, names: ['Sol', 'Rival', 'Third', 'Fourth', 'Fifth'], colors: [['#7fb3ff', '#ffb347'], ['#ff8a6b', '#f5a3c7'], ['#7ef3b0', '#ffe08a'], ['#ffd94a', '#ff9f43'], ['#c084fc', '#5fe3d0']], styles: ['utopia2', 'greeble1', 'mushroom1', 'crate1', 'crystal1'], hulls: ['umfwajfq', 'ug1cdtqc', 'u51lsbay', 'u3fkxd5m', 'u68ap7qe'] };
 export const MAX_EMPIRES = 5;
+export const DEBUG = { tap: null };                  // tests: tap(bt, info) sees every battle before it is stepped (cross-engine replay checks)
 export const seedOf = text => { const s = String(text).trim(); if (/^\d{1,9}$/.test(s)) return Number(s); let h = 2166136261; for (const ch of s) { h ^= ch.codePointAt(0); h = Math.imul(h, 16777619); } return h >>> 0; };
 const worldRand = W => { let t = (W.seed + Math.imul(0x6D2B79F5, ++W.rolls)) >>> 0; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 const sysOfPlace = (S, id) => (S.places.find(p => p.id === id) || {}).sys;
@@ -133,7 +134,7 @@ function fightEmpires(W, rep) {
       Si.battles = Si.battles || []; Sj.battles = Sj.battles || [];
       Si.battles.push({ id: uid('b'), eon: Si.eon, sys, seed, foe: planB, foeTech: Sj.breakthroughs, mine: mineOf(A0, A) });
       Sj.battles.push({ id: uid('b'), eon: Sj.eon, sys, seed, foe: planA, foeTech: Si.breakthroughs, mine: mineOf(B0, B), swapped: true });
-      const bt = createBattle(A, B, rng32(seed), { record: 1e9 }); while (!bt.done) bt.step(); const r = bt.result();
+      const bt = createBattle(A, B, rng32(seed), { record: 1e9 }); if (DEBUG.tap) DEBUG.tap(bt, { sys, a: Si.name, b: Sj.name, seed, eon: Si.eon }); while (!bt.done) bt.step(); const r = bt.result();
       const where = (Si.systems.find(x => x.id === sys) || {}).name || sys, lostA = [], lostB = [];
       A0.forEach((u, k) => { const sh = bt.ships[k]; if (sh.dead) lostA.push(u); else u.st = Math.max(1, Math.round(Math.max(0, sh.en) * 100)); });
       B0.forEach((u, k) => { const sh = bt.ships[A0.length + k]; if (sh.dead) lostB.push(u); else u.st = Math.max(1, Math.round(Math.max(0, sh.en) * 100)); });
@@ -199,4 +200,22 @@ export function worldPlayEon(W, makeBrain) {
   for (const b of W.brains) if (b && !b.S.dead) b.after();
   return out;
 }
+// A LOGGED CAMPAIGN (the tool and the game share it, 2026-10-17): the log the Replay bar plays back — the seed, the sector, each
+// empire's focus and orders eon by eon, the per-eon figures (verify.mjs checks them), the world's events
+export function newLog(W, { player = 'game', focus = null } = {}) {
+  return { version: 1, kind: 'world', seedText: W.seedText, n: W.n, galaxy: W.galaxy, player, empires: W.empires.map((S, i) => ({ name: S.name, home: S.homeSys, focus: focus ? focus[i] || 'default' : 'default', actions: [] })), eons: [], notes: [], events: [] };
+}
+export const logRow = W => ({ eon: W.eon, empires: W.empires.map(S => S.dead ? null : ({ people: Math.round(S.places.find(p => p.id === S.homePlace).colony.people * 10) / 10, reserves: Math.round(S.reserves || 0), cohesion: Math.round(S.cohesion), ships: S.ships.length, colonies: S.places.filter(p => p.colony).length, bt: S.breakthroughs.length })) });
+// one eon of a campaign: every head's orders (the heads push their orders into the log through onAct), the world's eon, the heads'
+// afterthoughts, the events and the row. Returns the eon's events.
+export function campaignEon(W, brains, log) {
+  for (const b of brains) if (b && !b.S.dead) b.plan();
+  const before = log.events.length; for (const e of W.events) if (e.eon === W.eon && !log.events.includes(e)) log.events.push(e);   // invasions land inside the eon
+  const { rep } = worldEndEon(W);
+  for (const r of rep) log.events.push({ eon: W.eon - 1, kind: r.kind, text: r.text });
+  for (const b of brains) if (b && !b.S.dead) b.after();
+  log.eons.push(logRow(W));
+  return log.events.slice(before);
+}
+export const campaignSummary = (W, log, brains) => `seed "${W.seedText}", ${W.n} empires: ${W.eon - 1} eons · ` + W.empires.map((S, i) => { const b = brains && brains[i] ? brains[i].B : null, f = log.empires[i].focus; return `${S.name}${f && f !== 'default' ? ` (${f})` : ''}: ${S.dead ? 'FALLEN' : `${S.places.filter(p => p.colony).length} colonies, home ${peopleWord(S.places.find(p => p.id === S.homePlace).colony.people)}`}${b ? ` · ${b.settled} settled, ${b.taken} taken (${b.invasions} landings), ${b.lost} ships lost` : ''} · ${S.breakthroughs.length} breakthroughs, cohesion ${Math.round(S.cohesion)}`; }).join(' | ') + (W.winner != null ? ` · ${W.empires[W.winner].name} holds the galaxy` : ' · no winner') + ` · ${log.events.length} events`;
 export { hostileWorth };
