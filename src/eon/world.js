@@ -19,7 +19,7 @@ import { applyAction } from './replay.js';
 // matched with it. A homeworld taken = the empire is gone.
 // FOR NOW (his call, 2026-10-17: "blockades will take over planets" — until the ground war is built): a blockade held WORLD.siege
 // eons takes the colonies there; only an ARMED ship of theirs resting in the system breaks it (a settler does not).
-export const WORLD = { siege: 3, names: ['Sol', 'Rival', 'Third', 'Fourth'], colors: [['#7fb3ff', '#ffb347'], ['#ff8a6b', '#f5a3c7'], ['#7ef3b0', '#ffe08a'], ['#cf89ff', '#5fe3d0']], styles: ['utopia2', 'greeble1', 'mushroom1', 'utopia1'], hulls: ['dart', 'hammer', 'needle', 'wedge'] };   // each empire: a colour pair, a plating style, a SILHOUETTE of its own (his ask, 2026-10-16)
+export const WORLD = { siege: 3, names: ['Sol', 'Rival', 'Third', 'Fourth'], colors: [['#7fb3ff', '#ffb347'], ['#ff8a6b', '#f5a3c7'], ['#7ef3b0', '#ffe08a'], ['#cf89ff', '#5fe3d0']], styles: ['utopia2', 'greeble1', 'mushroom1', 'utopia1'], hulls: ['umfwajfq', 'ug1cdtqc', 'u51lsbay', 'u3fkxd5m'] };   // each empire: a colour pair, a plating style, a SILHOUETTE of its own — HIS silhouettes from hullpack.js (his call, 2026-10-17: "don't use darts"): Hammerhead III, Britanica, USS, pick axe
 export const seedOf = text => { const s = String(text).trim(); if (/^\d{1,9}$/.test(s)) return Number(s); let h = 2166136261; for (const ch of s) { h ^= ch.codePointAt(0); h = Math.imul(h, 16777619); } return h >>> 0; };
 const worldRand = W => { let t = (W.seed + Math.imul(0x6D2B79F5, ++W.rolls)) >>> 0; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 const sysOfPlace = (S, id) => (S.places.find(p => p.id === id) || {}).sys;
