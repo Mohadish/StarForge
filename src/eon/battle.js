@@ -11,6 +11,7 @@
 // circling — and the faster ship wins that argument; the field has a hard edge, so a runner is cornered.
 import { designStats, allCapsules, autoFit, KINDS, FAB, DODGE, SHIELD, HULL, HEAT, PRESETS, TURRET, traverseOf, applyPreset } from './modules.js';
 import { hullsFor } from './hull.js';
+import { atan2 } from './dmath.js';                   // bit-identical in every engine (Math.atan2 is not)
 // the silhouettes random ships are drawn from: the player's own starships (hull.js setUserHulls) and the shipped pack of his (hullpack.js) when there are any, else the plain built-in ones
 export const starshipHulls = () => { const all = hullsFor('starship'), own = all.filter(h => h.user || h.pack); return own.length ? own : all; };
 
@@ -99,7 +100,7 @@ const slew = (g, want) => { const maxT = g.trav * Math.PI / 180 * B.dt, d = norm
 const go = (s, tx, ty, want, band, spin) => {
   const p = plan(s, tx, ty, want, band, spin), len = Math.hypot(p.mx, p.my);
   if (len > 1e-6) {
-    const wantAng = Math.atan2(p.my, p.mx), maxTurn = (s.turn || 30) * eff(s) * Math.PI / 180 * B.dt, diff = norm(wantAng - s.ang);
+    const wantAng = atan2(p.my, p.mx), maxTurn = (s.turn || 30) * eff(s) * Math.PI / 180 * B.dt, diff = norm(wantAng - s.ang);   // dmath atan2: Math.atan2 differs in its last bits between Chrome and node (2026-10-17)
     s.ang = norm(s.ang + Math.max(-maxTurn, Math.min(maxTurn, diff)));
     const align = Math.cos(norm(wantAng - s.ang));
     if (align > 0) { s.x += Math.cos(s.ang) * len * align; s.y += Math.sin(s.ang) * len * align; }
@@ -325,7 +326,7 @@ export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {})
         const g = s.guns[gi];
         g.cd -= B.dt;
         // between shots a turret keeps slewing onto the ship's target — a light mount fast, a heavy one slowly
-        if (g.trav && g.cd > 0 && s.tgt && !s.tgt.dead) { const [gx0, gy0] = gunAt(s, g); slew(g, Math.atan2(s.tgt.y - gy0, s.tgt.x - gx0)); }
+        if (g.trav && g.cd > 0 && s.tgt && !s.tgt.dead) { const [gx0, gy0] = gunAt(s, g); slew(g, atan2(s.tgt.y - gy0, s.tgt.x - gx0)); }
         if (g.cd > 0 || g.ammo < 1) continue;
         const near = list => list.filter(e => e.side !== s.side && !e.dead && !e.done).map(e => [e, dist(e, s)]).filter(([, d]) => d <= Math.max(g.range, PD.reach)).sort((a, b) => a[1] - b[1])[0];
         const missile = g.kind === 'weapon_missile', beam = g.kind === 'weapon_energy';
@@ -342,7 +343,7 @@ export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {})
         const [gx, gy] = gunAt(s, g), kch = g.kind.slice(7, 8);                 // the shot leaves the hard point
         // a turret must be LAID on its target before it fires: it slews there at its rate, and a target crossing
         // faster than the mount can turn is never caught — a capital gun cannot follow a corvette round the hull
-        if (g.trav) { const want = Math.atan2(tgt.y - gy, tgt.x - gx); slew(g, want); if (Math.abs(norm(want - g.aim)) > TURRET.tol * Math.PI / 180) continue; }
+        if (g.trav) { const want = atan2(tgt.y - gy, tgt.x - gx); slew(g, want); if (Math.abs(norm(want - g.aim)) > TURRET.tol * Math.PI / 180) continue; }
         // HEAT: too hot and the crew holds fire; dark, and a beam has nothing to fire with. Every shot heats the ship: a beam
         // twice its power draw, a gun half of it (per shot = draw × factor ÷ rate, so a gun firing flat out adds draw × factor a second)
         const kinetic = g.kind === 'weapon_kinetic';
