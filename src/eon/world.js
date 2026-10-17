@@ -118,8 +118,8 @@ function fightEmpires(W, rep) {
       const A = A0.map(u => { const sh = shipFromDesign(Si, u.design, capsI); sh.name = u.name; sh.en0 = (u.st ?? 100) / 100; return sh; });
       const B = B0.map(u => { const sh = shipFromDesign(Sj, u.design, capsJ); sh.name = u.name; sh.en0 = (u.st ?? 100) / 100; return sh; });
       // each side keeps the battle to watch it (before the fight touches the stamina): the other side's ships as a fixed plan, its tech, the dice
-      const planOf = (S, units, built) => ({ name: `${S.name}'s fleet`, style: S.look.style, colA: S.look.colA, colB: S.look.colB, ships: units.map((u, k) => ({ design: { ...cloneDesign(u.design), paint: u.design.paint }, keep: true, name: u.name, en0: built[k].en0, cost: built[k].cost, seed: 1, locked: true })) });
-      const mineOf = (units, built) => units.map((u, k) => ({ name: u.name, en0: built[k].en0, design: { ...cloneDesign(u.design), paint: u.design.paint } }));
+      const planOf = (S, units, built) => ({ name: `${S.name}'s fleet`, style: S.look.style, colA: S.look.colA, colB: S.look.colB, ships: units.map((u, k) => ({ design: { ...cloneDesign(u.design), paint: u.design.paint }, keep: true, name: u.name, en0: built[k].en0, strain: u.strain || 0, cost: built[k].cost, seed: 1, locked: true })) });
+      const mineOf = (units, built) => units.map((u, k) => ({ name: u.name, en0: built[k].en0, strain: u.strain || 0, design: { ...cloneDesign(u.design), paint: u.design.paint } }));
       const planA = planOf(Si, A0, A), planB = planOf(Sj, B0, B), seed = Math.floor(worldRand(W) * 1e9);
       Si.battles = Si.battles || []; Sj.battles = Sj.battles || [];
       Si.battles.push({ id: uid('b'), eon: Si.eon, sys, seed, foe: planB, foeTech: Sj.breakthroughs, mine: mineOf(A0, A) });

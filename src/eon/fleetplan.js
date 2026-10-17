@@ -46,7 +46,7 @@ export function allocate(n, mix) {
 
 // the words for a ship of these tactics at this price: each tactic's recipe, scaled to its share of the price
 export const recipeFor = (blend, cost) => blend.map(b => (TACTICS[b.id] ? TACTICS[b.id].recipe : () => '2 beams')(cost * b.share)).join(' + ');
-const tacticLabel = blend => blend.map(b => (TACTICS[b.id] ? TACTICS[b.id].name : b.id) + (blend.length > 1 ? ` ${Math.round(b.share * 100)}%` : '')).join(' + ');
+const tacticLabel = blend => (blend || []).map(b => (TACTICS[b.id] ? TACTICS[b.id].name : b.id) + (blend.length > 1 ? ` ${Math.round(b.share * 100)}%` : '')).join(' + ');
 
 // a plan: the fleet before it is built
 export function composePlan({ budget = 6000, n = 8, mix = [], seed = 1, name = 'My fleet', style = null, hueA = 200, hueB = 40 } = {}) {
@@ -112,13 +112,13 @@ export function buildPlan(S, plan, letter = 'abcdefghijklmnopqrstuvwxy', num = '
     const rng = rng32(p.seed), d = p.design ? (p.keep ? p.design : designOf(p.design)) : p.chips ? designFromChips(S, p.chips.map(c => ({ kind: c.kind, h: c.h, role: c.role })), p.cost, rng) : designFromWords(S, p.words, p.cost, rng);
     if (!d) return null;
     if (p.hull && hullDef(p.hull)) d.hull = p.hull;                                // the silhouette the designer gave it (a custom one travels in plan.hulls and must be registered first)
-    const s = shipFromDesign(S, d); s.arch = archetype(s); s.name = p.name || `${num}${letter[i] || i + 1}`; if (p.en0 != null) s.en0 = p.en0; s.plan = p; p.built = s;
+    const s = shipFromDesign(S, d); s.arch = archetype(s); s.name = p.name || `${num}${letter[i] || i + 1}`; if (p.en0 != null) s.en0 = p.en0; if (p.strain != null) s.strain = p.strain; s.plan = p; p.built = s;   // p.strain: the light years of strain it came in with (shown on its card, no effect in the fight)
     s.resolve = (p.blend || []).reduce((a, b) => a + (TACTICS[b.id]?.resolve ?? 1) * b.share, 0) || 1;   // the doctrine's RESOLVE: how long its crews hold (battle.js ENDURE)
     return s;
   }).filter(Boolean);
   const f = fleetOf(ships, plan.name, 'planned'); f.plan = plan; return f;
 }
-export const shipLabel = p => `${p.built ? classOf(p.built.cost) : ''} · ${tacticLabel(p.blend)}`;
+export const shipLabel = p => `${p.built ? classOf(p.built.cost) : ''} · ${p.blend ? tacticLabel(p.blend) : p.design && p.design.name ? p.design.name : 'as designed'}`;   // a kept design (the game's ships) has no tactics blend — the card threw on it (2026-10-17)
 
 // saved plans: a list in the browser, and a code to carry one between pages or into the game
 export const PLANS_KEY = 'forge.eon.fleets.v1';

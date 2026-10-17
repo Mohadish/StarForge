@@ -472,7 +472,7 @@ function fightHostiles(S, caps, rep) {
     const plan = { ...H.plan, ships: H.plan.ships.map(p => ({ ...p })) }, B = buildPlan(NO_TECH, plan).ships;
     if (!B.length) { S.hostiles = S.hostiles.filter(x => x !== H); continue; }
     const seed = Math.floor(rand(S) * 1e9), battleId = uid('b');
-    S.battles.push({ id: battleId, eon: S.eon, sys: H.sys, seed, foe: planStrip(plan), mine: mine.map((u, i) => ({ name: u.name, en0: A[i].en0, design: { ...cloneDesign(u.design), paint: u.design.paint } })) });
+    S.battles.push({ id: battleId, eon: S.eon, sys: H.sys, seed, foe: planStrip(plan), mine: mine.map((u, i) => ({ name: u.name, en0: A[i].en0, strain: u.strain || 0, design: { ...cloneDesign(u.design), paint: u.design.paint } })) });
     const bt = createBattle(A, B, rng32(seed), { record: 1e9 }); while (!bt.done) bt.step(); const r = bt.result();
     const lostMine = [], lostTheirs = new Set();
     mine.forEach((u, i) => { const sh = bt.ships[i]; if (sh.dead) lostMine.push(u); else u.st = Math.max(1, Math.round(Math.max(0, sh.en) * 100)); });

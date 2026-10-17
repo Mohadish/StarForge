@@ -11,6 +11,7 @@ loadFleets();                                                                   
 import { lookOf, spriteOf, lookFromColors } from './skins.js';
 import { buildPlan, planFromCode, planCode, plansLoad, exportAllText, shipLabel } from './fleetplan.js';
 import { mountNav } from './nav.js';
+import { designSpecHtml, modulesLine } from './spec.js';
 const TCELL = { weapon_energy: 0, weapon_kinetic: 1, weapon_missile: 2 };   // a style's turret cells: beam, gun, missile
 const skinsOn = () => !!($('skins') && $('skins').checked);
 // DETAIL (his ask, 2026-10-16): full = the painted ships with the style's turrets; plain = the painted ships, no turrets (the shots
@@ -399,16 +400,26 @@ function shipCard(j) {
     <div style="color:#9eb3d8;margin-top:4px">${fmt(s.dps)} dmg/s · reach ${s.pref} · speed ${fmt(s.speed)} · turns ${Math.round(s.turn || 0)}°/s · evasion ${Math.round(s.evade * 100)} %${s.missiles ? ` · missiles ${msl} left` : ''}${s.drones ? ` · drones: ${dr} out, ${bays} in the bays${spent ? `, ${spent} to rebuild` : ''}` : ''}${s.stockMax ? ` · fabricator stock ${fmt(stock)} / ${fmt(s.stockMax)}` : ''}</div>
     <div style="color:#6f83a8;font-size:11px;margin-top:3px">${esc(systemsOf(s))}</div>`;
 }
+// THE FULL SPEC on a right-click (his ask, 2026-10-17: "right click it — the full spec, exactly what it is, and its fatigue"): the
+// live card, what it came in with (its stamina at the start, the strain it carried), then the design as built in the game's own
+// figures (spec.js). The fight plays on underneath.
+let specOn = false;
+function specCard(j) {
+  const s = cur.ships[j]; if (!s.ds) return shipCard(j);
+  const came = s.en0 != null && s.en0 < 0.995 ? `<div style="margin-top:4px;color:#ffb347">Came in at <b>${Math.round(s.en0 * 100)} %</b> stamina — fatigue from the voyage${s.strain > 0.05 ? `, ${s.strain.toFixed(1)} light years of strain` : ''}</div>` : s.strain > 0.05 ? `<div style="margin-top:4px;color:#9eb3d8">Came in fresh, carrying ${s.strain.toFixed(1)} light years of strain</div>` : '';
+  return shipCard(j) + came + `<div class="sec" style="margin-top:8px"><h3 style="margin:0 0 4px">As built</h3><div style="color:#9eb3d8;font-size:11px">${modulesLine(s.ds)}</div></div>` + designSpecHtml(s.ds);
+}
 function showCard(html) {
   if (OUTSIDE) return tellParent({ type: 'ship', html });
   const el = $('shipInfo'); if (!el) return; if (!html) { el.hidden = true; el.innerHTML = ''; return; } el.innerHTML = html; el.hidden = false;
 }
 function updateCard(now = false) {
   if (sel === null || !cur || !cur.ships[sel]) return; const t = performance.now(); if (!now && t - infoT < 200) return; infoT = t;
-  showCard(shipCard(sel));
+  showCard(specOn ? specCard(sel) : shipCard(sel));
 }
-function selectShip(j) { if (sel === j) return focusShip(j); sel = j; updateCard(true); draw(); }
-function closeCard() { sel = null; showCard(null); if (cur) draw(); }
+function selectShip(j) { if (sel === j) return focusShip(j); sel = j; specOn = false; updateCard(true); draw(); }
+function showSpec(j) { sel = j; specOn = true; updateCard(true); draw(); }
+function closeCard() { sel = null; specOn = false; showCard(null); if (cur) draw(); }
 function shipAct(act) { if (act === 'close') return closeCard(); if (act === 'ride' && sel !== null) focusShip(sel); }
 document.addEventListener('click', e => { const a = e.target.closest('[data-sact]'); if (a && a.closest('#shipInfo')) shipAct(a.dataset.sact); });
 function draw() {
@@ -752,11 +763,13 @@ document.addEventListener('click', e => {
   if (!e.target.closest('#ctxMenu')) hideMenu();
 });
 $('arena').addEventListener('contextmenu', e => {
-  e.preventDefault(); const live = cur && cur.live, cv = $('arena'), c = cv._cam, P = cv._P; if (!live || live.done || !c || !P) return;
-  const r = cv.getBoundingClientRect(), x = (e.clientX - r.left) * cv.width / r.width, y = (e.clientY - r.top) * cv.height / r.height, nA = cur.n ? cur.n[0] : 1;
-  let best = -1, bd = 30; P.forEach(([px, py], j) => { if (j >= nA) { const d = Math.hypot(px - x, py - y); if (d < bd) { bd = d; best = j; } } });
+  e.preventDefault(); const live = cur && cur.live, cv = $('arena'), c = cv._cam, P = cv._P; if (!cur || !c || !P) return;
+  const r = cv.getBoundingClientRect(), x = (e.clientX - r.left) * cv.width / r.width, y = (e.clientY - r.top) * cv.height / r.height, nA = cur.n ? cur.n[0] : 1, commanding = live && !live.done;
+  let best = -1, bd = 30; P.forEach(([px, py], j) => { const d = Math.hypot(px - x, py - y); if (d < bd) { bd = d; best = j; } });
+  if (best >= 0 && !(commanding && best >= nA)) return showSpec(best);              // any ship (in command mode: yours) → its full spec; the fight plays on
+  if (!commanding) return;
   playing = false; armed = null; updateCmdBar();
-  if (best >= 0) { const name = cur.ships[best].name; showMenu(e.clientX, e.clientY, [{ label: `☠ Eliminate ${esc(name)}`, run: () => live.order(0, { type: 'eliminate', ships: [best] }) }, { label: `↔ Keep away from ${esc(name)}`, run: () => live.order(0, { type: 'avoid', ships: [best] }) }], name); }
+  if (best >= 0) { const name = cur.ships[best].name; showMenu(e.clientX, e.clientY, [{ label: `☠ Eliminate ${esc(name)}`, run: () => live.order(0, { type: 'eliminate', ships: [best] }) }, { label: `↔ Keep away from ${esc(name)}`, run: () => live.order(0, { type: 'avoid', ships: [best] }) }, { label: `ⓘ ${esc(name)} — full spec`, run: () => showSpec(best) }], name); }
   else {
     const wx = c.cx + (x - c.W / 2) / c.sc, wy = c.cy + (y - c.H / 2) / c.sc, area = kind => () => live.order(0, { type: 'area', kind, x: wx, y: wy, r: 300 });
     showMenu(e.clientX, e.clientY, [{ label: '⛨ Protect this area', run: area('protect') }, { label: '⚔ Attack this area', run: area('attack') }, { label: '⊘ Avoid this area', run: area('avoid') }, { label: live.orders[0].retreat ? '⟲ Call off the retreat' : '⟲ Retreat…', confirm: 'Sure? Retreat!', confirmed: live.orders[0].retreat, run: () => live.order(0, { type: 'retreat' }) }, { label: 'Clear orders', run: () => live.order(0, { type: 'clear' }) }], 'Here');
@@ -779,7 +792,7 @@ document.addEventListener('click', e => {
   const p = e.target.closest('[data-pickship]'); if (p) { const id = +p.dataset.pickship; picked = picked.includes(id) ? picked.filter(x => x !== id) : [...picked.slice(-1), id]; return renderShips(); }
 });
 $('arena').addEventListener('dblclick', e => {
-  const cv = $('arena'), P = cv._P; if (!cur || !P) return;
+  const cv = $('arena'), P = cv._P; if (!cur || !P || ARENA) return;                // in the arena frame the two taps already select and ride; the design panel is not there
   const r = cv.getBoundingClientRect(), x = (e.clientX - r.left) * cv.width / r.width, y = (e.clientY - r.top) * cv.height / r.height;
   let best = 0, bd = Infinity; P.forEach(([px, py], j) => { const d = Math.hypot(px - x, py - y); if (d < bd) { bd = d; best = j; } });
   showDesign(cur.ships[best]);                                                      // the nearest ship of either fleet

@@ -23,6 +23,7 @@ import { buildPlan, planCode } from './fleetplan.js';
 import { applyEon } from './replay.js';
 import { createWorld, worldEndEon, worldSnapshot, worldRestore, worldPlayEon, applyWorldEon, ownerOf, invade, invasionOdds } from './world.js';
 import { makeBrain } from './ai.js';
+import { designSpecHtml, modulesLine } from './spec.js';
 mountNav('eon', { into: document.getElementById('topbar') });
 
 const KEY = 'forge.eon.v8';
@@ -616,35 +617,9 @@ function renderShipPop() {
   el.style.left = Math.max(12, Math.min(POP.x + 12, innerWidth - r.width - 12)) + 'px'; el.style.top = Math.max(60, Math.min(POP.y + 12, innerHeight - r.height - 12)) + 'px';
 }
 function specBlock(E, k, d, ships, c) {
-  const ds = designStats(E, d, c.caps), t = ds.t, isShip = t.klass !== 'structure', tid = (k == null ? 'p' : 'pg' + k) + '|' + d.id; thumbShips.set(tid, paintedShip(d, c.caps));
-  const box = (icon, label, val, bad) => `<div class="${bad ? 'bad' : ''}"><i>${icon}</i><span>${label}</span><b>${val}</b></div>`;
-  const sec = (title, boxes) => boxes ? `<div class="sec"><h3>${title}</h3><div class="sum">${boxes}</div></div>` : '';
-  let build = box(ICON.cost, 'Cost to build', fmt(t.cost)) + box(ICON.volume, 'Volume', `${fmt(t.volume)} · ${plural(t.squares, 'square')}`);
-  if (t.upkeep) build += box(ICON.upkeep, 'Upkeep', '−' + fmt(t.upkeep) + ' industry/eon');
-  let hull = box(ICON.hp, 'Hull', `${fmt(t.hp)} HP`);
-  if (t.armor) hull += box('▣', 'Armour', `${fmt(t.armor)} HP · shrugs ${t.deflect.toFixed(1)}/hit`);
-  if (t.hullRepair) hull += box(ICON.upkeep, 'Repairs in battle', `${t.hullRepair.toFixed(1)} hull/s`);
-  if (t.shieldRaw) hull += box(ICON.shield, 'Shield', `${fmt(t.shield)} · +${fmt(t.shieldRec)}/s`) + box(ICON.cover, 'Shield covers', pct(t.cover) + ' of the hull', t.cover < 0.999);
-  let power = box(ICON.power, 'Power', `${fmt(t.powerOut)} made / ${fmt(t.powerUse)} used`, t.powerFactor < 1);
-  if (t.powerFactor < 1) power += box(ICON.runs, 'Runs at', pct(t.powerFactor), true);
-  if (t.mounts || t.mountsUsed) power += box(ICON.fire, 'Weapons computer', `${num(t.mountsUsed, 1)} of ${num(t.mounts, 1)} mounts${t.fireFactor < 1 ? ` · guns fire at ${pct(t.fireFactor)}` : ''}`, t.fireFactor < 1);
-  let fire = '';
-  if (t.weapons || t.drones || t.missiles) {
-    const L = { shield: 0, through: 0, armor: 0, hull: 0 };
-    for (const x of ds.mods) if (x.K.mount && !x.K.hangar && !x.K.orbital) { const v = x.v, aim = Math.min(98, v.accuracy + t.bonus), l = vsLayers(v.damage * t.powerFactor * t.fireFactor, v.rate * aim / 100 * x.n, x.mod.preset, x.kind); for (const q in L) L[q] += l[q]; }
-    fire = box(ICON.damage, 'Damage', `${fmt(t.dps)} dmg/s`) + box(ICON.shield, 'Against a shield', `${fmt(L.shield)}${L.through > 0.05 ? ` (+${fmt(L.through)} through it)` : ''}`) + box('▣', 'Against armour', fmt(L.armor)) + box(ICON.hp, 'Against the hull', fmt(L.hull))
-      + (t.missiles ? box(ICON.speed, 'Missiles', t.missiles) : '') + (t.drones ? box(ICON.gantry, 'Drones', `${t.drones}, ${t.airCap} in the air at once`, !t.airCap) : '');
-  }
-  let travel = '';
-  if (isShip) travel += box(ICON.speed, 'Battle speed', fmt(t.speed) + ' u/s') + box(ICON.speed, 'Turns', `${Math.round(t.turn)}°/s`) + box(ICON.evasion, 'Evasion', Math.round(t.evasion) + '%');
-  if (t.klass === 'starship') travel += box(ICON.drive, 'Star drive', `moves ${fmt(t.lift)} of ${fmt(t.volume)} volume ${t.underDriven ? '✗' : '✓'}`, t.underDriven) + box(ICON.stars, 'Between stars', `reach ${shipRange(t, c.warp).toFixed(1)} light years · ${(VOY.speed * c.warp).toFixed(1)} ly a turn`, !t.underDriven && shipRange(t, c.warp) < 3);
-  let civ = '';
-  if (t.housing) civ += box(ICON.house, isShip ? 'Carries' : 'Houses', peopleWord(t.housing * (isShip ? SCALE.shipHousing : 1)) + ' people');
-  if (t.research) civ += box(ICON.research, isShip ? 'Lab (studies where parked)' : 'Research', '+' + fmt(t.research));
-  if (t.industry) civ += box(ICON.industry, 'Industry', '+' + fmt(t.industry) + '/eon');
-  if (t.social) civ += box(ICON.social, 'Social', '+' + fmt(t.social) + '/eon');
-  if (t.dock) civ += box(ICON.gantry, 'Gantry', t.gantries.map(s => `${s.w} × ${s.h}`).join(', '));
-  const mods = ds.mods.map(m => `${esc(m.K.name)}${m.n > 1 ? ' ×' + m.n : ''}${m.mod.preset ? ' · ' + esc(PRESETS[m.mod.preset]?.name || m.mod.preset) : ''}${m.mod.k != null && m.mod.k !== 1 ? ' · size ' + m.mod.k : ''}${(m.mod.caps || []).length ? ' · ' + plural(m.mod.caps.length, 'capsule') : ''}`).join(' · ');
+  const ds = designStats(E, d, c.caps), t = ds.t, tid = (k == null ? 'p' : 'pg' + k) + '|' + d.id; thumbShips.set(tid, paintedShip(d, c.caps));
+  const spec = designSpecHtml(ds, { reach: t.klass === 'starship' ? `reach ${shipRange(t, c.warp).toFixed(1)} light years · ${(VOY.speed * c.warp).toFixed(1)} ly a turn` : null, reachBad: !t.underDriven && shipRange(t, c.warp) < 3, shipHousing: SCALE.shipHousing, peopleWord });
+  const mods = modulesLine(ds);
   const unit = s => {
     const u = s.u, st = Math.round(u.st ?? 100), strain = u.strain || 0, pl = E.places.find(p => p.id === u.at), z = pl ? zoneOfSys(E, pl.sys) : 5, restock = ZONE.recover[z] > 0, V = u.voy, to = u.dest && E.places.find(p => p.id === u.dest), sysN = id => (E.systems.find(x => x.id === id) || {}).name || '?';
     const where = u.dest ? `under way to <b>${esc(to ? to.name : '?')}</b>${V ? ` (${esc(sysN(V.B))}) · ${V.left.toFixed(1)} ly to go` : ''} · ${plural(u.eta, 'eon')}${V && V.travelled > V.range ? ` · <b class="up">${(V.travelled - V.range).toFixed(1)} ly past its reach — rolling to break down</b>` : ''}` : `at <b>${esc(pl ? pl.name : '?')}</b> (${esc(pl ? sysN(pl.sys) : '?')}, ${ZONE.names[z]})`;
@@ -653,8 +628,7 @@ function specBlock(E, k, d, ships, c) {
     return `<div class="unit"><span><b>${esc(u.name)}</b>${u.sections > 1 ? ` <span class="tiny">· built in ${u.sections} sections</span>` : ''}${u.eon ? ` <span class="tiny">· built eon ${u.eon}</span>` : ''}</span><span class="st ${st < 70 ? 'low' : ''}">stamina ${st} %</span><div class="tiny">${where}${fatigue}${strainW}${u.people ? ` · ${peopleWord(u.people)} people aboard` : ''}</div></div>`;
   };
   return `<div class="sec" style="display:flex;gap:10px;align-items:center;border-top:0;padding-top:0"><canvas data-thumb="${tid}" ${k != null ? `data-emp="${k}"` : ''} width="240" height="140" style="width:150px;height:88px;border-radius:8px;background:#04070f;flex:none"></canvas><div><b>${esc(d.name)}</b> <span class="tiny">· ${CLASS_NAME[t.klass] || t.klass}</span><div class="tiny" style="margin-top:3px">${mods || 'no modules'}</div></div></div>`
-    + `<div class="sec"><h3>${plural(ships.length, 'ship')} of this design — state</h3>${ships.map(unit).join('')}</div>`
-    + sec('Build', build) + sec('Hull', hull) + sec('Power', power) + sec('Firepower', fire) + sec('Travel', travel) + sec('Civilian', civ);
+    + `<div class="sec"><h3>${plural(ships.length, 'ship')} of this design — state</h3>${ships.map(unit).join('')}</div>` + spec;
 }
 document.addEventListener('contextmenu', e => { const row = e.target.closest('[data-shipctx]'); if (!row) return; e.preventDefault(); const [k, ids] = row.dataset.shipctx.split('|'); openShipPop(k === 'me' ? null : +k, ids.split(','), e.clientX, e.clientY); });
 document.addEventListener('click', e => { if (!POP) return; if (e.target.closest('[data-popclose]') || !e.target.closest('#shipPop')) closeShipPop(); });
@@ -1417,7 +1391,7 @@ function watchBattle(id, E = S) {                    // E: whose record (God mod
   const b = (E.battles || []).find(x => x.id === id); if (!b) return say('That battle is gone from the record');
   const L = E.look || {}, hulls = {}, mine = E === S ? 'Your fleet' : `${E.name}'s fleet`;
   for (const m of b.mine) { const h = hullDef(m.design.hull); if (h && h.user) { const { user, ...rec } = h; hulls[h.id] = rec; } }
-  const pa = { name: mine, style: L.style || styleChoices()[0].id, colA: L.colA || '#7fb3ff', colB: L.colB || '#ffb347', hulls, ships: b.mine.map(m => ({ design: m.design, keep: true, name: m.name, en0: m.en0, cost: 0, seed: 1, locked: true })) };
+  const pa = { name: mine, style: L.style || styleChoices()[0].id, colA: L.colA || '#7fb3ff', colB: L.colB || '#ffb347', hulls, ships: b.mine.map(m => ({ design: m.design, keep: true, name: m.name, en0: m.en0, strain: m.strain || 0, cost: 0, seed: 1, locked: true })) };
   const msg = { type: 'fight', a: planCode(pa), b: planCode(b.foe), seed: b.seed, techA: E.breakthroughs, techB: b.foeTech || [] };   // another empire's fleet brings its own tech (world.js)
   $('arenaWrap').hidden = false; $('shipInfo').hidden = true; $('arenaNote').textContent = `Battle at ${esc(sysOf(b.sys)?.name || '?')}, eon ${b.eon} — ${E === S ? 'your' : esc(E.name) + "'s"} ${plural(b.mine.length, 'ship')} against ${esc(b.foe.name)} — replaying…`;
   const fr = $('arenaFrame'); if (!fr.getAttribute('src') || fr.getAttribute('src') === 'about:blank') { arenaReady = false; fr.src = 'lab.html#arena'; }
