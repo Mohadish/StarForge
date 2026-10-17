@@ -444,7 +444,7 @@ function drawGalaxy(c) {
         if (fl) { const x = p.x - size - 15, y = p.y - size - 7; g.fillStyle = o.color; g.beginPath(); g.moveTo(x, y - 8); g.lineTo(x + 8, y + 7); g.lineTo(x - 8, y + 7); g.closePath(); g.fill(); g.font = 'bold 11px sans-serif'; g.textAlign = 'right'; g.fillText(String(fl.n), x - 11, y + 5); g.textAlign = 'center'; }
       }
     }
-    const bt = GE ? GE.flatMap((E, k) => (E.battles || []).filter(b => b.sys === s.id).map(b => ({ b, k }))).map(x => ({ id: x.b.id, k: x.k }))[0] : (S.battles || []).filter(b => b.sys === s.id).map(b => ({ id: b.id, k: null }))[0];   // a battle fought here this eon: a ▶ badge — click it to watch it (his ask, 2026-10-16)
+    const bt = GE ? GE.flatMap((E, k) => E.dead ? [] : (E.battles || []).filter(b => b.sys === s.id).map(b => ({ b, k }))).map(x => ({ id: x.b.id, k: x.k }))[0] : (S.battles || []).filter(b => b.sys === s.id).map(b => ({ id: b.id, k: null }))[0];   // a battle fought here this eon: a ▶ badge — click it to watch it (his ask, 2026-10-16); a fallen empire's record is not this eon's
     if (bt) { const x = p.x - size - 14, y = p.y + size + 6; G.battle[s.id] = { x, y, id: bt.id, k: bt.k }; g.fillStyle = '#ff5c5c'; g.beginPath(); g.arc(x, y, 8, 0, 7); g.fill(); g.fillStyle = '#fff'; g.font = 'bold 9px sans-serif'; g.textAlign = 'center'; g.fillText('▶', x + 0.5, y + 3.5); }
     const onStar = s.id === gSel && gMode !== 'fleet' && !(GE && godPick);   // the white ring: on the star in system mode, on the fleet icon in fleet mode
     if (onStar || (s.id === gHover && !gHoverFleet)) { g.strokeStyle = onStar ? '#fff' : 'rgba(255,255,255,.5)'; g.lineWidth = 1.5; g.beginPath(); g.arc(p.x, p.y, size + 8, 0, 7); g.stroke(); g.lineWidth = 1; }

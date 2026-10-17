@@ -178,7 +178,8 @@ function blockades(W, cs, rep) {
 // one eon of the world: every living empire's own eon, then the fights, the blockades, the fallen, and what each sees of the rest
 export function worldEndEon(W) {
   const rep = [];
-  for (const S of living(W)) { S.battles = []; endEon(S); }
+  for (const S of W.empires) S.battles = [];                                       // a fallen empire's last battle used to stay on the map for ever (his catch, 2026-10-17)
+  for (const S of living(W)) endEon(S);
   fightEmpires(W, rep);
   let cs = others(W);
   if (blockades(W, cs, rep)) cs = others(W);
