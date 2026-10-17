@@ -438,13 +438,14 @@ export function simulate(a0, b0, rng = rng32(1)) { const bt = createBattle(a0, b
 // ---------------------------------------------------------------------------
 const WEAPONS = ['weapon_energy', 'weapon_kinetic', 'weapon_missile', 'hangar'];
 const uid = () => 'm' + Math.random().toString(36).slice(2, 9);
+const shuffle = (a, r) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };   // exactly n−1 dice, whatever the engine
 export function randomDesign(S, rng, budget, name, caps = allCapsules(S), { pure = false } = {}) {
   const pick = arr => arr[Math.floor(rng() * arr.length)], ri = (a, b) => a + Math.floor(rng() * (b - a + 1));
   const dial = () => pick([0.5, 1, 1, 1, 1, 1.5, 2, 3]);
   const d = { id: uid(), name, hull: pick(starshipHulls()).id, modules: [
     { id: uid(), kind: 'stardrive', caps: [], n: 1, k: 1 }, { id: uid(), kind: 'reactor', caps: [], n: 1, k: 1 }, { id: uid(), kind: 'weapon_system', caps: [], n: 1, k: 1 }] };
   // one, two or three kinds of weapon — mixed loadouts are the common case; `pure` = one kind only
-  const r = rng(), kinds = WEAPONS.slice().sort(() => rng() - 0.5).slice(0, pure || r < 0.3 ? 1 : r < 0.75 ? 2 : 3);
+  const r = rng(), kinds = shuffle(WEAPONS.slice(), rng).slice(0, pure || r < 0.3 ? 1 : r < 0.75 ? 2 : 3);   // a Fisher-Yates shuffle, never a random comparator: the dice count must not depend on the engine's sort (2026-10-17)
   for (const kind of kinds) {
     if (kind === 'hangar') { d.modules.push({ id: uid(), kind, caps: [], n: ri(1, 2), cnt: dial(), sz: pick([0.5, 1, 1, 1.5, 2]) }); continue; }
     const m = { id: uid(), kind, caps: [], n: ri(1, 4), dmg: dial(), rof: dial(), rng: dial(), ...(KINDS[kind].charges ? { chg: dial() } : {}) };

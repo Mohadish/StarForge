@@ -151,6 +151,8 @@ export function limitMove(w, w0, reach) {
 }
 
 // ---------------- state ----------------
+// a shuffle that draws exactly n−1 dice whatever the engine (never `sort(() => r() - 0.5)`: the comparator-call count is the sort's business)
+export function shuffle(a, r) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
 function rand(S) {
   let t = (S.seed + Math.imul(0x6D2B79F5, ++S.rolls)) >>> 0;
   t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
@@ -450,7 +452,7 @@ export function spawnHostiles(S) {
   const others = S.systems.filter(x => x.id !== S.homeSys).map(x => ({ x, r: rand(S) })).sort((a, b) => a.r - b.r).map(o => o.x);
   for (const sys of others.slice(0, Math.round(others.length * HOSTILE.share))) {
     const ly = lyBetween(S, S.homeSys, sys.id), budget = Math.max(HOSTILE.min, Math.round(HOSTILE.perLy * ly * (1 - HOSTILE.spread + 2 * HOSTILE.spread * rand(S)) / 10) * 10);
-    const ids = TACTIC_IDS.slice().sort(() => rand(S) - 0.5), mix = (rand(S) < 0.5 ? ids.slice(0, 1) : ids.slice(0, 2)).map(id => ({ id, share: 0.5 + rand(S) }));
+    const ids = shuffle(TACTIC_IDS.slice(), () => rand(S)), mix = (rand(S) < 0.5 ? ids.slice(0, 1) : ids.slice(0, 2)).map(id => ({ id, share: 0.5 + rand(S) }));   // a Fisher-Yates shuffle: a sort with a random comparator drew a different NUMBER of dice in Chrome than in node (V8's TimSort), and every replay across engines diverged from eon 1 (2026-10-17)
     const plan = composePlan({ budget, n: naturalShips(budget, mix), mix, seed: Math.floor(rand(S) * 1e6), name: pick(S, HOSTILE_NAMES) + ' of ' + sys.name });
     S.hostiles.push({ id: uid('h'), sys: sys.id, plan: planStrip(plan), budget });
   }
