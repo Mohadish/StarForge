@@ -27,7 +27,7 @@ export function makeBrain(W, S, opts = {}) {
   const note = text => { if (opts.note) opts.note(S, text); };
   const act = a => { const err = applyWorldAction(W, S, a); if (err) { note(`✗ ${a.type} refused: ${err}`); return false; } if (opts.onAct) opts.onAct(S, a); return true; };
   const shipDesign = key => {
-    const d = designFromStacks(S, D[key].chips, { klass: 'starship', name: D[key].name, id: D[key].id, hull: 'dart', gunsPerChip: 1 });
+    const d = designFromStacks(S, D[key].chips, { klass: 'starship', name: D[key].name, id: D[key].id, hull: (S.look && S.look.hull) || 'dart', gunsPerChip: 1 });   // the empire's own silhouette (world.js WORLD.hulls)
     d.klass = 'starship'; d.chips = D[key].chips; d.paint = { plating: 0, fittings: 0, seed: key === 'war' ? 1 : key === 'long' ? 2 : 3 };
     const drive = d.modules.find(m => m.kind === 'stardrive'); if (drive) drive.k = 6;                                       // the drive at its top: the reach between stars grows with lift over bulk
     const reactor = d.modules.find(m => m.kind === 'reactor'); if (reactor) fitModule(S, d, reactor.id);

@@ -17,7 +17,7 @@ import { applyAction } from './replay.js';
 // troops × T.ground.ratio against the colony's militia (T.ground.militia of its people). Win: the colony is yours, its people
 // gone, your troops its first settlers (exterminate and replace — subjugation later); lose: the ships are lost, the militia it
 // matched with it. A homeworld taken = the empire is gone.
-export const WORLD = { names: ['Sol', 'Rival', 'Third', 'Fourth'], colors: [['#7fb3ff', '#ffb347'], ['#ff8a6b', '#f5a3c7'], ['#7ef3b0', '#ffe08a'], ['#cf89ff', '#5fe3d0']], styles: ['utopia2', 'greeble1', 'mushroom1', 'utopia1'] };
+export const WORLD = { names: ['Sol', 'Rival', 'Third', 'Fourth'], colors: [['#7fb3ff', '#ffb347'], ['#ff8a6b', '#f5a3c7'], ['#7ef3b0', '#ffe08a'], ['#cf89ff', '#5fe3d0']], styles: ['utopia2', 'greeble1', 'mushroom1', 'utopia1'], hulls: ['dart', 'hammer', 'needle', 'wedge'] };   // each empire: a colour pair, a plating style, a SILHOUETTE of its own (his ask, 2026-10-16)
 export const seedOf = text => { const s = String(text).trim(); if (/^\d{1,9}$/.test(s)) return Number(s); let h = 2166136261; for (const ch of s) { h ^= ch.codePointAt(0); h = Math.imul(h, 16777619); } return h >>> 0; };
 const worldRand = W => { let t = (W.seed + Math.imul(0x6D2B79F5, ++W.rolls)) >>> 0; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 const sysOfPlace = (S, id) => (S.places.find(p => p.id === id) || {}).sys;
@@ -42,7 +42,7 @@ export function createWorld(seedText, n = 2) {
   const taken = [];
   for (let i = 0; i < n; i++) {
     const S = newState(seed); S.seedText = String(seedText); S.hostiles = []; S.empire = i; S.name = WORLD.names[i] || `Empire ${i + 1}`; S.homePlace = 'home';
-    S.look = { style: WORLD.styles[i % WORLD.styles.length], colA: WORLD.colors[i % WORLD.colors.length][0], colB: WORLD.colors[i % WORLD.colors.length][1] };
+    S.look = { style: WORLD.styles[i % WORLD.styles.length], colA: WORLD.colors[i % WORLD.colors.length][0], colB: WORLD.colors[i % WORLD.colors.length][1], hull: WORLD.hulls[i % WORLD.hulls.length] };
     if (i > 0) { const pl = pickHome(S, taken); if (!pl) throw new Error('no world left for another empire'); moveHome(S, pl); }
     taken.push(S.homeSys); W.empires.push(S);
   }

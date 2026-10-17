@@ -25,7 +25,13 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;'
 const fmt = n => n >= 1000 ? (n / 1000).toFixed(1) + 'k' : n >= 100 ? Math.round(n).toString() : n.toFixed(n >= 10 ? 0 : 1);
 const num = (v, d) => (+v).toFixed(d);
 const S = { breakthroughs: [] };
-const COLOR = { e: '#5fe3d0', k: '#ffb347', m: '#ff8a6b', d: '#ffe08a' }, SIDE = ['#5fe3d0', '#ff8a6b'], MAINC = { Beam: COLOR.e, Gun: COLOR.k, Missile: COLOR.m, Drone: COLOR.d };
+const COLOR = { e: '#5fe3d0', k: '#ffb347', m: '#ff8a6b', d: '#ffe08a' }, SIDE0 = ['#5fe3d0', '#ff8a6b'], MAINC = { Beam: COLOR.e, Gun: COLOR.k, Missile: COLOR.m, Drone: COLOR.d };
+// THE SIDES' COLOURS (his ask, 2026-10-16: "the tactical symbols in the empire's colour — blue empire, blue symbols"): a fleet that
+// came with a chosen coat (the game's empires: plan.colA) keeps that colour for its symbols, outlines, names and rings; one
+// without (the pool, a hostile fleet) takes the lab's teal / salmon. Two chosen colours too alike → the second falls back.
+let SIDE = SIDE0.slice();
+const rgbOf = hex => { const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '')); if (!m) return null; const n = parseInt(m[1], 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; };
+const sidesOf = f => { const a = f && f.A && f.A.teamColor, b = f && f.B && f.B.teamColor, ra = rgbOf(a), rb = rgbOf(b); const alike = ra && rb && Math.hypot(ra[0] - rb[0], ra[1] - rb[1], ra[2] - rb[2]) < 70; return [ra ? a : SIDE0[0], rb && !alike ? b : SIDE0[1]]; };
 let LAB = null, cur = null, playing = false, speed = 1, clock = 0, last = 0, raf = 0, cam = null;
 const PACE = 0.5;                                  // seconds of battle per real second at ×1
 let order = 'number', picked = [], ffilter = 'all', arenaH = 360;
@@ -143,8 +149,9 @@ function renderShips() {
 }
 function fightRow(f, i) {
   const A = f.A, Bs = f.B, w = f.winner === null ? null : f.winner === 0 ? A : Bs, running = f.live && !f.live.done;
-  return `<button class="fight ${f.custom ? 'custom' : ''} ${f.challenge ? 'chal' : ''}" data-fight="${i}"><span class="who">${f.command ? '<small>you in command · </small>' : f.custom ? '<small>your fight · </small>' : f.challenge ? '<small>challenge · </small>' : ''}<b style="color:${SIDE[0]}">${esc(A.name)}</b> <small>${esc(A.arch.label)}</small> vs <b style="color:${SIDE[1]}">${esc(Bs.name)}</b> <small>${esc(Bs.arch.label)}</small></span>
-    <span class="res">${running ? '<b>live</b> — still fighting' : w ? `<b style="color:${SIDE[f.winner]}">${esc(w.name)} wins</b> in ${f.time}s, ${Math.round(f.left[f.winner] * 100)}% hull left` : `draw after ${f.time}s`}${f.timedOut ? ' · ran to the clock' : ''}</span></button>`;
+  const SC = sidesOf(f);
+  return `<button class="fight ${f.custom ? 'custom' : ''} ${f.challenge ? 'chal' : ''}" data-fight="${i}"><span class="who">${f.command ? '<small>you in command · </small>' : f.custom ? '<small>your fight · </small>' : f.challenge ? '<small>challenge · </small>' : ''}<b style="color:${SC[0]}">${esc(A.name)}</b> <small>${esc(A.arch.label)}</small> vs <b style="color:${SC[1]}">${esc(Bs.name)}</b> <small>${esc(Bs.arch.label)}</small></span>
+    <span class="res">${running ? '<b>live</b> — still fighting' : w ? `<b style="color:${SC[f.winner]}">${esc(w.name)} wins</b> in ${f.time}s, ${Math.round(f.left[f.winner] * 100)}% hull left` : `draw after ${f.time}s`}${f.timedOut ? ' · ran to the clock' : ''}</span></button>`;
 }
 function renderFights() {
   const keep = (f) => ffilter === 'all' ? true : ffilter === 'custom' ? f.custom : ffilter === 'challenge' ? f.challenge : [f.A.arch.main, f.B.arch.main].includes(ffilter);
@@ -283,6 +290,7 @@ function buildFromChips() {
 // ---------------- replay ----------------
 function watch(i) {
   cur = LAB.fights[i]; if (!cur) return; sel = null; showCard(null); clock = 0; playing = true; last = 0; cam = null; liveAcc = 0; armed = null; camUser = null; cur.tiers = null; $('camFit').hidden = true; hideMenu();
+  SIDE = sidesOf(cur);                               // each side in its own colour
   const A = cur.A, Bs = cur.B; cur.ships = [...A.ships, ...Bs.ships];
   const side = (f, k) => `<b style="color:${SIDE[k]}">${esc(f.name)}</b> <small>${esc(f.arch.label)}${f.n > 1 ? ` · ${f.n} ships` : ''}</small>`;
   $('fightTitle').innerHTML = `${side(A, 0)} &nbsp;vs&nbsp; ${side(Bs, 1)}`;
@@ -822,7 +830,7 @@ function fightCodes() {
   setUserHulls([...HULLS, ...Object.values(pa.hulls || {}), ...Object.values(pb.hulls || {})]);          // their own silhouettes travel inside the code
   // a fleet with a chosen coat wears it; one without (the game's hostile fleets) draws its look from its name, as the game does.
   // The game REPLAYS a battle it fought: it sends each side's tech (techA / techB) and the dice (seed), so the fight comes out as it did
-  const mk = (p, tech) => { const id = LAB.fleets.length, f = buildPlan(tech ? { ...S, breakthroughs: tech } : S, p, undefined, (id + 1) + ''); if (!f.ships.length) return null; f.name = p.name || `Fleet ${id + 1}`; f.look = p.style ? lookFromColors(p.style, p.colA, p.colB) : lookOf(f.name); Object.assign(f, { id, w: 0, l: 0, d: 0 }); LAB.fleets.push(f); return f; };
+  const mk = (p, tech) => { const id = LAB.fleets.length, f = buildPlan(tech ? { ...S, breakthroughs: tech } : S, p, undefined, (id + 1) + ''); if (!f.ships.length) return null; f.name = p.name || `Fleet ${id + 1}`; f.look = p.style ? lookFromColors(p.style, p.colA, p.colB) : lookOf(f.name); if (p.style && p.colA) f.teamColor = p.colA; Object.assign(f, { id, w: 0, l: 0, d: 0 }); LAB.fleets.push(f); return f; };   // teamColor: the empire's colour for its side (sidesOf)
   const A = mk(pa, arenaFight && arenaFight.techA), Bf = mk(pb, arenaFight && arenaFight.techB); if (!A || !Bf) { $('codesNote').textContent = 'One of the fleets could not be built.'; tellParent({ type: 'error', text: $('codesNote').textContent }); return; }
   const r = simulate(A.ships, Bf.ships, rng32(arenaFight && arenaFight.seed != null ? arenaFight.seed : Math.floor(Math.random() * 1e9)));
   LAB.fights.unshift({ a: A.id, b: Bf.id, A, B: Bf, ...r, custom: true });
