@@ -132,6 +132,22 @@
 #replayBar{position:fixed;top:54px;left:0;right:0;z-index:60;display:flex;gap:8px;align-items:center;padding:6px 12px;background:rgba(11,17,32,.96);border-bottom:1px solid var(--good);box-shadow:0 6px 18px rgba(0,0,0,.4)}
 #replayBar[hidden]{display:none}
 #replayBar b{color:var(--good);letter-spacing:.08em}
+/* the FLEET POP-UP on the map (2026-10-17): the ships in two columns, HERE | TO SEND, arrows between; and the SEND HERE badge at the star or place clicked */
+.fleetpop,.sendbadge{position:absolute;z-index:20;background:rgba(11,17,32,.97);border:1px solid var(--good);border-radius:10px;padding:8px 10px;font-size:12px;box-shadow:0 10px 30px rgba(0,0,0,.6)}
+.fleetpop[hidden],.sendbadge[hidden]{display:none}
+.fleetpop{width:380px}
+.fleetpop .fphead{display:flex;gap:6px;align-items:center;margin-bottom:4px}
+.fleetpop .fphead b{flex:1}
+.fleetpop .cols{display:grid;grid-template-columns:1fr 128px 1fr;gap:6px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:2px}
+.fleetpop .cols span:last-child{text-align:right}
+.fleetpop .fprow{display:grid;grid-template-columns:1fr 128px 1fr;gap:6px;align-items:center;padding:4px 0;border-top:1px solid var(--line)}
+.fleetpop .fprow .s{text-align:right;color:var(--good)}
+.fleetpop .fprow .ar{display:flex;gap:2px;justify-content:center}
+.fleetpop .fprow .ar button{min-width:28px;padding:2px 4px}
+.fleetpop .fprow .ar button:disabled{opacity:.3}
+.fleetpop .foot{margin-top:6px}
+.sendbadge{max-width:320px}
+.sendbadge .acts{display:flex;gap:6px;margin-top:6px}
 /* a ship's FULL SPEC on a right-click (2026-10-16): the design as built, and every ship's own state — stamina, strain, where it is */
 #shipPop{position:fixed;z-index:90;width:440px;max-width:calc(100vw - 24px);max-height:82vh;overflow:auto;background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:12px;box-shadow:0 14px 40px rgba(0,0,0,.65)}
 #shipPop[hidden]{display:none}
