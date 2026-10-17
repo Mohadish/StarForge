@@ -102,19 +102,33 @@ export const VOY = { range: 4, speed: 1.2, fall: 0.1, pow: 1.585, floor: 0.01, s
 // the strain STACKS from hop to hop outside: no star out there resets it. Range extenders and cohesion may widen it later.
 export const ZONE = { band: 1, radius: people => 2 + 1.2 * Math.log(1 + Math.max(0, people) / 10), recover: [100, 25, 15, 8, 3, 0], heal: [Infinity, 2, 1, 0.5, 0.25, 0], strain: [0, 0.5, 1, 1, 1, 1],
   names: ['blue', 'green', 'yellow', 'orange', 'red', 'open space'], colors: ['#4da3ff', '#7ef3b0', '#ffd26a', '#ffb347', '#ff7979'] };
-export const bubbles = S => S.places.filter(p => p.colony).map(p => { const s = S.systems.find(x => x.id === p.sys); return s ? { sys: p.sys, x: s.x, y: s.y, r: ZONE.radius(p.colony.people) } : null; }).filter(Boolean);
+// A CACHE PER STATE (2026-10-17: a 150-star, five-empire simulation crawled — every distance looked a star up by a linear scan,
+// every zone rebuilt the bubbles, every crossing sampled 24 zones): what never changes (stars by id, star distances) is kept
+// for the state's life; the bubbles and the crossings' strain are kept while the colonies' people stand (they move at the eon's end,
+// a settlement or a capture). A WeakMap: nothing is written on the state, so a save stays a save.
+const CACHE = new WeakMap();
+const cacheOf = S => { let c = CACHE.get(S); if (!c || c.systems !== S.systems) { c = { systems: S.systems, byId: new Map(S.systems.map(s => [s.id, s])), dist: new Map(), bubSig: null, bubbles: null, eff: new Map() }; CACHE.set(S, c); } return c; };
+export const sysById = (S, id) => cacheOf(S).byId.get(id);
+const bubSigOf = S => { let n = 0, sum = 0; for (const p of S.places) if (p.colony) { n++; sum += p.colony.people; } return S.eon + ':' + n + ':' + Math.round(sum * 1000); };
+export const bubbles = S => {
+  const c = cacheOf(S), sig = bubSigOf(S); if (c.bubSig === sig) return c.bubbles;
+  c.bubSig = sig; c.eff.clear();
+  return c.bubbles = S.places.filter(p => p.colony).map(p => { const s = c.byId.get(p.sys); return s ? { sys: p.sys, x: s.x, y: s.y, r: ZONE.radius(p.colony.people) } : null; }).filter(Boolean);
+};
 export function zoneAt(S, x, y) {                    // 0 blue … 4 red, 5 open space — at a point of the map (map units)
   let best = 5;
   for (const b of bubbles(S)) { const d = Math.hypot(x - b.x, y - b.y) / LY - b.r, z = d <= 0 ? 0 : Math.min(5, Math.ceil(d / ZONE.band)); if (z < best) best = z; }
   return best;
 }
-export const zoneOfSys = (S, sysId) => { const s = S.systems.find(x => x.id === sysId); return s ? zoneAt(S, s.x, s.y) : 5; };
+export const zoneOfSys = (S, sysId) => { const s = sysById(S, sysId); return s ? zoneAt(S, s.x, s.y) : 5; };
 // the light years of STRAIN a crossing between two stars costs (the flight sampled along the line: free in the blue, half in the green)
 export function effectiveLy(S, a, b) {
-  const A = S.systems.find(s => s.id === a), B = S.systems.find(s => s.id === b); if (!A || !B) return 0;
+  const c = cacheOf(S); bubbles(S);                  // (refreshes the bubbles, and empties this memo when they moved)
+  const key = a + '|' + b, had = c.eff.get(key); if (had !== undefined) return had;
+  const A = c.byId.get(a), B = c.byId.get(b); if (!A || !B) return 0;
   const d = Math.hypot(A.x - B.x, A.y - B.y) / LY, N = 24; let eff = 0;
   for (let i = 0; i < N; i++) { const k = (i + 0.5) / N; eff += ZONE.strain[zoneAt(S, A.x + (B.x - A.x) * k, A.y + (B.y - A.y) * k)]; }
-  return d * eff / N;
+  const v = d * eff / N; c.eff.set(key, v); return v;
 }
 export const shipRange = (t, warp = 1) => t.klass !== 'starship' || t.underDriven ? 0 : VOY.range * Math.sqrt(clampN(t.lift / Math.max(1, t.volume), 1, VOY.marginMax)) * (1 - sizeFatigue(t.cost)) * warp;
 // the chance at `x` light years travelled on a range of `R` (above 1 = a stroll); the speed there, as a share of full
@@ -362,7 +376,17 @@ export function compute(S) {
 // ---------------- orders ----------------
 // eons a plain star drive (full range) needs to cross between two stars — for the screens that show a place, not a ship
 export const starEons = (dist, warp = 1) => forecast(VOY.range * warp, dist / LY, warp).eons;
-export function sysDistance(S, a, b) { const A = S.systems.find(s => s.id === a), B = S.systems.find(s => s.id === b); return A && B ? Math.hypot(A.x - B.x, A.y - B.y) : 0; }
+export function sysDistance(S, a, b) {
+  const c = cacheOf(S), key = a + '|' + b, had = c.dist.get(key); if (had !== undefined) return had;
+  const A = c.byId.get(a), B = c.byId.get(b), v = A && B ? Math.hypot(A.x - B.x, A.y - B.y) : 0; c.dist.set(key, v); return v;
+}
+// every other star, nearest first, with the light years to it — for the heads' path searches (kept for the state's life)
+export function starsNear(S, sysId) {
+  const c = cacheOf(S); if (!c.near) c.near = new Map();
+  let list = c.near.get(sysId); if (list) return list;
+  const A = c.byId.get(sysId); list = A ? S.systems.filter(s => s.id !== sysId).map(s => ({ id: s.id, ly: Math.hypot(A.x - s.x, A.y - s.y) / LY })).sort((p, q) => p.ly - q.ly || (p.id < q.id ? -1 : 1)) : [];
+  c.near.set(sysId, list); return list;
+}
 export const lyBetween = (S, a, b) => sysDistance(S, a, b) / LY;
 // the range a group of ships shares: their reaches weighted by their bulk (STAR TRAVEL)
 export function fleetRange(S, ships, caps = allCapsules(S)) {

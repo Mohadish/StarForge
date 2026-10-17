@@ -6,7 +6,7 @@
 // colony an enemy fleet rests at, marches on the nearest enemy colony it can reach with a fleet that outweighs the guard, and —
 // holding the system — lands troops to take the colony (world.js invade: troops aboard × ratio against the colony's militia).
 // tools/play/world.mjs runs it headless and logs the orders; app.js runs it live. No DOM, no clock, no Math.random.
-import { T, SCALE, compute, lyBetween, fleetRange, shipRange, zoneOfSys, effectiveLy, waterOf } from './model.js';
+import { T, SCALE, compute, lyBetween, fleetRange, shipRange, zoneOfSys, effectiveLy, waterOf, starsNear } from './model.js';
 import { applyWorldAction, heldByAnother } from './world.js';
 import { designFromStacks } from './battle.js';
 import { designStats, autoFit, fitModule } from './modules.js';
@@ -44,19 +44,26 @@ export function makeBrain(W, S, opts = {}) {
   const resting = (c, sys, key) => ofType(c, key).filter(s => !s.u.dest && sysOfPlace(s.u.at) === sys);
   const worthOf = ships => ships.reduce((a, s) => a + s.t.cost, 0), peopleOf = ships => ships.reduce((a, s) => a + (s.u.people || 0), 0);
   // hops from one star to another with the STRAIN that stacks outside the sphere never past `reach` on arrival: Dijkstra on (hops,
-  // strain) — a star is settled once, on its first (fewest-hop, least-strained) visit; null when no chain of stars bridges it
-  function hopsWithin(from, to, reach) {
+  // strain) — a star is settled once, on its first (fewest-hop, least-strained) visit; null when no chain of stars bridges it.
+  // One search from a star covers EVERY star it can reach (reachMap), and the searches of an eon are kept (a 150-star sector asked
+  // hundreds of them an eon, one per candidate — the simulation crawled, 2026-10-17); the neighbours come nearest-first (starsNear)
+  let maps = new Map();                                                              // `${from}|${reach}` → the settled map, this plan() only
+  function reachMap(from, reach) {
+    const key = from + '|' + reach.toFixed(4), had = maps.get(key); if (had) return had;
     const open = [{ sys: from, hops: 0, strain: 0, prev: null }], settled = new Map();
     while (open.length) {
       open.sort((a, b) => a.hops - b.hops || a.strain - b.strain); const cur = open.shift();
-      if (settled.has(cur.sys)) continue; settled.set(cur.sys, cur); if (cur.sys === to) break;
-      for (const t of S.systems) {
-        if (settled.has(t.id) || t.id === cur.sys || lyBetween(S, cur.sys, t.id) > reach) continue;
-        const arrive = cur.strain + effectiveLy(S, cur.sys, t.id); if (arrive > reach) continue;
-        const z = zoneOfSys(S, t.id); open.push({ sys: t.id, hops: cur.hops + 1, strain: z === 0 ? 0 : Math.max(0, arrive - HEAL2[z]), prev: cur });
+      if (settled.has(cur.sys)) continue; settled.set(cur.sys, cur);
+      for (const nb of starsNear(S, cur.sys)) {
+        if (nb.ly > reach) break; if (settled.has(nb.id)) continue;
+        const arrive = cur.strain + effectiveLy(S, cur.sys, nb.id); if (arrive > reach) continue;
+        const z = zoneOfSys(S, nb.id); open.push({ sys: nb.id, hops: cur.hops + 1, strain: z === 0 ? 0 : Math.max(0, arrive - HEAL2[z]), prev: cur });
       }
     }
-    const end = settled.get(to); if (!end) return null;
+    maps.set(key, settled); return settled;
+  }
+  function hopsWithin(from, to, reach) {
+    const end = reachMap(from, reach).get(to); if (!end) return null;
     const out = []; for (let n = end; n.prev; n = n.prev) out.unshift(n.sys); return out;
   }
   const hops = (from, to, reach) => hopsWithin(from, to, reach * 0.95) || hopsWithin(from, to, reach + 1.0);   // a safe path first, failing that one that dares a light year past the reach
@@ -76,7 +83,7 @@ export function makeBrain(W, S, opts = {}) {
   note(`home ${placeName(HOMEPLACE)} at ${sysName(HOME)} · focus ${bias == null ? 'mid (never moves)' : 'toward ' + FOCUS_NAMES[bias]} · warship ${Math.round(T0.war.cost)} reach ${REACH.war.toFixed(1)} ly · lancer reach ${REACH.long.toFixed(1)} · settler reach ${REACH.col.toFixed(1)}, ${Math.round(PER_SHIP * 1000)} k aboard`);
 
   function plan() {
-    if (S.dead) return;
+    if (S.dead) return; maps = new Map();                                             // the eon's path searches start afresh (the sphere moved)
     const c = compute(S), pc = c.colonies.find(x => x.pl.id === HOMEPLACE); if (!pc) return;
     // ECONOMY: industry-heavy, social enough to feed everyone and build room, research for the sustain rule and the tech
     let split = [0.5, 0.2, 0.3];
