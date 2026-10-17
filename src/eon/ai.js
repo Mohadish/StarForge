@@ -22,8 +22,13 @@ const NEED = { war: 1.6, long: 2.5 }, BASE = 400;                               
 const HEAL2 = [0, 4, 2, 1, 0.5, 0];                                              // strain healed by two eons' rest, by zone (model.js ZONE)
 const D = AI_DESIGNS;
 
-// opts.onAct(a) sees every order given (the log); opts.note(text) every thought worth a line
+// opts.onAct(a) sees every order given (the log); opts.note(text) every thought worth a line; opts.focus = the FOCUS this empire
+// leans to (his ask, 2026-10-17: "change the focus of each empire — one mid, the others biased to expansion, exploration,
+// extermination, exploitation — I want to see how breakthroughs shift the balance"): 'mid' stays at the centre (no moves, so the
+// steady bonus runs), or a corner name / index — one step of 0.1 every ten eons once cohesion can pay, up to FOCUS_TOP
+export const FOCUS_NAMES = ['expand', 'exploit', 'explore', 'exterm'], FOCUS_TOP = 0.55;
 export function makeBrain(W, S, opts = {}) {
+  const bias = opts.focus == null || opts.focus === 'default' ? 3 : opts.focus === 'mid' ? null : typeof opts.focus === 'number' ? opts.focus : FOCUS_NAMES.indexOf(String(opts.focus).toLowerCase().slice(0, 6).replace(/^expans.*/, 'expand').replace(/^exploi.*/, 'exploit').replace(/^explor.*/, 'explore').replace(/^exter.*/, 'exterm'));
   const note = text => { if (opts.note) opts.note(S, text); };
   const act = a => { const err = applyWorldAction(W, S, a); if (err) { note(`✗ ${a.type} refused: ${err}`); return false; } if (opts.onAct) opts.onAct(S, a); return true; };
   const shipDesign = key => {
@@ -68,7 +73,7 @@ export function makeBrain(W, S, opts = {}) {
   const T0 = Object.fromEntries(['war', 'long', 'col'].map(k => [k, designStats(S, S.designs.find(d => d.id === D[k].id)).t])), REACH = Object.fromEntries(['war', 'long', 'col'].map(k => [k, shipRange(T0[k])]));
   const PER_SHIP = (T0.col.housing || 0) * SCALE.shipHousing;                    // people a settler carries — as troops, each worth T.ground.ratio of a colony's militia
   if (!S.places.find(p => p.id === HOMEPLACE)?.colony?.structures.some(u => u.design && u.design.id === DOCK.id) && !S.places.find(p => p.id === HOMEPLACE)?.colony?.queue.some(q => q.designId === DOCK.id)) act({ type: 'build', place: HOMEPLACE, design: DOCK.id });
-  note(`home ${placeName(HOMEPLACE)} at ${sysName(HOME)} · warship ${Math.round(T0.war.cost)} reach ${REACH.war.toFixed(1)} ly · lancer reach ${REACH.long.toFixed(1)} · settler reach ${REACH.col.toFixed(1)}, ${Math.round(PER_SHIP * 1000)} k aboard`);
+  note(`home ${placeName(HOMEPLACE)} at ${sysName(HOME)} · focus ${bias == null ? 'mid (never moves)' : 'toward ' + FOCUS_NAMES[bias]} · warship ${Math.round(T0.war.cost)} reach ${REACH.war.toFixed(1)} ly · lancer reach ${REACH.long.toFixed(1)} · settler reach ${REACH.col.toFixed(1)}, ${Math.round(PER_SHIP * 1000)} k aboard`);
 
   function plan() {
     if (S.dead) return;
@@ -81,8 +86,8 @@ export function makeBrain(W, S, opts = {}) {
     if (shortHold > 0) split = [Math.min(0.6, split[0] + 0.1), split[1] + 0.05, Math.max(0.2, split[2] - 0.15)];
     const sum = split.reduce((a, v) => a + v, 0); split = split.map(v => v / sum);
     if (!lastSplit || split.some((v, i) => Math.abs(v - lastSplit[i]) > 0.02)) { act({ type: 'split', place: HOMEPLACE, split }); lastSplit = split; }
-    // the focus leans to Extermination, one step every ten eons once cohesion can pay for it, up to 55 %
-    if (S.cohesion >= 40 && W.eon - lastFocusEon >= 10 && S.focus[3] < 0.55) { const w = S.focus.slice(), step = 0.1; w[3] += step; for (const i of [0, 1, 2]) w[i] = Math.max(0, w[i] - step / 3); const t = w.reduce((a, v) => a + v, 0); act({ type: 'focus', w: w.map(v => v / t) }); lastFocusEon = W.eon; }
+    // the focus leans to its corner (opts.focus; Extermination by default), one step every ten eons once cohesion can pay for it, up to FOCUS_TOP; 'mid' never moves
+    if (bias != null && bias >= 0 && S.cohesion >= 40 && W.eon - lastFocusEon >= 10 && S.focus[bias] < FOCUS_TOP) { const w = S.focus.slice(), step = 0.1; w[bias] += step; for (const i of [0, 1, 2, 3]) if (i !== bias) w[i] = Math.max(0, w[i] - step / 3); const t = w.reduce((a, v) => a + v, 0); act({ type: 'focus', w: w.map(v => v / t) }); lastFocusEon = W.eon; }
     const all = fleet(c), moving = all.some(s => s.u.dest), fleets = foeFleets(), cols = foeColonies();
     const R = { war: ofType(c, 'war').length ? fleetRange(S, ofType(c, 'war').map(s => s.u)) : REACH.war, long: ofType(c, 'long').length ? fleetRange(S, ofType(c, 'long').map(s => s.u)) : REACH.long };
     const baseOf = k => { const at = new Map(); for (const s of ofType(c, k)) if (!s.u.dest) { const sys = sysOfPlace(s.u.at); at.set(sys, (at.get(sys) || 0) + 1); } return [...at.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || HOME; };

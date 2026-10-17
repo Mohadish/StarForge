@@ -15,7 +15,7 @@ if (log.kind === 'world') {
   for (const row of log.eons) {
     for (const S of W.empires) if (!S.dead) { const errs = applyWorldEon(W, S, log.empires[S.empire].actions, W.eon); refused += errs.length; for (const e of errs) console.log(`eon ${W.eon} ${S.name}: ${e.a.type} refused — ${e.err}`); }
     worldEndEon(W);
-    W.empires.forEach((S, i) => { const r = row.empires[i]; if (!r) { if (!S.dead) { bad++; console.log(`eon ${row.eon}: ${S.name} should have fallen`); } return; } check(r, { people: Math.round(S.places.find(p => p.id === S.homePlace).colony.people * 10) / 10, reserves: Math.round(S.reserves || 0), cohesion: Math.round(S.cohesion), ships: S.ships.length, colonies: S.places.filter(p => p.colony).length }, `${row.eon} ${S.name}`); });
+    W.empires.forEach((S, i) => { const r = row.empires[i]; if (!r) { if (!S.dead) { bad++; console.log(`eon ${row.eon}: ${S.name} should have fallen`); } return; } const now = { people: Math.round(S.places.find(p => p.id === S.homePlace).colony.people * 10) / 10, reserves: Math.round(S.reserves || 0), cohesion: Math.round(S.cohesion), ships: S.ships.length, colonies: S.places.filter(p => p.colony).length }; if ('bt' in r) now.bt = S.breakthroughs.length; check(r, now, `${row.eon} ${S.name}`); });
   }
 } else {
   const S = newState(seedOf(log.seedText)); S.seedText = log.seedText;
