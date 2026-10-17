@@ -26,6 +26,13 @@ export function applyAction(S, a) {
       const to = a.toPlace || starOf(a.to); if (!to) return 'nowhere to go';
       return sendFleet(S, ships.map(u => u.id), to);
     }
+    case 'sendmix': {                                // { type: 'sendmix', from: sysId, to: sysId, toPlace?, mix: [{ design, n }] }: ships of several designs leave as ONE fleet (one voyage, one arrival)
+      const ships = [];
+      for (const m of a.mix || []) ships.push(...S.ships.filter(u => !u.dest && u.design && u.design.id === m.design && place(u.at)?.sys === a.from && !ships.includes(u)).slice(0, m.n));
+      if (!ships.length) return 'no such ships resting there';
+      const to = a.toPlace || starOf(a.to); if (!to) return 'nowhere to go';
+      return sendFleet(S, ships.map(u => u.id), to);
+    }
     case 'settle': {                                 // { type: 'settle', design, place }: a resting ship of that design at that place founds the colony
       const u = S.ships.find(x => !x.dest && x.design && x.design.id === a.design && x.at === a.place); if (!u) return 'no such ship there';
       return settle(S, u.id);
