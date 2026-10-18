@@ -207,7 +207,9 @@ $('queue').addEventListener('drop', e => {
 $('queue').addEventListener('dragend', () => { dragId = null; document.querySelectorAll('.qcard.drag, .qcard.over').forEach(x => x.classList.remove('drag', 'over')); });
 
 // ---- input
-const cellAt = e => { const cv = $('map'), b = cv.getBoundingClientRect(), [ox, oy] = origin(), lx = e.clientX - b.left - ox - GAP, ly = e.clientY - b.top - oy - GAP, x = Math.floor(lx / (CELL + GAP)), y = Math.floor(ly / (CELL + GAP)); return lx >= 0 && ly >= 0 && x < C.w && y < C.h && lx % (CELL + GAP) < CELL && ly % (CELL + GAP) < CELL ? y * C.w + x : -1; };
+// the canvases are drawn at full size and SHOWN to fit (the line keeps its place on the right): a mouse position scales back to drawing pixels
+const toCanvas = (cv, e) => { const b = cv.getBoundingClientRect(); return [(e.clientX - b.left) * cv.width / b.width, (e.clientY - b.top) * cv.height / b.height]; };
+const cellAt = e => { const cv = $('map'), [mx, my] = toCanvas(cv, e), [ox, oy] = origin(), lx = mx - ox - GAP, ly = my - oy - GAP, x = Math.floor(lx / (CELL + GAP)), y = Math.floor(ly / (CELL + GAP)); return lx >= 0 && ly >= 0 && x < C.w && y < C.h && lx % (CELL + GAP) < CELL && ly % (CELL + GAP) < CELL ? y * C.w + x : -1; };
 $('map').addEventListener('click', e => {
   const i = cellAt(e); if (i < 0) return;
   if (e.shiftKey) { reset(i); return; }
@@ -222,7 +224,7 @@ $('map').addEventListener('mousemove', e => {
 });
 $('map').addEventListener('mouseleave', () => { hoverCell = -1; $('tip').style.display = 'none'; drawMap(); });
 window.addEventListener('scroll', () => { $('tip').style.display = 'none'; }, { passive: true });
-const drag = (cv, fn) => { let on = false; const at = e => { const b = cv.getBoundingClientRect(); return [e.clientX - b.left, e.clientY - b.top]; }; cv.addEventListener('pointerdown', e => { on = true; cv.setPointerCapture(e.pointerId); fn(...at(e)); render(); }); cv.addEventListener('pointermove', e => { if (on) { fn(...at(e)); render(); } }); cv.addEventListener('pointerup', () => { on = false; }); };
+const drag = (cv, fn) => { let on = false; const at = e => toCanvas(cv, e); cv.addEventListener('pointerdown', e => { on = true; cv.setPointerCapture(e.pointerId); fn(...at(e)); render(); }); cv.addEventListener('pointermove', e => { if (on) { fn(...at(e)); render(); } }); cv.addEventListener('pointerup', () => { on = false; }); };
 drag($('rect'), (px, py) => { const S = $('rect').width - 2 * RM; C.dot = { x: Math.max(0, Math.min(1, (px - RM) / S)), y: Math.max(0, Math.min(1, (py - RM) / S)) }; });
 drag($('tri'), (px, py) => { C.tri = triFromPoint(px, py); });
 $('reset').addEventListener('click', () => { run(false); LOG.length = 0; Q = []; reset(); });

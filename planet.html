@@ -25,8 +25,9 @@ button.on { background: rgba(255,210,106,.18); border-color: var(--warn) }
 canvas { display: block; border-radius: 8px }
 /* THE POP-UP (his mock-up, 2026-10-18): one column as wide as the planet frame — the two focus widgets on top, equal, the planet
    frame always the HUGE world's outline (a smaller world sits centred inside it), the eon's output under it */
-.popwrap { display: grid; grid-template-columns: 656px 232px; gap: 12px; align-items: start; margin-top: 12px; max-width: 100% }
-.pop { width: 656px; max-width: 100%; display: grid; gap: 12px }
+/* the production line ALWAYS on the right (his call): the pop-up column shrinks to make room, never the line under it */
+.popwrap { display: grid; grid-template-columns: minmax(0, 656px) 232px; gap: 12px; align-items: start; margin-top: 12px; max-width: 100% }
+.pop { min-width: 0; display: grid; gap: 12px }
 /* THE PRODUCTION QUEUE (his ask, 2026-10-18): a column on the right, two cells wide — a card per project: the picture top-left,
    the name and the numbers top-right, a progress bar under both; the top card is the one being built; drag to re-order */
 .queue { display: grid; gap: 6px; align-content: start }
@@ -51,14 +52,13 @@ canvas { display: block; border-radius: 8px }
 .qmenu { display: grid; gap: 3px; border: 1px solid var(--line); border-radius: 8px; padding: 6px; background: #04070f }
 .qmenu button { text-align: left; padding: 5px 8px; font-size: 12px; font-weight: 500; display: flex; justify-content: space-between; gap: 6px }
 .qmenu button small { color: var(--muted) }
-@media (max-width: 920px) { .popwrap { grid-template-columns: 1fr } }
 .pophead { display: flex; justify-content: space-between; align-items: baseline; padding: 0 4px }
 .pophead b { font-size: 20px; font-weight: 700 }
 .pophead span { font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: .04em }
 .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px }
 .widget { display: grid; gap: 6px; justify-items: center; align-content: start }
-.widget canvas { cursor: crosshair; background: #0a0f1c; border: 1px solid var(--line) }
-#map { cursor: pointer; background: #050811; margin: 0 auto }
+.widget canvas { cursor: crosshair; background: #0a0f1c; border: 1px solid var(--line); width: 100%; max-width: 250px; height: auto }
+#map { cursor: pointer; background: #050811; margin: 0 auto; width: 100%; height: auto }   /* drawn at full size, shown to fit */
 .bar { display: grid; grid-template-columns: 84px 1fr 150px; gap: 8px; align-items: center; padding: 3px 0; font-size: 13px }
 .bar .track { height: 10px; background: rgba(255,255,255,.07); border-radius: 5px; overflow: hidden; position: relative }
 .bar .track div { height: 100%; position: absolute; left: 0; top: 0 }
@@ -68,7 +68,6 @@ canvas { display: block; border-radius: 8px }
 #log { max-height: 220px; overflow: auto; font-size: 12px; color: var(--muted) }
 #log b { color: var(--fg) }
 #tip { position: fixed; pointer-events: none; background: #04070f; border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; font-size: 12px; max-width: 280px; display: none; z-index: 5 }
-@media (max-width: 700px) { .row2 { grid-template-columns: 1fr } }
 </style>
 </head>
 <body>
