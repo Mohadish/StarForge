@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Forge — Planet Sandbox</title>
+<style>
+:root { --bg:#070a12; --panel:#0e1422; --panel2:#121a2c; --line:#1f2a44; --fg:#e8f0ff; --muted:#9eb3d8; --accent:#5fe3d0; --good:#7ef3b0; --bad:#ff7979; --warn:#ffd26a; --font:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color-scheme: dark }
+html { background: var(--bg) }
+body { background: var(--bg); color: var(--fg); font: 14px/1.45 var(--font); margin: 0; padding: 14px 16px 40px; max-width: 1100px; margin-inline: auto }
+h1 { font-size: 18px; letter-spacing: .14em; text-transform: uppercase; margin: 0 0 10px; color: var(--accent) }
+h1 small { color: var(--muted); letter-spacing: 0; text-transform: none; font-size: 13px; font-weight: 400; margin-left: 8px }
+h2 { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px }
+.ctl { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; margin-bottom: 10px }
+.ctl label { display: grid; gap: 3px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em }
+.ctl input, .ctl select { background: #04070f; color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; font: 14px var(--font) }
+.ctl input[type=text] { width: 90px }
+.ctl input[type=range] { width: 120px; padding: 0 }
+button { background: var(--panel2); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; font: 600 13px var(--font); cursor: pointer }
+button.go { background: rgba(126,243,176,.18); border-color: var(--good) }
+button.on { background: rgba(255,210,106,.18); border-color: var(--warn) }
+button.x { padding: 4px 8px; font-size: 11px }
+.row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start }
+.tiny { font-size: 11px; color: var(--muted); line-height: 1.5 }
+canvas { display: block; border-radius: 8px }
+#map { cursor: pointer; background: #050811 }
+.widget { display: grid; gap: 4px; justify-items: center }
+.widget canvas { cursor: crosshair; background: #0a0f1c; border: 1px solid var(--line) }
+.bar { display: grid; grid-template-columns: 84px 1fr 110px; gap: 8px; align-items: center; padding: 3px 0; font-size: 13px }
+.bar .track { height: 10px; background: rgba(255,255,255,.07); border-radius: 5px; overflow: hidden; position: relative }
+.bar .track div { height: 100%; position: absolute; left: 0; top: 0 }
+.bar b { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600 }
+.icons { font-size: 15px; letter-spacing: 1px; line-height: 1.3; word-break: break-all }
+.why { display: grid; gap: 2px; margin-top: 6px }
+.why div { padding-left: 8px; border-left: 3px solid var(--c) }
+#log { max-height: 150px; overflow: auto; font-size: 12px; color: var(--muted) }
+#log b { color: var(--fg) }
+.scen { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px }
+#tip { position: fixed; pointer-events: none; background: #04070f; border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; font-size: 12px; max-width: 280px; display: none; z-index: 5 }
+</style>
+</head>
+<body>
+<h1>Planet sandbox <small>the colony as slots: a rectangle that builds it, a triangle that runs it, a fillet that keeps it honest</small></h1>
+<div class="card">
+  <div class="ctl">
+    <label>size <select id="size"><option value="vs">very small 2×2</option><option value="s">small 3×2</option><option value="m">medium 4×2</option><option value="l">large 5×3</option><option value="xl" selected>huge 6×3</option></select></label>
+    <label>seed <input type="text" id="seed" value="home"></label>
+    <label>start as <select id="kind"><option value="home">homeworld (4 mixed cells)</option><option value="colony">new colony (one landing)</option></select></label>
+    <label>fillet depth <span id="depthV" class="tiny"></span><input type="range" id="depth" min="0.5" max="1" step="0.05" value="0.7"></label>
+    <button id="reset">Reset</button>
+    <button id="step" class="go">Step ▸</button>
+    <button id="run">Run ▸▸</button>
+    <label>speed <select id="speed"><option value="2">2 eons/s</option><option value="5" selected>5 eons/s</option><option value="12">12 eons/s</option></select></label>
+    <span id="eon" style="font-variant-numeric:tabular-nums;font-weight:700;align-self:center"></span>
+  </div>
+  <div class="row">
+    <div>
+      <h2>The planet <span id="plname"></span></h2>
+      <canvas id="map"></canvas>
+      <div class="tiny" style="margin-top:4px">Click a cell to PLAN it (cycles industry → food → housing → science → any); shift-click = land there instead (resets). ⛏ deposits · 🌾 fertile · ☼ calm · ✦ anomaly. The crane ⚒ is where the next slot goes.</div>
+      <div class="scen"><span class="tiny" style="align-self:center">try:</span><button class="x" data-scen="0,0">all industry</button><button class="x" data-scen="0.5,0.5">balanced</button><button class="x" data-scen="1,0">farm world</button><button class="x" data-scen="1,1">science world</button><button class="x" data-scen="0,1">housing</button></div>
+    </div>
+    <div class="widget"><h2>Development focus</h2><canvas id="rect" width="220" height="220"></canvas><div class="tiny">drag the dot · hollow = your wish, solid = what the fillet allows</div></div>
+    <div class="widget"><h2>Effort (the people)</h2><canvas id="tri" width="220" height="200"></canvas><div class="tiny">industry · research · development</div></div>
+  </div>
+</div>
+<div class="row" style="margin-top:12px">
+  <div class="card" style="flex:1;min-width:300px"><h2>This eon</h2><div id="out"></div></div>
+  <div class="card" style="flex:1;min-width:300px"><h2>Log</h2><div id="log"></div></div>
+</div>
+<div id="tip"></div>
+<script type="module" src="src/eon/planetlab.js"></script>
+</body>
+</html>
