@@ -6,7 +6,8 @@
 // WORLD.siege eons the colonies there change hands; an empire whose home falls is gone (his rule), its ships with it; the last
 // empire standing has the galaxy. No roaming hostile fleets in a world: the empires are the enemy. Every empire also gets
 // `S.others`: where the other empires' colonies and fleets are, for its maps and its AI. No DOM.
-import { T, newState, compute, endEon, uid, cloneDesign, hostileWorth, peopleWord } from './model.js';
+import { T, newState, newColony, compute, endEon, uid, cloneDesign, hostileWorth, peopleWord } from './model.js';
+import { gridOf, HOME_CELLS } from './districts.js';
 import { shipFromDesign, createBattle, rng32 } from './battle.js';
 import { allCapsules, designStats } from './modules.js';
 import { applyAction } from './replay.js';
@@ -17,11 +18,12 @@ import { applyAction } from './replay.js';
 // troops × T.ground.ratio against the colony's militia (T.ground.militia of its people). Win: the colony is yours, its people
 // gone, your troops its first settlers (exterminate and replace — subjugation later); lose: the ships are lost, the militia it
 // matched with it. A homeworld taken = the empire is gone.
-// FOR NOW (his call, 2026-10-17: "blockades will take over planets" — until the ground war is built): a blockade held WORLD.siege
-// eons takes the colonies there; only an ARMED ship of theirs resting in the system breaks it (a settler does not).
+// A BLOCKADE held WORLD.siege eons DESTROYS the colonies there (his call, 2026-10-18: nothing changes hands by siege — the colony is
+// gone and the world must be settled again; invasion by troops and bombardment are their own chapters); only an ARMED ship of theirs
+// resting in the system breaks it (a settler does not).
 // each empire: a name, a colour pair (his 2026-10-17: 4th yellow, 5th purple), a plating style, a SILHOUETTE of its own — HIS
 // silhouettes from hullpack.js ("don't use darts, use the ones I've created"): Hammerhead III, Britanica, USS, pick axe, Dart II
-export const WORLD = { siege: 3, names: ['Sol', 'Rival', 'Third', 'Fourth', 'Fifth'], colors: [['#7fb3ff', '#ffb347'], ['#ff8a6b', '#f5a3c7'], ['#7ef3b0', '#ffe08a'], ['#ffd94a', '#ff9f43'], ['#c084fc', '#5fe3d0']], styles: ['utopia2', 'greeble1', 'mushroom1', 'crate1', 'crystal1'], hulls: ['umfwajfq', 'ug1cdtqc', 'u51lsbay', 'u3fkxd5m', 'u68ap7qe'] };
+export const WORLD = { siege: 5, names: ['Sol', 'Rival', 'Third', 'Fourth', 'Fifth'], colors: [['#7fb3ff', '#ffb347'], ['#ff8a6b', '#f5a3c7'], ['#7ef3b0', '#ffe08a'], ['#ffd94a', '#ff9f43'], ['#c084fc', '#5fe3d0']], styles: ['utopia2', 'greeble1', 'mushroom1', 'crate1', 'crystal1'], hulls: ['umfwajfq', 'ug1cdtqc', 'u51lsbay', 'u3fkxd5m', 'u68ap7qe'] };
 export const MAX_EMPIRES = 5;
 export const DEBUG = { tap: null };                  // tests: tap(bt, info) sees every battle before it is stepped (cross-engine replay checks)
 export const seedOf = text => { const s = String(text).trim(); if (/^\d{1,9}$/.test(s)) return Number(s); let h = 2166136261; for (const ch of s) { h ^= ch.codePointAt(0); h = Math.imul(h, 16777619); } return h >>> 0; };
@@ -38,7 +40,7 @@ function pickHome(S, taken) {
 function moveHome(S, pl) {
   const sol = S.places.find(p => p.id === 'home'), dock = sol.colony.structures[0];
   delete sol.colony; sol.fresh = Object.fromEntries(Object.keys(sol.fresh).map(k => [k, 1]));
-  pl.colony = { people: 100, baseHousing: 120, split: [1 / 3, 1 / 3, 1 / 3], happiness: 60, queue: [], structures: [{ ...dock, id: uid('u'), design: cloneDesign(dock.design) }], factories: 0 };
+  pl.colony = newColony(100, 120, gridOf(pl), HOME_CELLS); pl.colony.structures.push({ ...dock, id: uid('u'), design: cloneDesign(dock.design) });
   pl.fresh = Object.fromEntries(Object.keys(pl.fresh).map(k => [k, 0.9])); pl.note = 'the homeworld — your people have lived here for 2,000 years';
   for (const s of S.systems) s.home = s.id === pl.sys;
   S.homeSys = pl.sys; S.homePlace = pl.id;
@@ -163,14 +165,14 @@ function blockades(W, cs, rep) {
       const n = W.sieges[key] = (W.sieges[key] || 0) + 1, where = (S.systems.find(x => x.id === sys) || {}).name || sys;
       if (n < WORLD.siege) {
         for (const pl of theirs) pl.colony.blockaded = Math.max(pl.colony.blockaded || 0, n);
-        const t = `${S.name} blockades ${O.name}'s ${theirs.map(p => p.name).join(', ')} at ${where} (${n} of ${WORLD.siege} eons — held that long, it changes hands)`; rep.push({ kind: 'siege', text: t, sys }); S.report.push({ kind: 'move', text: t }); O.report.push({ kind: 'bad', text: t });
+        const t = `${S.name} blockades ${O.name}'s ${theirs.map(p => p.name).join(', ')} at ${where} (${n} of ${WORLD.siege} eons — held that long, the colony is destroyed)`; rep.push({ kind: 'siege', text: t, sys }); S.report.push({ kind: 'move', text: t }); O.report.push({ kind: 'bad', text: t });
         continue;
       }
-      delete W.sieges[key]; changed = true;                                       // TAKEN by the blockade (for now, his call)
+      delete W.sieges[key]; changed = true;                                       // DESTROYED by the blockade (his call, 2026-10-18)
       for (const pl of theirs) {
-        const mine = S.places.find(p => p.id === pl.id); mine.colony = JSON.parse(JSON.stringify(pl.colony)); mine.colony.queue = []; delete mine.colony.blockaded; delete pl.colony;
-        const t = `${S.name} takes ${pl.name} at ${where} from ${O.name} after ${WORLD.siege} eons of blockade${pl.id === O.homePlace ? ' — its HOMEWORLD' : ''}`; rep.push({ kind: 'capture', text: t, sys, from: O.empire, to: S.empire }); S.report.push({ kind: 'build', text: t }); O.report.push({ kind: 'bad', text: t });
-        if (pl.id === O.homePlace) { O.dead = true; O.ships = []; const g = `${O.name} is no more: its homeworld has fallen to ${S.name}`; rep.push({ kind: 'fall', text: g, empire: O.empire }); for (const X of live) X.report.push({ kind: X === O ? 'bad' : 'battle', text: g }); }
+        const people = pl.colony.people; delete pl.colony; pl.note = (pl.note || '').replace(/, never settled$/, '') + ' — a dead colony lies here';
+        const t = `${O.name}'s ${pl.name} at ${where} is destroyed after ${WORLD.siege} eons of ${S.name}'s blockade — ${peopleWord(people)} people are gone; the world lies empty${pl.id === O.homePlace ? ' — its HOMEWORLD' : ''}`; rep.push({ kind: 'capture', text: t, sys, from: O.empire, to: S.empire }); S.report.push({ kind: 'battle', text: t }); O.report.push({ kind: 'bad', text: t });
+        if (pl.id === O.homePlace) { O.dead = true; O.ships = []; const g = `${O.name} is no more: its homeworld was destroyed under ${S.name}'s blockade`; rep.push({ kind: 'fall', text: g, empire: O.empire }); for (const X of live) X.report.push({ kind: X === O ? 'bad' : 'battle', text: g }); }
       }
     }
   }

@@ -27,6 +27,7 @@ export const AI_DESIGNS = {
 };
 const DOCK = { id: 'ai-dock', name: 'Great dock', klass: 'structure', hull: 'cradle', modules: [{ id: 'ai-g1', kind: 'gantry', w: 8, h: 4, n: 1, caps: [] }, { id: 'ai-r1', kind: 'reactor', k: 0.25, n: 1, caps: [] }] };
 const NEED = { war: 1.6, long: 2.5 }, BASE = 400;                                 // the fleet to send, × what guards the target (an empty colony still asks a real fleet)
+const DISTRICT_DEV_MIN = 1;                                                      // (a colony with any industry develops)
 const HEAL2 = [0, 4, 2, 1, 0.5, 0];                                              // strain healed by two eons' rest, by zone (model.js ZONE)
 const D = AI_DESIGNS, COMBAT = ['war', 'screen', 'raid', 'sniper', 'carrier', 'long'];
 // THE CYCLE (fleetplan.js TACTICS): what beats what — the counter of a class is the class that beats it
@@ -141,6 +142,16 @@ export function makeBrain(W, S, opts = {}) {
     if (shortHold > 0) split = [Math.min(0.6, split[0] + 0.1), split[1] + 0.05, Math.max(0.2, split[2] - 0.15)];
     const sum = split.reduce((a, v) => a + v, 0); split = split.map(v => v / sum);
     if (!lastSplit || split.some((v, i) => Math.abs(v - lastSplit[i]) > 0.02)) { act({ type: 'split', place: HOMEPLACE, split }); lastSplit = split; }
+    // DISTRICTS (2026-10-18): every colony develops its grid, one cell at a time, to what it is short of — room when the people press
+    // the housing, farms when the food runs short, foundries when the industry pops outgrow their districts, a campus when the
+    // researchers do; otherwise a mixed district. A developed cell is re-made only when crowded and nothing is free.
+    for (const col of c.colonies) {
+      const P = col.P; if (!P.cells || !P.cells.length || (P.develop && P.develop.length) || col.blockaded) continue;
+      const free = P.cells.findIndex(x => !x); if (free < 0) continue;
+      const crowded = P.people > 0.85 * col.housing, hungry = col.water && col.surplus < 0, overI = col.people.industry > col.cap.industry * 1.1, overR = col.people.research > col.cap.science * 1.1, overF = col.water && col.people.social > col.cap.food * 1.1;
+      const design = crowded ? 'dist-housing' : hungry || overF ? 'dist-farms' : overI ? 'dist-foundry' : overR ? 'dist-campus' : 'dist-mixed';
+      if (col.industry * DISTRICT_DEV_MIN <= col.industry) act({ type: 'develop', place: col.pl.id, cell: free, design });
+    }
     // the focus leans to its corner (opts.focus; Extermination by default), one step every ten eons once cohesion can pay for it, up to FOCUS_TOP; 'mid' never moves
     if (bias != null && bias >= 0 && S.cohesion >= 40 && W.eon - lastFocusEon >= 10 && S.focus[bias] < FOCUS_TOP) { const w = S.focus.slice(), step = 0.1; w[bias] += step; for (const i of [0, 1, 2, 3]) if (i !== bias) w[i] = Math.max(0, w[i] - step / 3); const t = w.reduce((a, v) => a + v, 0); act({ type: 'focus', w: w.map(v => v / t) }); lastFocusEon = W.eon; }
     const all = fleet(c), moving = all.some(s => s.u.dest), fleets = foeFleets(), cols = foeColonies();
