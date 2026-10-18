@@ -16,7 +16,10 @@ import { atan2 } from './dmath.js';                   // bit-identical in every 
 export const starshipHulls = () => { const all = hullsFor('starship'), own = all.filter(h => h.user || h.pack); return own.length ? own : all; };
 
 export const B = { dt: 0.25, start: 3000, maxTime: 600, record: 1, unit: 8, minGap: 60, wing: 90, spread: 110, arena: 2200, strafe: 0.6,   // wing: how close wingmen come to each other; spread: a fleet's starting line
-  missile: { speed: 320, spiral: 70, twist: 4.5, hitRadius: 30, life: 14 },
+  // SPEEDS (his call, 2026-10-18: "missiles must be the fastest thing after gun projectiles; drones slightly slower than missiles and
+  // two or three times faster than the smallest ship"): ships fly 60–275 u/s (a warship 65, a raider 230, a survey ship 275) — a
+  // missile 1000, a drone 800 (was 320 and 240: a raider outran both, and drones hovered round their carrier unable to close)
+  missile: { speed: 1000, spiral: 70, twist: 4.5, hitRadius: 30, life: 14 },
   // a drone flies on a BATTERY: every unit flown drains it, every volley drains it, and it must keep
   // enough to get home — so the farther the carrier stands off, the fewer volleys a drone delivers
   // (battery 100, 0.1 per unit flown, 10 per volley: ~7 volleys from 150 u, ~1 from 450 u, none from 500).
@@ -27,7 +30,7 @@ export const B = { dt: 0.25, start: 3000, maxTime: 600, record: 1, unit: 8, minG
   // dmg 30 → 70 (his call, 2026-10-10, "increase drone damage per volley"): at 30 a carrier lost every duel at its price —
   // its drones' volleys went into armour that knit back. Swept 30/45/60/70/80/100: at 70 a 900 carrier beats a 900 gun ship
   // 12/0 (7/5 without a fabricator), a 3000 one still loses 2/10 to guns, and beams stay the counter (0/12; 100 starts to flip them)
-  drone: { hp: 70, speed: 240, dmg: 70, rate: 0.4, range: 120, acc: 65, evade: 0.55, launchEvery: 2.5, sortie: 90, dock: 40, battery: 100, travelCost: 0.04, shotCost: 10, idleCost: 0.5, reach: 800, waveWait: 6, guard: 400 } };   // guard: an enemy this close to a carrier and it scrambles everything (the cycle, 2026-10-11); 900 → 400 (2026-10-12): a capital closing to 580 made the carriers dump every drone into its point defence at once — now they keep harassing in waves until raiders are really on them   // waveWait: a forming wave goes after this many seconds even if short
+  drone: { hp: 70, speed: 800, dmg: 70, rate: 0.4, range: 120, acc: 65, evade: 0.55, launchEvery: 2.5, sortie: 90, dock: 40, battery: 100, travelCost: 0.04, shotCost: 10, idleCost: 0.5, reach: 800, waveWait: 6, guard: 400 } };   // guard: an enemy this close to a carrier and it scrambles everything (the cycle, 2026-10-11); 900 → 400 (2026-10-12): a capital closing to 580 made the carriers dump every drone into its point defence at once — now they keep harassing in waves until raiders are really on them   // waveWait: a forming wave goes after this many seconds even if short
 // what a ROLE does to a drone (his ask, 2026-10-10: "sniper drones should be long-range snipers" — a role chip on drones did
 // nothing): multipliers on B.drone; `hold` = where it sits from its target, × its range; `shot` = battery per volley, ×;
 // ESCORT drones (point defence) stay with the carrier and shoot down incoming missiles and drones
