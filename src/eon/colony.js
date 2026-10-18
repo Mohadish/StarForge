@@ -22,7 +22,7 @@ export const SLOT = {
 export const TRAITS = { none: null, deposits: 'industry', fertile: 'food', calm: 'housing', anomaly: 'science' };
 export const TRAIT_GLYPH = { deposits: '⛏', fertile: '🌾', calm: '☼', anomaly: '✦' };
 export const TRAIT = { boost: 1.5, chance: 0.45 };    // a trait's slot kind yields × boost; chance a cell has any trait
-export const DEV = { perM: 0.12, cost: 10, retrain: 6, cell: 0, maxPerEon: 6 };   // builder points per M builders an eon; points a slot costs; to turn a slot into another kind; at most this many slots an eon
+export const DEV = { perM: 0.12, cost: 10, demolish: 4, maxPerEon: 6 };   // builder points per M builders an eon; points a slot costs; points to tear one down (a full planet re-makes itself in two stages, his call: take down, then build — a penalty of time); at most this many slots an eon
 export const FILLET = { step: 0.1, maxR: 0.5, empty: 1.5 };   // the fillet creeps this much an eon; a corner's full radius (half the side: four full fillets make a circle); homes past empty × people fillet housing
 export const GROW = { rate: 0.03, health: 0.3, starve: 0.02, crowd: 0.1 };
 export const CORNER = { industry: [0, 0], food: [1, 0], housing: [0, 1], science: [1, 1] };   // the rectangle's corners, as the tiles' quarters
@@ -128,8 +128,9 @@ export function nextCell(C, kind) {
   });
   return best;
 }
-// a full planet: a slot of the kind furthest OVER its target turns into the kind furthest under (DEV.retrain points)
-export function retrainPick(C, weights, short = compute(C).short) {
+// a full planet: a slot of the kind furthest OVER its target is TORN DOWN (DEV.demolish points, one an eon) so the kind furthest under
+// can be built in its place next eon — never a kind the colony is short of
+export function demolishPick(C, weights, short = compute(C).short) {
   const n = counts(C); let over = null, os = -Infinity;
   for (const k of FACTORS) { if (short[k]) continue; const s = n[k] - weights[k] * n.total; if (s > os) { os = s; over = k; } }
   const to = nextKind(C, weights); if (!over || !to || over === to || os < 1) return null;
@@ -151,9 +152,10 @@ export function endEon(C) {
       C.cells[i].slots.push(kind); C.progress -= DEV.cost; built++; log.push({ kind: 'slot', cell: i, slot: kind });
       full = C.cells.every(c => c.slots.length >= SLOT.per);
     } else {
-      if (C.progress < DEV.retrain) break;
-      const p = retrainPick(C, w, r.short); if (!p) { C.progress = Math.min(C.progress, DEV.retrain); break; }   // nothing to retrain: the points are not hoarded
-      const s = C.cells[p.cell].slots; s[s.indexOf(p.from)] = p.to; C.progress -= DEV.retrain; built++; log.push({ kind: 'retrain', cell: p.cell, from: p.from, to: p.to });
+      if (C.progress < DEV.demolish) break;
+      const p = demolishPick(C, w, r.short); if (!p) { C.progress = Math.min(C.progress, DEV.cost); break; }   // nothing to re-make: the points are not hoarded past one slot's worth
+      const s = C.cells[p.cell].slots; s.splice(s.indexOf(p.from), 1); C.progress -= DEV.demolish; built++; log.push({ kind: 'demolish', cell: p.cell, slot: p.from, to: p.to });
+      break;                                                                     // the rubble lies an eon; the new slot goes up next eon at the earliest (his call: two stages, a penalty of time)
     }
   }
   // the people: growth to the room, crowding past it, hunger
@@ -166,7 +168,7 @@ export function endEon(C) {
   C.eon++; C.last = compute(C); C.log = log; return r;
 }
 // the next slot's cell, for the map (where the cranes are)
-export const building = C => { const k = nextKind(C); if (!k) return null; const full = C.cells.every(c => c.slots.length >= SLOT.per); if (full) { const p = retrainPick(C, weightsOf(effectiveDot(C))); return p ? { cell: p.cell, kind: p.to, retrain: p.from } : null; } const i = nextCell(C, k); return i < 0 ? null : { cell: i, kind: k }; };
+export const building = C => { const k = nextKind(C); if (!k) return null; const full = C.cells.every(c => c.slots.length >= SLOT.per); if (full) { const p = demolishPick(C, weightsOf(effectiveDot(C))); return p ? { cell: p.cell, kind: p.to, demolish: p.from, slot: C.cells[p.cell].slots.indexOf(p.from) } : null; } const i = nextCell(C, k); return i < 0 ? null : { cell: i, kind: k }; };
 // why a corner is rounded, in words (the UI's hover)
 export function filletWhy(C, kind, r = C.last || compute(C)) {
   const pct = v => Math.round(v * 100) + ' %';

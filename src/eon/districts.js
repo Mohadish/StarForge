@@ -5,7 +5,7 @@
 // the planet's triangle (industry / research / social) stays the EFFORT — who does what. Pops past the capacity work at IDLE.
 // A pure district yields the most and is hit hardest by a focus shock (purity × shock). No DOM.
 export const FACTORS = ['industry', 'food', 'housing', 'science'];
-export const FACTOR_COLOR = { industry: '#ffb347', food: '#7ef3b0', housing: '#4fa3ff', science: '#5fe3d0' };
+export const FACTOR_COLOR = { industry: '#ffb347', food: '#7ef3b0', housing: '#f5a3c7', science: '#4fa3ff' };   // his palette (2026-10-18): industry orange, food green, housing pink (as development), science blue
 export const SIZES = { vs: { name: 'very small', w: 2, h: 2 }, s: { name: 'small', w: 3, h: 2 }, m: { name: 'medium', w: 4, h: 2 }, l: { name: 'large', w: 5, h: 3 }, xl: { name: 'huge', w: 6, h: 3 } };   // always wider than tall (his call)
 const SIZE_WEIGHTS = [['vs', 20], ['s', 30], ['m', 25], ['l', 15], ['xl', 10]], MOON_WEIGHTS = [['vs', 60], ['s', 40]];
 export const DISTRICT = {

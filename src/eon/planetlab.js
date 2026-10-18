@@ -6,7 +6,7 @@ import { SIZES } from './districts.js';
 
 const $ = id => document.getElementById(id);
 const CELL = 76, GAP = 4, PLAN_CYCLE = [null, ['industry'], ['food'], ['housing'], ['science'], ['industry', 'housing'], ['food', 'science']];
-const TRI_COLOR = { industry: '#ffb347', research: '#5fe3d0', development: '#f5a3c7' };
+const TRI_COLOR = { industry: '#ffb347', research: '#4fa3ff', development: '#f5a3c7' };   // his palette: research blue as science, development pink as housing
 let C = null, timer = null, hoverCell = -1;
 
 function reset(landing = null) {
@@ -29,14 +29,20 @@ function drawMap() {
     const half = CELL / 2, spots = [[0, 0], [half, 0], [0, half], [half, half]];
     for (let s = 0; s < SLOT.per; s++) {
       const [sx, sy] = spots[s], kind = cell.slots[s];
-      if (kind) { g.fillStyle = FACTOR_COLOR[kind]; g.globalAlpha = 0.28; g.fillRect(px + sx + 2, py + sy + 2, half - 4, half - 4); g.globalAlpha = 1; glyph(g, kind, px + sx + 2, py + sy + 2, half - 4); }
-      else if (next && next.cell === i && s === cell.slots.length) {   // the crane: the next slot being built, its kind's colour, filled by the progress
+      if (kind) {
+        g.fillStyle = FACTOR_COLOR[kind]; g.globalAlpha = 0.28; g.fillRect(px + sx + 2, py + sy + 2, half - 4, half - 4); g.globalAlpha = 1; glyph(g, kind, px + sx + 2, py + sy + 2, half - 4);
+        if (next && next.demolish && next.cell === i && s === next.slot) {   // being torn down: a red cross over it, the progress toward the demolition
+          const p = Math.min(1, C.progress / DEV.demolish); g.fillStyle = 'rgba(255,121,121,.35)'; g.fillRect(px + sx + 2, py + sy + 2, (half - 4) * p, half - 4);
+          g.strokeStyle = '#ff7979'; g.setLineDash([3, 3]); g.strokeRect(px + sx + 3.5, py + sy + 3.5, half - 7, half - 7); g.setLineDash([]);
+          g.fillStyle = '#ff7979'; g.font = 'bold 16px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('✕', px + sx + half / 2, py + sy + half / 2 + 1);
+        }
+      }
+      else if (next && !next.demolish && next.cell === i && s === cell.slots.length) {   // the crane: the next slot being built, its kind's colour, filled by the progress
         g.strokeStyle = FACTOR_COLOR[next.kind]; g.setLineDash([3, 3]); g.strokeRect(px + sx + 3.5, py + sy + 3.5, half - 7, half - 7); g.setLineDash([]);
         const p = Math.min(1, C.progress / DEV.cost); g.fillStyle = FACTOR_COLOR[next.kind]; g.globalAlpha = 0.35; g.fillRect(px + sx + 4, py + sy + half - 4 - (half - 8) * p, half - 8, (half - 8) * p); g.globalAlpha = 1;
         g.fillStyle = FACTOR_COLOR[next.kind]; g.font = '15px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('⚒', px + sx + half / 2, py + sy + half / 2 + 1);
       } else if (started) { g.strokeStyle = 'rgba(255,255,255,.08)'; g.strokeRect(px + sx + 3.5, py + sy + 3.5, half - 7, half - 7); }
     }
-    if (next && next.retrain && next.cell === i) { g.fillStyle = FACTOR_COLOR[next.kind]; g.font = '13px system-ui'; g.textAlign = 'center'; g.fillText('⚒ ' + KIND_WORD[next.retrain][0] + '→' + KIND_WORD[next.kind][0], px + CELL / 2, py + CELL / 2); }
     // the frame: planned cells carry their kinds' colours; a pure full cell a warning tint; the landing a ring
     g.lineWidth = cell.plan ? 2 : 1; g.strokeStyle = cell.plan ? FACTOR_COLOR[cell.plan[0]] : started ? 'rgba(126,243,176,.45)' : 'rgba(255,255,255,.1)'; g.strokeRect(px + 0.5, py + 0.5, CELL - 1, CELL - 1); g.lineWidth = 1;
     if (cell.plan) { g.fillStyle = '#04070f'; g.fillRect(px + 2, py + CELL - 15, 14 + 9 * (cell.plan.length - 1), 13); g.font = 'bold 10px system-ui'; g.textAlign = 'left'; g.textBaseline = 'alphabetic'; cell.plan.forEach((k, j) => { g.fillStyle = FACTOR_COLOR[k]; g.fillText(KIND_WORD[k][0].toUpperCase(), px + 4 + j * 9, py + CELL - 5); }); }
@@ -98,28 +104,41 @@ function triFromPoint(px, py) {                     // barycentric, clamped into
 }
 // ---- the numbers of the eon
 const n0 = v => Math.round(v), bar = (name, val, max, col, text) => `<div class="bar"><span style="color:${col}">${name}</span><div class="track"><div style="width:${Math.min(100, 100 * val / Math.max(1, max))}%;background:${col}"></div></div><b>${text}</b></div>`;
+const rep = (icon, n, max = 40) => icon.repeat(Math.max(0, Math.min(max, n)));
 function renderOut() {
-  const r = C.last, n = r.counts, w = r.weights, next = building(C), t = normTri(C.tri);
-  const plates = Math.min(40, Math.ceil(r.eat / 20)), fedPlates = Math.min(plates, Math.ceil(Math.min(r.food, r.eat) / 20)), grain = Math.min(30, Math.floor(Math.max(0, r.food - r.eat) / 20));
-  const foodIcons = `<span class="icons" title="a plate = 20 M people eating (red: unfed); a sheaf = 20 M more fed than live here — a surplus for the colonies round it (logistics, later)">${'🍽'.repeat(fedPlates)}<span style="filter:grayscale(1) brightness(.6)">${'🍽'.repeat(plates - fedPlates)}</span> ${'🌾'.repeat(grain)}</span>`;
+  const r = C.last, n = r.counts, w = r.weights, next = building(C), t = normTri(C.tri), full = C.cells.every(c => c.slots.length >= SLOT.per);
+  // ICON ROWS (his ask): plates = people eating (dim: unfed), sheaves = food past the mouths here (a surplus for the colonies round it —
+  // logistics, later); gears = industry, coins = what no build queue takes (here all of it: the sandbox builds no ships); microscopes
+  // and tubes = science; cranes = the builders' work an eon
+  const plates = Math.ceil(r.eat / 20), fedPlates = Math.min(plates, Math.ceil(Math.min(r.food, r.eat) / 20)), grain = Math.floor(Math.max(0, r.food - r.eat) / 20);
+  const foodIcons = `<div class="icons" title="a plate = 20 M people eating (dim: unfed); a sheaf = 20 M more fed than live here — a surplus for the colonies round it (logistics, later)">${rep('🍽', fedPlates)}<span class="dim">${rep('🍽', plates - fedPlates)}</span> ${rep('🌾', grain, 30)}${r.fed < 1 ? ` <b style="color:var(--bad);font-size:12px">hungry — works at ${Math.round(r.hungry * 100)} %</b>` : ''}</div>`;
+  const gears = Math.round(r.industry / 10), queued = 0, coins = Math.max(0, gears - queued);
+  const indIcons = `<div class="icons" title="a gear = 10 M at the works; a coin = 10 M of industry no build queue takes — it turns into credits">${rep('⚙', gears)} <span style="color:var(--muted)">→</span> ${rep('🪙', coins)}<span class="tiny"> credits (nothing queued here)</span></div>`;
+  const sci = Math.round(r.science / 10), sciIcons = `<div class="icons" title="a microscope or a tube = 10 M at the labs">${Array.from({ length: Math.min(40, sci) }, (_, i) => i % 2 ? '🧪' : '🔬').join('')}</div>`;
+  const cranes = Math.round(r.dev), buildIcons = `<div class="icons" title="a crane = one builder point an eon (a slot costs ${DEV.cost}, tearing one down ${DEV.demolish})">${rep('🏗', cranes)}${!next && full ? `<span class="tiny"> — the planet is full and in balance: ${n0(r.hands.development)} M builders stand idle, move the triangle</span>` : ''}</div>`;
+  const nextLine = !next ? 'nothing to build' : next.demolish
+    ? `tearing down a <b style="color:${FACTOR_COLOR[next.demolish]}">${KIND_WORD[next.demolish]}</b> slot in cell ${xy(C, next.cell).map(v => v + 1).join(',')} (${DEV.demolish} pts, ${r.dev > 0 ? Math.max(1, Math.ceil((DEV.demolish - C.progress) / r.dev)) + ' eon(s)' : 'nobody works'}), then <b style="color:${FACTOR_COLOR[next.kind]}">${KIND_WORD[next.kind]}</b> goes up in its place (${DEV.cost} pts)`
+    : `next: <b style="color:${FACTOR_COLOR[next.kind]}">${KIND_WORD[next.kind]}</b> in cell ${xy(C, next.cell).map(v => v + 1).join(',')}${C.cells[next.cell].plan ? ' — planned' : TRAITS[C.cells[next.cell].trait] === next.kind ? ` — ${C.cells[next.cell].trait} ground` : ''} · a slot costs ${DEV.cost} pts, ${r.dev > 0 ? Math.max(1, Math.ceil((DEV.cost - C.progress) / r.dev)) + ' eon(s)' : 'nobody builds'}`;
   const slotBars = FACTORS.map(k => bar(KIND_WORD[k], n[k], Math.max(1, n.total), FACTOR_COLOR[k], `${n[k]} <span class="tiny">of ${n.total} · aim ${Math.round(w[k] * 100)} %</span>`)).join('');
-  const whys = FACTORS.map(k => `<div style="--c:${FACTOR_COLOR[k]}" class="tiny">${filletWhy(C, k, r)}</div>`).join('');
   $('out').innerHTML = `
-    ${bar('people', C.people, r.housing, '#4fa3ff', `${n0(C.people)} / ${n0(r.housing)} M <span class="tiny">homes</span>`)}
-    ${bar('food', Math.min(r.food, r.eat), r.eat, '#7ef3b0', `${n0(r.food)} / ${n0(r.eat)} M <span class="tiny">fed / eat</span>`)}
-    <div style="margin:2px 0 6px 92px">${foodIcons}${r.fed < 1 ? ` <b style="color:var(--bad)">hungry — works at ${Math.round(r.hungry * 100)} %</b>` : ''}</div>
-    ${bar('industry', r.industry, r.cap.industry, '#ffb347', `${n0(r.industry)} ⚙ <span class="tiny">${n0(r.hands.industry)} M hands / ${n0(r.cap.industry)} M works</span>`)}
-    ${bar('science', r.science, r.cap.science, '#5fe3d0', `${n0(r.science)} 🔬 <span class="tiny">${n0(r.hands.research)} M / ${n0(r.cap.science)} M labs</span>`)}
-    ${bar('building', C.progress, DEV.cost, '#f5a3c7', `${(r.dev).toFixed(1)} <span class="tiny">pts/eon · ${n0(r.hands.development)} M builders</span>`)}
-    <div class="tiny" style="margin:0 0 8px 92px">${next ? `next: <b style="color:${FACTOR_COLOR[next.kind]}">${KIND_WORD[next.kind]}</b> ${next.retrain ? `(re-training a ${KIND_WORD[next.retrain]} slot) ` : ''}in cell ${xy(C, next.cell).map(v => v + 1).join(',')}${C.cells[next.cell].plan ? ' — planned' : TRAITS[C.cells[next.cell].trait] === next.kind ? ` — ${C.cells[next.cell].trait} ground` : ''} · a slot costs ${DEV.cost} pts, ${r.dev > 0 ? Math.max(1, Math.ceil((DEV.cost - C.progress) / r.dev)) + ' eon(s)' : 'nobody builds'}` : 'the planet is full and in balance — nothing to build'}${r.cap.pure ? ` · <span style="color:var(--bad)">${r.cap.pure} pure cell${r.cap.pure > 1 ? 's' : ''}</span> (a focus shock hits them hardest)` : ''}</div>
-    <h2>Slots against the focus</h2>${slotBars}
-    <h2 style="margin-top:8px">The fillet — why a corner is rounded</h2><div class="why">${whys}</div>
-    <div class="tiny" style="margin-top:8px">Growth ${(r.growth * 100).toFixed(1)} % an eon (science across the districts ${Math.round(r.cap.scienceShare * 100)} % → health). Effort: industry ${Math.round(t.industry * 100)} / research ${Math.round(t.research * 100)} / development ${Math.round(t.development * 100)}.</div>`;
+    ${bar('people', C.people, r.housing, FACTOR_COLOR.housing, `${n0(C.people)} / ${n0(r.housing)} M <span class="tiny">homes</span>`)}
+    ${bar('food', Math.min(r.food, r.eat), r.eat, FACTOR_COLOR.food, `${n0(r.food)} / ${n0(r.eat)} M <span class="tiny">fed / eat</span>`)}
+    ${foodIcons}
+    ${bar('industry', r.industry, r.cap.industry, FACTOR_COLOR.industry, `${n0(r.industry)} <span class="tiny">${n0(r.hands.industry)} M hands / ${n0(r.cap.industry)} M works</span>`)}
+    ${indIcons}
+    ${bar('science', r.science, r.cap.science, FACTOR_COLOR.science, `${n0(r.science)} <span class="tiny">${n0(r.hands.research)} M / ${n0(r.cap.science)} M labs</span>`)}
+    ${sciIcons}
+    ${bar('building', C.progress, next && next.demolish ? DEV.demolish : DEV.cost, '#f5a3c7', `${(r.dev).toFixed(1)} <span class="tiny">pts/eon · ${n0(r.hands.development)} M builders</span>`)}
+    ${buildIcons}
+    <div class="tiny" style="margin:0 0 8px 92px">${nextLine}${r.cap.pure ? ` · <span style="color:var(--bad)">${r.cap.pure} pure cell${r.cap.pure > 1 ? 's' : ''}</span> (a focus shock hits them hardest)` : ''}</div>
+    <h2>Slots against the focus</h2>${slotBars}`;
+  $('why').innerHTML = FACTORS.map(k => `<div style="--c:${FACTOR_COLOR[k]}" class="tiny">${filletWhy(C, k, r)}</div>`).join('');
+  $('growth').textContent = `Growth ${(r.growth * 100).toFixed(1)} % an eon (science across the districts ${Math.round(r.cap.scienceShare * 100)} % → health). Effort: industry ${Math.round(t.industry * 100)} / research ${Math.round(t.research * 100)} / development ${Math.round(t.development * 100)}.`;
   $('eon').textContent = `eon ${C.eon} · ${n0(C.people)} M people`;
 }
 const LOG = [];
 function renderLog() {
-  for (const e of C.log || []) LOG.unshift(e.kind === 'slot' ? `<div><b>eon ${C.eon}</b> · a <b style="color:${FACTOR_COLOR[e.slot]}">${KIND_WORD[e.slot]}</b> slot in cell ${xy(C, e.cell).map(v => v + 1).join(',')}${C.cells[e.cell].slots.length === SLOT.per ? ' — the cell is full' : ''}</div>` : `<div><b>eon ${C.eon}</b> · cell ${xy(C, e.cell).map(v => v + 1).join(',')}: a ${KIND_WORD[e.from]} slot re-trained to <b style="color:${FACTOR_COLOR[e.to]}">${KIND_WORD[e.to]}</b></div>`);
+  for (const e of C.log || []) LOG.unshift(e.kind === 'slot' ? `<div><b>eon ${C.eon}</b> · a <b style="color:${FACTOR_COLOR[e.slot]}">${KIND_WORD[e.slot]}</b> slot in cell ${xy(C, e.cell).map(v => v + 1).join(',')}${C.cells[e.cell].slots.length === SLOT.per ? ' — the cell is full' : ''}</div>` : `<div><b>eon ${C.eon}</b> · cell ${xy(C, e.cell).map(v => v + 1).join(',')}: a <span style="color:${FACTOR_COLOR[e.slot]}">${KIND_WORD[e.slot]}</span> slot torn down — <b style="color:${FACTOR_COLOR[e.to]}">${KIND_WORD[e.to]}</b> goes up in its place</div>`);
   C.log = []; LOG.length = Math.min(LOG.length, 60); $('log').innerHTML = LOG.join('') || '<div class="tiny">Nothing built yet.</div>';
 }
 function render() { drawMap(); drawRect(); drawTri(); renderOut(); renderLog(); }

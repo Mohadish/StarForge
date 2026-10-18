@@ -1,6 +1,6 @@
 // the colony-as-slots model, headless: node tools/play/planet.mjs [scenario=all] [eons=120] [size=xl]
 // scenarios: industry (the dot in the industry corner), balanced (centre), farm, science, all (one after another)
-import { newColony, endEon, compute, effectiveDot, counts, FACTORS, KIND_WORD, FILLET } from '../../src/eon/colony.js';
+import { newColony, endEon, effectiveDot, counts, FACTORS, KIND_WORD, FILLET } from '../../src/eon/colony.js';
 import { SIZES } from '../../src/eon/districts.js';
 const [, , which = 'all', eonsArg = '120', size = 'xl', maxR] = process.argv, eons = +eonsArg;
 if (maxR) FILLET.maxR = +maxR;                        // the fillet's depth: 0.5 = four full fillets make a circle (a corner capped near 73 %); 1 caps a corner at 50 %
