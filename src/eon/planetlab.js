@@ -50,8 +50,9 @@ function renderQueue() {
     const col = it.kind === 'dock' ? FACTOR_COLOR.industry : it.kind === 'platform' ? FACTOR_COLOR.science : 'var(--accent)';
     return `<div class="qcard ${i < lanes ? 'top' : ''}" draggable="true" data-q="${it.uid}" style="--c:${col}" title="drag to change its place in the line">
       <div class="qimg">${it.icon}</div>
-      <div class="qinfo"><b>${it.name}${it.count > 1 ? ` <span style="color:var(--warn)">×${it.count}</span>` : ''}</b>${it.cost} ⚙ each${i < lanes ? ` · <span style="color:var(--good)">building</span>` : ' · waiting'}<br>${it.count > 1 ? `first in ${first} eon${first === 1 ? '' : 's'}, all in ${eta}` : `ready in ${eta} eon${eta === 1 ? '' : 's'}`}</div>
-      <div class="qbtns"><button class="x" data-qplus="${it.uid}" title="one more">＋</button><button class="x" data-qdel="${it.uid}" title="drop it">✕</button></div>
+      <div class="qinfo"><b>${it.name}</b>${it.cost} ⚙ each${i < lanes ? ` · <span style="color:var(--good)">building</span>` : ' · waiting'}<br>${it.count > 1 ? `first in ${first} eon${first === 1 ? '' : 's'}, all ${it.count} in ${eta}` : `ready in ${eta} eon${eta === 1 ? '' : 's'}`}
+        <div class="qctl"><button class="x" data-qminus="${it.uid}" title="one fewer">−</button><input type="number" min="1" max="99" value="${it.count}" data-qcount="${it.uid}" title="how many of these — type it"><button class="x" data-qplus="${it.uid}" title="one more">＋</button><span class="tiny">of these</span></div></div>
+      <div class="qbtns"><button class="x" data-qdel="${it.uid}" title="drop it">✕</button></div>
       <div class="qbar"><div style="width:${Math.round(100 * it.progress / it.cost)}%"></div></div></div>`;
   }).join('');
   $('queue').innerHTML = `<h2>Production</h2>
@@ -188,10 +189,13 @@ $('queue').addEventListener('click', e => {
   const t = e.target.closest('button, input'); if (!t) return;
   if (t.id === 'qadd') { addOpen = !addOpen; return renderQueue(); }
   if (t.dataset.qcat) { qAdd(t.dataset.qcat); addOpen = false; return render(); }
-  if (t.dataset.qplus) { const it = Q.find(x => x.uid === +t.dataset.qplus); if (it) it.count++; return render(); }
+  if (t.dataset.qplus) { const it = Q.find(x => x.uid === +t.dataset.qplus); if (it) it.count = Math.min(99, it.count + 1); return render(); }
+  if (t.dataset.qminus) { const it = Q.find(x => x.uid === +t.dataset.qminus); if (it) it.count = Math.max(1, it.count - 1); return render(); }
   if (t.dataset.qdel) { Q = Q.filter(x => x.uid !== +t.dataset.qdel); return render(); }
   if (t.id === 'qlanes') { lanes = t.checked ? 2 : 1; return render(); }
 });
+$('queue').addEventListener('change', e => { const t = e.target; if (!t.dataset.qcount) return; const it = Q.find(x => x.uid === +t.dataset.qcount); if (it) it.count = Math.max(1, Math.min(99, Math.round(+t.value) || 1)); render(); });   // the typed count: "make 4 of this in one block"
+$('queue').addEventListener('mousedown', e => { if (e.target.closest('input')) e.stopPropagation(); });
 $('queue').addEventListener('dragstart', e => { const c = e.target.closest('.qcard'); if (!c) return; dragId = +c.dataset.q; c.classList.add('drag'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(dragId)); });
 $('queue').addEventListener('dragover', e => { const c = e.target.closest('.qcard'); if (!c || dragId == null) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; document.querySelectorAll('.qcard.over').forEach(x => x.classList.remove('over')); c.classList.add('over'); });
 $('queue').addEventListener('dragleave', e => { const c = e.target.closest('.qcard'); if (c) c.classList.remove('over'); });
