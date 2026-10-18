@@ -6,8 +6,16 @@
 // A pure district yields the most and is hit hardest by a focus shock (purity × shock). No DOM.
 export const FACTORS = ['industry', 'food', 'housing', 'science'];
 export const FACTOR_COLOR = { industry: '#ffb347', food: '#7ef3b0', housing: '#f5a3c7', science: '#4fa3ff' };   // his palette (2026-10-18): industry orange, food green, housing pink (as development), science blue
-export const SIZES = { vs: { name: 'very small', w: 2, h: 2 }, s: { name: 'small', w: 3, h: 2 }, m: { name: 'medium', w: 4, h: 2 }, l: { name: 'large', w: 5, h: 3 }, xl: { name: 'huge', w: 6, h: 3 } };   // always wider than tall (his call)
-const SIZE_WEIGHTS = [['vs', 20], ['s', 30], ['m', 25], ['l', 15], ['xl', 10]], MOON_WEIGHTS = [['vs', 60], ['s', 40]];
+// the SIZE LADDER (his call, 2026-10-18: "all sorts of sizes, gradually"): every grid from 2 × 2 up to the huge world's 6 × 3, always
+// wider than tall, smallest to largest by cells — the huge one is the FRAME every planet pop-up draws, a smaller world sits centred in it
+export const SIZES = {
+  '2x2': { name: 'tiny', w: 2, h: 2 }, '3x2': { name: 'small', w: 3, h: 2 }, '4x2': { name: 'small', w: 4, h: 2 }, '3x3': { name: 'medium', w: 3, h: 3 }, '5x2': { name: 'medium', w: 5, h: 2 },
+  '4x3': { name: 'large', w: 4, h: 3 }, '6x2': { name: 'large', w: 6, h: 2 }, '5x3': { name: 'very large', w: 5, h: 3 }, '6x3': { name: 'huge', w: 6, h: 3 },
+};
+export const SIZE_ORDER = Object.keys(SIZES), LARGEST = SIZES['6x3'];
+const SIZE_ALIAS = { vs: '2x2', s: '3x2', m: '4x2', l: '5x3', xl: '6x3' };   // the five classes before the ladder (a saved sizeClass, tools' arguments)
+export const sizeKey = k => SIZE_ALIAS[k] || k;
+const SIZE_WEIGHTS = [['2x2', 8], ['3x2', 12], ['4x2', 14], ['3x3', 14], ['5x2', 12], ['4x3', 12], ['6x2', 10], ['5x3', 10], ['6x3', 8]], MOON_WEIGHTS = [['2x2', 50], ['3x2', 35], ['4x2', 15]];
 export const DISTRICT = {
   pops: 60,            // M people a full-housing cell houses · pops a full industry / science cell employs · social pops a full food cell gives farms to
   idle: 0.5,           // what a pop past its factor's capacity still does
@@ -38,8 +46,8 @@ const hashOf = s => { let h = 2166136261; for (const ch of String(s)) { h ^= ch.
 const pickW = (r, pairs) => { const tot = pairs.reduce((a, p) => a + p[1], 0); let x = r * tot; for (const [k, w] of pairs) { if ((x -= w) <= 0) return k; } return pairs[pairs.length - 1][0]; };
 // the size class of a world: rolled from its id (so every galaxy already made keeps its stars and places), the homeworld huge
 export function sizeClassOf(pl) {
-  if (pl.sizeClass) return pl.sizeClass;
-  if (pl.id === 'home') return 'xl';
+  if (pl.sizeClass) return sizeKey(pl.sizeClass);
+  if (pl.id === 'home') return '6x3';
   const r = (hashOf(pl.id + '|size') % 10000) / 10000;
   return pickW(r, pl.kind === 'moon' ? MOON_WEIGHTS : SIZE_WEIGHTS);
 }

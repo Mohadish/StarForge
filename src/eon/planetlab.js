@@ -2,10 +2,10 @@
 // drew (2026-10-18): the two focus widgets on top, equal; the planet in a frame that is always the HUGE world's outline (a smaller
 // world sits centred in it); the eon's output under it as bars and icon rows. The fillet's reasons live on the widgets' hover.
 import { newColony, endEon, compute, effectiveDot, weightsOf, filletR, filletWhy, building, counts, normTri, xy, SLOT, DEV, FILLET, TRAITS, TRAIT_GLYPH, TRAIT, TRI, FACTORS, FACTOR_COLOR, KIND_WORD } from './colony.js';
-import { SIZES } from './districts.js';
+import { SIZES, LARGEST } from './districts.js';
 
 const $ = id => document.getElementById(id);
-const CELL = 100, GAP = 4, FRAME = SIZES.xl, PLAN_CYCLE = [null, ['industry'], ['food'], ['housing'], ['science'], ['industry', 'housing'], ['food', 'science']];
+const CELL = 100, GAP = 4, FRAME = LARGEST, PLAN_CYCLE = [null, ['industry'], ['food'], ['housing'], ['science'], ['industry', 'housing'], ['food', 'science']];
 const TRI_COLOR = { industry: '#ffb347', research: '#4fa3ff', development: '#f5a3c7' };   // his palette: research blue as science, development pink as housing
 const RM = 30;                                       // the rectangle's margin inside its canvas
 let C = null, timer = null, hoverCell = -1;
@@ -14,7 +14,7 @@ function reset(landing = null) {
   const g = SIZES[$('size').value], home = $('kind').value === 'home';
   C = newColony({ w: g.w, h: g.h, seed: $('seed').value || 'home', home, people: home ? 100 : 12, landing, dot: C ? C.dot : { x: 0.5, y: 0.5 }, tri: C ? C.tri : undefined });
   const name = ($('seed').value || 'home').trim(); $('cname').textContent = name.charAt(0).toUpperCase() + name.slice(1);
-  $('cmeta').textContent = `${home ? 'HOMEWORLD' : 'COLONY'}   SIZE: ${g.name.toUpperCase()} (${g.w} × ${g.h})`;
+  $('cmeta').textContent = `${home ? 'HOMEWORLD' : 'COLONY'}   SIZE: ${g.name.toUpperCase()} ${g.w} × ${g.h}`;
   const cv = $('map'); cv.width = FRAME.w * (CELL + GAP) + GAP; cv.height = FRAME.h * (CELL + GAP) + GAP;   // the frame never changes: the huge world's
   render();
 }
@@ -168,5 +168,6 @@ for (const id of ['size', 'kind', 'seed']) $(id).addEventListener('change', () =
 const depth = () => { FILLET.maxR = +$('depth').value; $('depthV').textContent = `${FILLET.maxR} — a full corner capped near ${Math.round(100 * Math.pow(1 - (FILLET.maxR - FILLET.maxR / Math.SQRT2), 2))} %`; if (C) render(); };
 $('depth').addEventListener('input', depth);
 window.addEventListener('keydown', e => { if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return; if (e.key === ' ') { e.preventDefault(); run(!timer); } else if (e.key === 'ArrowRight') step(); });
+$('size').innerHTML = Object.entries(SIZES).map(([k, s]) => `<option value="${k}" ${s === LARGEST ? 'selected' : ''}>${s.w} × ${s.h} · ${s.name} (${s.w * s.h * SLOT.per} slots)</option>`).join('');   // the whole ladder
 depth(); reset();
 window.sbsPlanet = { get C() { return C; }, step, reset, compute, weightsOf, counts };
