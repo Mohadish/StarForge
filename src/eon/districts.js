@@ -10,12 +10,12 @@ export const FACTOR_COLOR = { industry: '#ffb347', food: '#7ef3b0', housing: '#f
 // wider than tall, smallest to largest by cells — the huge one is the FRAME every planet pop-up draws, a smaller world sits centred in it
 export const SIZES = {
   '2x2': { name: 'tiny', w: 2, h: 2 }, '3x2': { name: 'small', w: 3, h: 2 }, '4x2': { name: 'small', w: 4, h: 2 }, '3x3': { name: 'medium', w: 3, h: 3 }, '5x2': { name: 'medium', w: 5, h: 2 },
-  '4x3': { name: 'large', w: 4, h: 3 }, '6x2': { name: 'large', w: 6, h: 2 }, '5x3': { name: 'very large', w: 5, h: 3 }, '6x3': { name: 'huge', w: 6, h: 3 },
-};
+  '4x3': { name: 'large', w: 4, h: 3 }, '5x3': { name: 'very large', w: 5, h: 3 }, '6x3': { name: 'huge', w: 6, h: 3 },
+};   // no 6 × 2: the same cells as 4 × 3 and it looks worse (his call)
 export const SIZE_ORDER = Object.keys(SIZES), LARGEST = SIZES['6x3'];
 const SIZE_ALIAS = { vs: '2x2', s: '3x2', m: '4x2', l: '5x3', xl: '6x3' };   // the five classes before the ladder (a saved sizeClass, tools' arguments)
 export const sizeKey = k => SIZE_ALIAS[k] || k;
-const SIZE_WEIGHTS = [['2x2', 8], ['3x2', 12], ['4x2', 14], ['3x3', 14], ['5x2', 12], ['4x3', 12], ['6x2', 10], ['5x3', 10], ['6x3', 8]], MOON_WEIGHTS = [['2x2', 50], ['3x2', 35], ['4x2', 15]];
+const SIZE_WEIGHTS = [['2x2', 8], ['3x2', 12], ['4x2', 14], ['3x3', 14], ['5x2', 13], ['4x3', 16], ['5x3', 13], ['6x3', 10]], MOON_WEIGHTS = [['2x2', 50], ['3x2', 35], ['4x2', 15]];
 export const DISTRICT = {
   pops: 60,            // M people a full-housing cell houses · pops a full industry / science cell employs · social pops a full food cell gives farms to
   idle: 0.5,           // what a pop past its factor's capacity still does
