@@ -452,7 +452,7 @@ export function sendFleet(S, shipIds, placeId) {
   if (ships.some(u => u.dest || sysOfP(u.at) !== from.sys)) return 'They must be at rest in the same system to leave as one fleet';   // a fleet may gather from several places of one system (the galaxy's view)
   if (from.sys === to.sys) {                                                       // inside a system: as before, ship by ship
     if (ships.every(u => u.at === placeId)) return 'They are already there';
-    for (const u of ships) { if (u.at === placeId) continue; const eta = T.travel[u.klass]; if (!eta) return `${u.name} has no engine`; u.dest = placeId; u.eta = eta; u.trip = eta; }
+    for (const u of ships) { if (u.at === placeId) continue; const eta = T.travel[u.klass]; if (!eta) return `${u.name} has no engine`; u.dest = placeId; u.eta = eta; u.trip = eta; u.sentEon = S.eon; }
     return null;
   }
   const caps = allCapsules(S), warp = fleetWarp(passiveOf(caps));
@@ -464,8 +464,17 @@ export function sendFleet(S, shipIds, placeId) {
   for (const u of ships) {
     u.st = u.st ?? 100;
     u.voy = { from: u.at, to: placeId, travelled: u.strain || 0, left: dist, total: dist, range: R, fleet: fid, back: false, A: from.sys, B: to.sys, D: dist, pos: 0 };   // A → B, pos 0…1: where it is on the line between the two stars; the strain it set out with counts from the first eon
-    u.dest = placeId; u.eta = u.trip = forecast(R, dist, warp, u.strain || 0, u.st, eff).eons;
+    u.dest = placeId; u.eta = u.trip = forecast(R, dist, warp, u.strain || 0, u.st, eff).eons; u.sentEon = S.eon;
   }
+  return null;
+}
+// UNDO A SEND (his ask, 2026-10-18: "once I've sent something and want to cancel… only before the next step"): ships sent THIS eon
+// have not moved yet — they and the ships that left with them simply stay where they were, as if never sent
+export const canUndoSend = (S, u) => !!(u && u.dest && u.sentEon === S.eon);
+export function undoSend(S, shipId) {
+  const u = S.ships.find(x => x.id === shipId); if (!canUndoSend(S, u)) return 'Too late — the eon has ended since; call it back instead';
+  const mates = u.voy && u.voy.fleet ? S.ships.filter(x => x.voy && x.voy.fleet === u.voy.fleet) : S.ships.filter(x => x.sentEon === S.eon && x.at === u.at && x.dest === u.dest);
+  for (const x of mates) { x.dest = null; x.eta = 0; delete x.voy; delete x.trip; delete x.sentEon; }
   return null;
 }
 export const sendShip = (S, shipId, placeId) => sendFleet(S, [shipId], placeId);
@@ -584,7 +593,7 @@ export function endEon(S) {
         P.people -= unit.people;
         S.ships.push(unit);
       }
-      rep.push({ kind: 'build', text: `${name}: built ${d.name}` + (sections > 1 ? ` in ${sections} sections` : '') + (unit.people ? ` — ${peopleWord(unit.people)} people went aboard` : '') });
+      rep.push({ kind: 'build', text: `${name}: built ${d.name}` + (sections > 1 ? ` in ${sections} sections` : '') + (unit.people ? ` — ${peopleWord(unit.people)} people went aboard` : ''), place: pc.pl.id, colony: true });
     }
     P.queue = P.queue.filter(q => (q.count ?? 1) > 0 && S.designs.some(d => d.id === q.designId));
     for (const q of pc.queue) if (q.noDock && !q.item.warned) { q.item.warned = true; rep.push({ kind: 'bad', text: `${name}: ${q.d.name} cannot be built — there is no space dock here` }); }
@@ -597,11 +606,11 @@ export function endEon(S) {
     // the new kind the next eon); the fillet creeps toward what each corner can support. A district completed is reported.
     if (pc.G) {
       const wasFull = isFull(pc.G), log = developStep(pc.G, pc.dev, { noFood: !pc.water, lack: pc.lack });
-      for (const e of log) if (e.kind === 'slot' && e.done) { const n = {}; for (const k of pc.G.cells[e.cell].slots) n[k] = (n[k] || 0) + 1; rep.push({ kind: 'build', text: `${name}: a district completed — ${Object.entries(n).map(([k, v]) => `${v} ${KIND_WORD[k]}`).join(', ')}` }); }
-      if (!wasFull && isFull(pc.G)) rep.push({ kind: 'build', text: `${name}: the whole world is developed — from now on the builders re-make it toward the focus, one slot at a time` });
+      for (const e of log) if (e.kind === 'slot' && e.done) { const n = {}; for (const k of pc.G.cells[e.cell].slots) n[k] = (n[k] || 0) + 1; rep.push({ kind: 'build', text: `${name}: a district completed — ${Object.entries(n).map(([k, v]) => `${v} ${KIND_WORD[k]}`).join(', ')}`, place: pc.pl.id, colony: true }); }
+      if (!wasFull && isFull(pc.G)) rep.push({ kind: 'build', text: `${name}: the whole world is developed — from now on the builders re-make it toward the focus, one slot at a time`, place: pc.pl.id, colony: true });
       creepFillet(pc.G, pc.want);
     }
-    if (pc.newFactories > 0) { P.factories = (P.factories || 0) + pc.newFactories; rep.push({ kind: 'build', text: `${name}: ${pc.newFactories} factor${pc.newFactories === 1 ? 'y' : 'ies'} built with the industry nothing in the queue needed` }); }
+    if (pc.newFactories > 0) { P.factories = (P.factories || 0) + pc.newFactories; rep.push({ kind: 'build', text: `${name}: ${pc.newFactories} factor${pc.newFactories === 1 ? 'y' : 'ies'} built with the industry nothing in the queue needed`, place: pc.pl.id, minor: true }); }
   }
 
   // ships: at rest they get their stamina back (only in a star system); under way inside a system they count down; between
@@ -616,7 +625,7 @@ export function endEon(S) {
       if (c.unpaid > 0 && u.klass !== 'structure') u.st = Math.max(1, (u.st ?? 100) - T.upkeep.wear * c.unpaid);   // an unpaid fleet wears
       continue;
     }
-    if (!u.voy) { if (--u.eta <= 0) { u.at = u.dest; u.dest = null; rep.push({ kind: 'move', text: `${u.name} arrived at ${placeName(u.at)}` }); } continue; }
+    if (!u.voy) { if (--u.eta <= 0) { u.at = u.dest; u.dest = null; rep.push({ kind: 'move', text: `${u.name} arrived at ${placeName(u.at)}`, place: u.at, ship: u.id }); } continue; }
     const V = u.voy, step = Math.min(V.left, VOY.speed * c.warp * speedAt(V.travelled, V.range));
     const SA = S.systems.find(s => s.id === V.A), SB = S.systems.find(s => s.id === V.B), zHere = SA && SB ? zoneAt(S, SA.x + (SB.x - SA.x) * (V.pos ?? 0), SA.y + (SB.y - SA.y) * (V.pos ?? 0)) : 5;
     V.travelled += step * ZONE.strain[zHere]; V.left -= step; if (V.D) V.pos = clamp((V.pos ?? 0) + (V.back ? -1 : 1) * step / V.D, 0, 1);   // the strain of the eon: none in the blue, half in the green, all of it beyond
@@ -632,7 +641,7 @@ export function endEon(S) {
       }
       if (loss >= 1) rep.push({ kind: 'bad', text: `${u.name}: a hard eon past its range — stamina ${Math.round(st0)} → ${Math.round(u.st)} %${u.people ? ` (${peopleWord(u.people)} people left aboard)` : ''}` });
     }
-    if (V.left <= 1e-9) { u.at = V.to; u.dest = null; u.strain = V.travelled; delete u.voy; rep.push({ kind: 'move', text: `${u.name} arrived at ${placeName(u.at)}${(u.st ?? 100) < 99.5 ? ` with ${Math.round(u.st)} % stamina` : ''}${u.strain > 0.05 ? `, ${u.strain.toFixed(1)} light years of strain` : ''}` }); }   // the strain stays with the ship: it heals only inside the sphere
+    if (V.left <= 1e-9) { u.at = V.to; u.dest = null; u.strain = V.travelled; delete u.voy; rep.push({ kind: 'move', text: `${u.name} arrived at ${placeName(u.at)}${(u.st ?? 100) < 99.5 ? ` with ${Math.round(u.st)} % stamina` : ''}${u.strain > 0.05 ? `, ${u.strain.toFixed(1)} light years of strain` : ''}`, place: u.at, ship: u.id }); }   // the strain stays with the ship: it heals only inside the sphere
     else u.eta = forecast(V.range, V.left, c.warp, V.travelled, u.st ?? 100).eons;
   }
 

@@ -214,3 +214,25 @@
 #colPop .qmenu button{text-align:left;padding:5px 8px;font-size:12px;font-weight:500;display:flex;justify-content:space-between;gap:6px}
 #colPop .qmenu button small{color:var(--muted)}
 #cpTip{position:fixed;pointer-events:none;background:#04070f;border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-size:12px;max-width:280px;display:none;z-index:95}
+/* the galaxy pop-up for a send: the chosen system's places in a row, the star first (his ask, 2026-10-18) */
+.sendbadge .sprow{display:flex;flex-wrap:wrap;gap:4px;margin:6px 0 4px;max-width:420px}
+.sendbadge .sp{display:grid;justify-items:center;gap:3px;padding:4px 6px;min-width:46px;background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:8px;cursor:pointer}
+.sendbadge .sp.on{border-color:var(--good);background:rgba(126,243,176,.12)}
+.sendbadge .sp i{display:block;border-radius:50%}
+.sendbadge .sp small{font-size:10px;color:var(--muted);max-width:70px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* WHAT HAPPENED this eon (his ask, 2026-10-18): a stack in the corner, each event a row — click it to go there, ✕ to dismiss */
+#notes{position:fixed;right:14px;bottom:14px;z-index:88;width:360px;max-width:calc(100vw - 28px);max-height:46vh;overflow:auto;background:rgba(11,17,32,.96);border:1px solid var(--line);border-radius:12px;padding:6px 8px;box-shadow:0 12px 34px rgba(0,0,0,.6);font-size:12px}
+#notes[hidden]{display:none}
+#notes .nhead{display:flex;align-items:center;gap:8px;padding:2px 2px 6px;border-bottom:1px solid var(--line)}
+#notes .nhead b{flex:1}
+#notes .nrow{display:grid;grid-template-columns:22px 1fr auto;gap:6px;align-items:start;padding:5px 2px;border-bottom:1px solid rgba(255,255,255,.05);cursor:pointer}
+#notes .nrow:hover{background:rgba(255,255,255,.04)}
+#notes .nrow .ni{text-align:center;font-size:14px;line-height:1.2}
+#notes .nrow button{padding:0 6px;font-size:11px}
+#notes .n-bad .ni,#notes .n-bad span:nth-child(2){color:var(--bad)}
+#notes .n-move .ni{color:var(--good)}
+#notes .n-build .ni{color:#ffb347}
+#notes .n-breakthrough .ni{color:#4fa3ff}
+#notes .n-battle .ni{color:#ffd26a}
+#notes .nmore{width:100%;margin-top:4px}
+#colPop .cphead .go{padding:4px 10px;font-size:12px}
