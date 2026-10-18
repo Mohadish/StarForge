@@ -25,7 +25,27 @@ button.on { background: rgba(255,210,106,.18); border-color: var(--warn) }
 canvas { display: block; border-radius: 8px }
 /* THE POP-UP (his mock-up, 2026-10-18): one column as wide as the planet frame — the two focus widgets on top, equal, the planet
    frame always the HUGE world's outline (a smaller world sits centred inside it), the eon's output under it */
-.pop { width: 656px; max-width: 100%; display: grid; gap: 12px; margin-top: 12px }
+.popwrap { display: grid; grid-template-columns: 656px 232px; gap: 12px; align-items: start; margin-top: 12px; max-width: 100% }
+.pop { width: 656px; max-width: 100%; display: grid; gap: 12px }
+/* THE PRODUCTION QUEUE (his ask, 2026-10-18): a column on the right, two cells wide — a card per project: the picture top-left,
+   the name and the numbers top-right, a progress bar under both; the top card is the one being built; drag to re-order */
+.queue { display: grid; gap: 6px; align-content: start }
+.queue h2 { margin: 0 }
+.qcard { display: grid; grid-template-columns: 64px 1fr; grid-template-rows: auto auto; gap: 4px 8px; border: 1px solid var(--line); border-radius: 8px; padding: 6px; background: var(--panel2); cursor: grab; position: relative }
+.qcard.top { border-color: var(--good) }
+.qcard.drag { opacity: .4 }
+.qcard.over { outline: 2px dashed var(--accent); outline-offset: 2px }
+.qimg { height: 56px; display: flex; align-items: center; justify-content: center; font-size: 30px; background: #0b1120; border-radius: 6px }
+.qinfo { font-size: 11px; color: var(--muted); line-height: 1.35; min-width: 0 }
+.qinfo b { color: var(--fg); font-size: 12px; display: block; padding-right: 46px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.qbtns { position: absolute; right: 6px; top: 6px; display: flex; gap: 3px }
+.qbtns button { padding: 1px 6px; font-size: 12px; line-height: 1.3 }
+.qbar { grid-column: 1 / -1; height: 8px; background: rgba(255,255,255,.07); border-radius: 4px; overflow: hidden }
+.qbar div { height: 100%; background: var(--c, var(--accent)) }
+.qmenu { display: grid; gap: 3px; border: 1px solid var(--line); border-radius: 8px; padding: 6px; background: #04070f }
+.qmenu button { text-align: left; padding: 5px 8px; font-size: 12px; font-weight: 500; display: flex; justify-content: space-between; gap: 6px }
+.qmenu button small { color: var(--muted) }
+@media (max-width: 920px) { .popwrap { grid-template-columns: 1fr } }
 .pophead { display: flex; justify-content: space-between; align-items: baseline; padding: 0 4px }
 .pophead b { font-size: 20px; font-weight: 700 }
 .pophead span { font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: .04em }
@@ -61,6 +81,7 @@ canvas { display: block; border-radius: 8px }
   </div>
   <div class="tiny" style="margin-top:6px">Click a cell to PLAN it (cycles industry → food → housing → science → pairs → any); shift-click = land there instead (resets). ⛏ deposits · 🌾 fertile · ☼ calm · ✦ anomaly. ⚒ where the next slot goes, ✕ a slot being torn down. Hover a focus widget for why a corner is rounded. Space runs, → steps.</div>
 </div>
+<div class="popwrap">
 <div class="pop">
   <div class="pophead"><b id="cname">Colony name</b><span id="cmeta"></span></div>
   <div class="row2">
@@ -69,6 +90,8 @@ canvas { display: block; border-radius: 8px }
   </div>
   <div class="card" style="padding:12px"><canvas id="map"></canvas></div>
   <div class="card" id="out"></div>
+</div>
+<div class="card queue" id="queue"></div>
 </div>
 <div class="card" style="margin-top:12px;width:656px;max-width:100%"><h2>Log</h2><div id="log"></div></div>
 <div id="tip"></div>

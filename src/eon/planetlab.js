@@ -18,7 +18,49 @@ function reset(landing = null) {
   const cv = $('map'); cv.width = FRAME.w * (CELL + GAP) + GAP; cv.height = FRAME.h * (CELL + GAP) + GAP;   // the frame never changes: the huge world's
   render();
 }
-function step() { endEon(C); render(); }
+// ---- THE PRODUCTION QUEUE (his ask): what the colony's industry builds — ships, platforms, a dock; the surface builds itself from
+// development. Serial: the top card takes the eon's industry, what it does not need flows to the next, what no card needs becomes
+// credits. `lanes` 2 splits the industry between the top two (his open question: "work on a couple of things at the same time").
+// A prototype with a mock catalogue — in the game the catalogue is the empire's designs and the costs theirs.
+const CATALOG = [
+  { id: 'survey', name: 'Survey ship', kind: 'ship', cost: 160, icon: '🛸' }, { id: 'settler', name: 'Settler', kind: 'ship', cost: 420, icon: '🚀' },
+  { id: 'corvette', name: 'Corvette', kind: 'ship', cost: 350, icon: '🚀' }, { id: 'raider', name: 'Raider', kind: 'ship', cost: 524, icon: '🚀' },
+  { id: 'carrier', name: 'Carrier', kind: 'ship', cost: 313, icon: '🚀' }, { id: 'warship', name: 'Warship', kind: 'ship', cost: 2286, icon: '🚀' },
+  { id: 'platform', name: 'Orbital platform', kind: 'platform', cost: 900, icon: '🛰' }, { id: 'dock', name: 'Space dock', kind: 'dock', cost: 1500, icon: '🏭' },
+];
+let Q = [], qid = 1, addOpen = false, lanes = 1, lastQ = { spent: 0, left: 0 }, dragId = null;
+function queueEon(industry) {
+  let left = industry; const n = Math.min(lanes, Q.length);
+  if (n) {
+    const share = industry / n, pool = [];                                   // each lane gets its share; what a lane does not need goes back to the pool for the next cards
+    for (let i = 0; i < n; i++) pool.push(share); left = 0;
+    for (let i = 0; i < Q.length && pool.length; i++) { const it = Q[i]; let got = pool.shift(); while (got > 0 && it.count > 0) { const need = it.cost - it.progress, put = Math.min(need, got); it.progress += put; got -= put; if (it.progress >= it.cost - 1e-9) { it.progress = 0; it.count--; it.built = (it.built || 0) + 1; LOG.unshift(`<div><b>eon ${C.eon + 1}</b> · <b style="color:var(--good)">${it.name}</b> built${it.count > 0 ? ` — ${it.count} more in the queue` : ''}</div>`); } } if (got > 0) pool.push(got); }
+    left = pool.reduce((a, b) => a + b, 0);
+    Q = Q.filter(it => it.count > 0);
+  }
+  return { spent: industry - left, left };
+}
+function step() { const r = C.last; lastQ = queueEon(r.industry); endEon(C); render(); }
+const qAdd = id => { const d = CATALOG.find(x => x.id === id), same = Q.find(it => it.id === id && it === Q[Q.length - 1]); if (same) same.count++; else Q.push({ uid: qid++, id: d.id, name: d.name, kind: d.kind, cost: d.cost, icon: d.icon, progress: 0, count: 1 }); };
+function renderQueue() {
+  const r = C.last, ind = Math.max(0.01, r.industry), L = Math.max(1, Math.min(lanes, Q.length)), rate = ind / L; let ahead = 0;
+  const cards = Q.map((it, i) => {
+    // when it is ready: a card in a lane builds now; one behind waits its share of what is ahead of it (a lane's worth), then builds at a lane's rate
+    const remaining = it.cost * it.count - it.progress, wait = i < L ? 0 : ahead / L, first = Math.ceil((wait + it.cost - it.progress) / rate), eta = Math.ceil((wait + remaining) / rate); ahead += remaining;
+    const col = it.kind === 'dock' ? FACTOR_COLOR.industry : it.kind === 'platform' ? FACTOR_COLOR.science : 'var(--accent)';
+    return `<div class="qcard ${i < lanes ? 'top' : ''}" draggable="true" data-q="${it.uid}" style="--c:${col}" title="drag to change its place in the line">
+      <div class="qimg">${it.icon}</div>
+      <div class="qinfo"><b>${it.name}${it.count > 1 ? ` <span style="color:var(--warn)">×${it.count}</span>` : ''}</b>${it.cost} ⚙ each${i < lanes ? ` · <span style="color:var(--good)">building</span>` : ' · waiting'}<br>${it.count > 1 ? `first in ${first} eon${first === 1 ? '' : 's'}, all in ${eta}` : `ready in ${eta} eon${eta === 1 ? '' : 's'}`}</div>
+      <div class="qbtns"><button class="x" data-qplus="${it.uid}" title="one more">＋</button><button class="x" data-qdel="${it.uid}" title="drop it">✕</button></div>
+      <div class="qbar"><div style="width:${Math.round(100 * it.progress / it.cost)}%"></div></div></div>`;
+  }).join('');
+  $('queue').innerHTML = `<h2>Production</h2>
+    <button class="go" id="qadd">＋ Add construction project</button>
+    ${addOpen ? `<div class="qmenu">${CATALOG.map(d => `<button data-qcat="${d.id}"><span>${d.icon} ${d.name}</span><small>${d.cost} ⚙</small></button>`).join('')}</div>` : ''}
+    ${cards || '<div class="tiny">Nothing in the line — the industry turns into credits.</div>'}
+    <div class="tiny" style="margin-top:4px">This eon: ${Math.round(lastQ.spent)} ⚙ into the line, ${Math.round(lastQ.left)} ⚙ to credits.</div>
+    <label class="tiny" style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="qlanes" ${lanes > 1 ? 'checked' : ''}> work on the top two at once (the industry split)</label>`;
+}
 function run(on) { if (timer) { clearInterval(timer); timer = null; } if (on) timer = setInterval(step, 1000 / +$('speed').value); $('run').textContent = timer ? 'Pause ▮▮' : 'Run ▸▸'; $('run').classList.toggle('on', !!timer); }
 // a smaller world sits centred in the frame
 const origin = () => [Math.round((FRAME.w - C.w) / 2 * (CELL + GAP)), Math.round((FRAME.h - C.h) / 2 * (CELL + GAP))];
@@ -116,7 +158,8 @@ const bar = (name, val, max, col, text) => `<div class="bar"><span style="color:
 function renderOut() {
   const r = C.last, next = building(C), full = C.cells.every(c => c.slots.length >= SLOT.per);
   const plates = Math.ceil(r.eat / 20), fedPlates = Math.min(plates, Math.ceil(Math.min(r.food, r.eat) / 20)), grain = Math.floor(Math.max(0, r.food - r.eat) / 20);
-  const gears = Math.round(r.industry / 10), coins = gears, sci = Math.round(r.science / 10), hammers = Math.round(r.dev);
+  const gears = Math.round(r.industry / 10), sci = Math.round(r.science / 10), hammers = Math.round(r.dev);
+  if (!Q.length) lastQ = { spent: 0, left: r.industry };
   const cellName = i => xy(C, i).map(v => v + 1).join(',');
   const nextLine = !next ? (full ? `the planet is full and in balance — ${n0(r.hands.development)} M builders stand idle, move the triangle` : 'nothing to build') : next.demolish
     ? `tearing down a <b style="color:${FACTOR_COLOR[next.demolish]}">${KIND_WORD[next.demolish]}</b> slot in cell ${cellName(next.cell)} (${DEV.demolish} pts, ${r.dev > 0 ? Math.max(1, Math.ceil((DEV.demolish - C.progress) / r.dev)) + ' eon(s)' : 'nobody works'}), then <b style="color:${FACTOR_COLOR[next.kind]}">${KIND_WORD[next.kind]}</b> goes up in its place (${DEV.cost} pts)`
@@ -126,7 +169,7 @@ function renderOut() {
     ${bar('food', Math.min(r.food, r.eat), r.eat, FACTOR_COLOR.food, `${n0(r.food)} / ${n0(r.eat)} M <span class="tiny">fed / eat</span>`)}
     <div class="icons" title="a plate = 20 M people eating (dim: unfed); a sheaf = 20 M more fed than live here — a surplus for the colonies round it (logistics, later)">${rep('🍽', fedPlates)}<span class="dim">${rep('🍽', plates - fedPlates)}</span> ${rep('🌾', grain, 30)}${r.fed < 1 ? ` <b style="color:var(--bad);font-size:12px">hungry — works at ${Math.round(r.hungry * 100)} %</b>` : ''}</div>
     ${bar('industry', r.industry, r.cap.industry, FACTOR_COLOR.industry, `${n0(r.industry)} <span class="tiny">${n0(r.hands.industry)} M hands / ${n0(r.cap.industry)} M works</span>`)}
-    <div class="icons" title="a gear = 10 M at the works; money = 10 M of industry no build queue takes — it turns into credits">${rep('⚙', gears)} <span style="color:var(--muted)">→</span> ${rep('💰', coins)}<span class="tiny"> credits (nothing queued here)</span></div>
+    <div class="icons" title="a gear = 10 M at the works; a wrench = 10 of it into the production line; money = what no project takes — it turns into credits">${rep('⚙', gears)} <span style="color:var(--muted)">→</span> ${rep('🔧', Math.round(lastQ.spent / 10))}${rep('💰', Math.round(lastQ.left / 10))}<span class="tiny"> ${Q.length ? `${Math.round(lastQ.spent)} to the line · ${Math.round(lastQ.left)} credits` : 'credits (nothing in the line)'}</span></div>
     ${bar('science', r.science, r.cap.science, FACTOR_COLOR.science, `${n0(r.science)} <span class="tiny">${n0(r.hands.research)} M / ${n0(r.cap.science)} M labs</span>`)}
     <div class="icons" title="a microscope or a tube = 10 M at the labs">${Array.from({ length: Math.min(40, sci) }, (_, i) => i % 2 ? '🧪' : '🔬').join('')}</div>
     ${bar('building', C.progress, next && next.demolish ? DEV.demolish : DEV.cost, '#f5a3c7', `${(r.dev).toFixed(1)} <span class="tiny">pts/eon · ${n0(r.hands.development)} M builders</span>`)}
@@ -139,7 +182,25 @@ function renderLog() {
   for (const e of C.log || []) LOG.unshift(e.kind === 'slot' ? `<div><b>eon ${C.eon}</b> · a <b style="color:${FACTOR_COLOR[e.slot]}">${KIND_WORD[e.slot]}</b> slot in cell ${xy(C, e.cell).map(v => v + 1).join(',')}${C.cells[e.cell].slots.length === SLOT.per ? ' — the cell is full' : ''}</div>` : `<div><b>eon ${C.eon}</b> · cell ${xy(C, e.cell).map(v => v + 1).join(',')}: a <span style="color:${FACTOR_COLOR[e.slot]}">${KIND_WORD[e.slot]}</span> slot torn down — <b style="color:${FACTOR_COLOR[e.to]}">${KIND_WORD[e.to]}</b> goes up in its place</div>`);
   C.log = []; LOG.length = Math.min(LOG.length, 60); $('log').innerHTML = LOG.join('') || '<div class="tiny">Nothing built yet.</div>';
 }
-function render() { drawMap(); drawRect(); drawTri(); renderOut(); renderLog(); }
+function render() { drawMap(); drawRect(); drawTri(); renderOut(); renderQueue(); renderLog(); }
+// the queue's clicks and drags (delegated: the column is re-rendered every eon)
+$('queue').addEventListener('click', e => {
+  const t = e.target.closest('button, input'); if (!t) return;
+  if (t.id === 'qadd') { addOpen = !addOpen; return renderQueue(); }
+  if (t.dataset.qcat) { qAdd(t.dataset.qcat); addOpen = false; return render(); }
+  if (t.dataset.qplus) { const it = Q.find(x => x.uid === +t.dataset.qplus); if (it) it.count++; return render(); }
+  if (t.dataset.qdel) { Q = Q.filter(x => x.uid !== +t.dataset.qdel); return render(); }
+  if (t.id === 'qlanes') { lanes = t.checked ? 2 : 1; return render(); }
+});
+$('queue').addEventListener('dragstart', e => { const c = e.target.closest('.qcard'); if (!c) return; dragId = +c.dataset.q; c.classList.add('drag'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(dragId)); });
+$('queue').addEventListener('dragover', e => { const c = e.target.closest('.qcard'); if (!c || dragId == null) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; document.querySelectorAll('.qcard.over').forEach(x => x.classList.remove('over')); c.classList.add('over'); });
+$('queue').addEventListener('dragleave', e => { const c = e.target.closest('.qcard'); if (c) c.classList.remove('over'); });
+$('queue').addEventListener('drop', e => {
+  const c = e.target.closest('.qcard'); if (!c || dragId == null) return; e.preventDefault();
+  const from = Q.findIndex(x => x.uid === dragId), to = Q.findIndex(x => x.uid === +c.dataset.q); if (from < 0 || to < 0 || from === to) { dragId = null; return render(); }
+  const [it] = Q.splice(from, 1); Q.splice(to, 0, it); dragId = null; render();   // dropped on a card: it takes that card's place, the rest shift
+});
+$('queue').addEventListener('dragend', () => { dragId = null; document.querySelectorAll('.qcard.drag, .qcard.over').forEach(x => x.classList.remove('drag', 'over')); });
 
 // ---- input
 const cellAt = e => { const cv = $('map'), b = cv.getBoundingClientRect(), [ox, oy] = origin(), lx = e.clientX - b.left - ox - GAP, ly = e.clientY - b.top - oy - GAP, x = Math.floor(lx / (CELL + GAP)), y = Math.floor(ly / (CELL + GAP)); return lx >= 0 && ly >= 0 && x < C.w && y < C.h && lx % (CELL + GAP) < CELL && ly % (CELL + GAP) < CELL ? y * C.w + x : -1; };
@@ -160,7 +221,7 @@ window.addEventListener('scroll', () => { $('tip').style.display = 'none'; }, { 
 const drag = (cv, fn) => { let on = false; const at = e => { const b = cv.getBoundingClientRect(); return [e.clientX - b.left, e.clientY - b.top]; }; cv.addEventListener('pointerdown', e => { on = true; cv.setPointerCapture(e.pointerId); fn(...at(e)); render(); }); cv.addEventListener('pointermove', e => { if (on) { fn(...at(e)); render(); } }); cv.addEventListener('pointerup', () => { on = false; }); };
 drag($('rect'), (px, py) => { const S = $('rect').width - 2 * RM; C.dot = { x: Math.max(0, Math.min(1, (px - RM) / S)), y: Math.max(0, Math.min(1, (py - RM) / S)) }; });
 drag($('tri'), (px, py) => { C.tri = triFromPoint(px, py); });
-$('reset').addEventListener('click', () => { run(false); LOG.length = 0; reset(); });
+$('reset').addEventListener('click', () => { run(false); LOG.length = 0; Q = []; reset(); });
 $('step').addEventListener('click', step);
 $('run').addEventListener('click', () => run(!timer));
 $('speed').addEventListener('change', () => { if (timer) run(true); });
@@ -170,4 +231,4 @@ $('depth').addEventListener('input', depth);
 window.addEventListener('keydown', e => { if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return; if (e.key === ' ') { e.preventDefault(); run(!timer); } else if (e.key === 'ArrowRight') step(); });
 $('size').innerHTML = Object.entries(SIZES).map(([k, s]) => `<option value="${k}" ${s === LARGEST ? 'selected' : ''}>${s.w} × ${s.h} · ${s.name} (${s.w * s.h * SLOT.per} slots)</option>`).join('');   // the whole ladder
 depth(); reset();
-window.sbsPlanet = { get C() { return C; }, step, reset, compute, weightsOf, counts };
+window.sbsPlanet = { get C() { return C; }, get Q() { return Q; }, step, reset, compute, weightsOf, counts, qAdd, render };
