@@ -1,13 +1,11 @@
 // THE PLANET SANDBOX (planet.html): colony.js alone, to play with before it goes into the game — laid out as the planet POP-UP he
 // drew (2026-10-18): the two focus widgets on top, equal; the planet in a frame that is always the HUGE world's outline (a smaller
 // world sits centred in it); the eon's output under it as bars and icon rows. The fillet's reasons live on the widgets' hover.
-import { newColony, endEon, compute, effectiveDot, weightsOf, filletR, filletWhy, building, counts, normTri, xy, SLOT, DEV, FILLET, TRAITS, TRAIT_GLYPH, TRAIT, TRI, FACTORS, FACTOR_COLOR, KIND_WORD } from './colony.js';
+import { newColony, endEon, compute, weightsOf, filletWhy, building, counts, normTri, xy, SLOT, DEV, FILLET, TRAITS, TRAIT, FACTORS, FACTOR_COLOR, KIND_WORD } from './colony.js';
 import { SIZES, LARGEST } from './districts.js';
+import { drawSurface, drawRect as drawRectV, drawTri as drawTriV, triFromPoint, dotFromPoint, toCanvas, cellAt as cellAtV, mapSize, nextPlan } from './colonyview.js';
 
 const $ = id => document.getElementById(id);
-const CELL = 100, GAP = 4, FRAME = LARGEST, PLAN_CYCLE = [null, ['industry'], ['food'], ['housing'], ['science'], ['industry', 'housing'], ['food', 'science']];
-const TRI_COLOR = { industry: '#ffb347', research: '#4fa3ff', development: '#f5a3c7' };   // his palette: research blue as science, development pink as housing
-const RM = 30;                                       // the rectangle's margin inside its canvas
 let C = null, timer = null, hoverCell = -1;
 
 function reset(landing = null) {
@@ -15,7 +13,7 @@ function reset(landing = null) {
   C = newColony({ w: g.w, h: g.h, seed: $('seed').value || 'home', home, people: home ? 100 : 12, landing, dot: C ? C.dot : { x: 0.5, y: 0.5 }, tri: C ? C.tri : undefined });
   const name = ($('seed').value || 'home').trim(); $('cname').textContent = name.charAt(0).toUpperCase() + name.slice(1);
   $('cmeta').textContent = `${home ? 'HOMEWORLD' : 'COLONY'}   SIZE: ${g.name.toUpperCase()} ${g.w} × ${g.h}`;
-  const cv = $('map'); cv.width = FRAME.w * (CELL + GAP) + GAP; cv.height = FRAME.h * (CELL + GAP) + GAP;   // the frame never changes: the huge world's
+  const cv = $('map'); [cv.width, cv.height] = mapSize();   // the frame never changes: the huge world's
   render();
 }
 // ---- THE PRODUCTION QUEUE (his ask): what the colony's industry builds — ships, platforms, a dock; the surface builds itself from
@@ -63,94 +61,9 @@ function renderQueue() {
     <label class="tiny" style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="qlanes" ${lanes > 1 ? 'checked' : ''}> work on the top two at once (the industry split)</label>`;
 }
 function run(on) { if (timer) { clearInterval(timer); timer = null; } if (on) timer = setInterval(step, 1000 / +$('speed').value); $('run').textContent = timer ? 'Pause ▮▮' : 'Run ▸▸'; $('run').classList.toggle('on', !!timer); }
-// a smaller world sits centred in the frame
-const origin = () => [Math.round((FRAME.w - C.w) / 2 * (CELL + GAP)), Math.round((FRAME.h - C.h) / 2 * (CELL + GAP))];
-
-// ---- the map: cells as 2 × 2 slot quarters, each kind its colour and a little glyph pattern (a placeholder tapestry until his sprites)
-function drawMap() {
-  const cv = $('map'), g = cv.getContext('2d'), next = building(C), [ox, oy] = origin();
-  g.clearRect(0, 0, cv.width, cv.height);
-  if (C.w < FRAME.w || C.h < FRAME.h) { g.strokeStyle = 'rgba(255,255,255,.06)'; g.setLineDash([4, 6]); g.strokeRect(ox + GAP - 2.5, oy + GAP - 2.5, C.w * (CELL + GAP) - GAP + 5, C.h * (CELL + GAP) - GAP + 5); g.setLineDash([]); }
-  C.cells.forEach((cell, i) => {
-    const [x, y] = xy(C, i), px = ox + GAP + x * (CELL + GAP), py = oy + GAP + y * (CELL + GAP), started = cell.slots.length > 0;
-    g.fillStyle = started ? '#0f1726' : '#090d18'; g.fillRect(px, py, CELL, CELL);
-    const half = CELL / 2, spots = [[0, 0], [half, 0], [0, half], [half, half]];
-    for (let s = 0; s < SLOT.per; s++) {
-      const [sx, sy] = spots[s], kind = cell.slots[s];
-      if (kind) {
-        g.fillStyle = FACTOR_COLOR[kind]; g.globalAlpha = 0.28; g.fillRect(px + sx + 2, py + sy + 2, half - 4, half - 4); g.globalAlpha = 1; glyph(g, kind, px + sx + 2, py + sy + 2, half - 4);
-        if (next && next.demolish && next.cell === i && s === next.slot) {   // being torn down: a red cross over it, the progress toward the demolition
-          const p = Math.min(1, C.progress / DEV.demolish); g.fillStyle = 'rgba(255,121,121,.35)'; g.fillRect(px + sx + 2, py + sy + 2, (half - 4) * p, half - 4);
-          g.strokeStyle = '#ff7979'; g.setLineDash([3, 3]); g.strokeRect(px + sx + 3.5, py + sy + 3.5, half - 7, half - 7); g.setLineDash([]);
-          g.fillStyle = '#ff7979'; g.font = 'bold 20px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('✕', px + sx + half / 2, py + sy + half / 2 + 1);
-        }
-      }
-      else if (next && !next.demolish && next.cell === i && s === cell.slots.length) {   // the crane: the next slot being built, its kind's colour, filled by the progress
-        g.strokeStyle = FACTOR_COLOR[next.kind]; g.setLineDash([3, 3]); g.strokeRect(px + sx + 3.5, py + sy + 3.5, half - 7, half - 7); g.setLineDash([]);
-        const p = Math.min(1, C.progress / DEV.cost); g.fillStyle = FACTOR_COLOR[next.kind]; g.globalAlpha = 0.35; g.fillRect(px + sx + 4, py + sy + half - 4 - (half - 8) * p, half - 8, (half - 8) * p); g.globalAlpha = 1;
-        g.fillStyle = FACTOR_COLOR[next.kind]; g.font = '18px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('⚒', px + sx + half / 2, py + sy + half / 2 + 1);
-      } else if (started) { g.strokeStyle = 'rgba(255,255,255,.08)'; g.strokeRect(px + sx + 3.5, py + sy + 3.5, half - 7, half - 7); }
-    }
-    // the frame: planned cells carry their kinds' colours; a pure full cell a warning; the landing a ring
-    g.lineWidth = cell.plan ? 2 : 1; g.strokeStyle = cell.plan ? FACTOR_COLOR[cell.plan[0]] : started ? 'rgba(126,243,176,.45)' : 'rgba(255,255,255,.1)'; g.strokeRect(px + 0.5, py + 0.5, CELL - 1, CELL - 1); g.lineWidth = 1;
-    if (cell.plan) { g.fillStyle = '#04070f'; g.fillRect(px + 2, py + CELL - 16, 15 + 10 * (cell.plan.length - 1), 14); g.font = 'bold 11px system-ui'; g.textAlign = 'left'; g.textBaseline = 'alphabetic'; cell.plan.forEach((k, j) => { g.fillStyle = FACTOR_COLOR[k]; g.fillText(KIND_WORD[k][0].toUpperCase(), px + 4 + j * 10, py + CELL - 5); }); }
-    if (cell.trait !== 'none') { g.font = '14px system-ui'; g.textAlign = 'right'; g.textBaseline = 'alphabetic'; g.fillStyle = FACTOR_COLOR[TRAITS[cell.trait]]; g.fillText(TRAIT_GLYPH[cell.trait], px + CELL - 4, py + 15); }
-    if (i === C.landing) { g.strokeStyle = '#fff'; g.beginPath(); g.arc(px + CELL / 2, py + CELL / 2, 5, 0, 6.283); g.stroke(); }
-    if (cell.slots.length === SLOT.per && new Set(cell.slots).size === 1) { g.fillStyle = 'rgba(255,121,121,.9)'; g.font = '10px system-ui'; g.textAlign = 'left'; g.textBaseline = 'alphabetic'; g.fillText('pure', px + 3, py + 12); }
-    if (i === hoverCell) { g.strokeStyle = '#fff'; g.strokeRect(px + 1.5, py + 1.5, CELL - 3, CELL - 3); }
-  });
-}
-// a kind's little pattern inside a slot (drawn for 34 px, scaled to the slot): chimneys, furrows, blocks, a dome
-function glyph(g, kind, x, y, s) {
-  g.save(); g.translate(x, y); g.scale(s / 34, s / 34);
-  g.fillStyle = FACTOR_COLOR[kind]; g.strokeStyle = FACTOR_COLOR[kind]; g.globalAlpha = 0.9; g.lineWidth = 1;
-  if (kind === 'industry') { for (let k = 0; k < 3; k++) g.fillRect(5 + k * 9, 34 - 6 - (k === 1 ? 14 : 9), 4, k === 1 ? 14 : 9); g.fillRect(3, 34 - 6, 28, 2); }
-  else if (kind === 'food') { for (let k = 0; k < 4; k++) { g.beginPath(); g.moveTo(4, 6 + k * 6); g.lineTo(30, 6 + k * 6); g.stroke(); } }
-  else if (kind === 'housing') { for (let k = 0; k < 2; k++) for (let j = 0; j < 3; j++) g.fillRect(5 + j * 9, 6 + k * 11, 6, 8); }
-  else { g.beginPath(); g.arc(17, 19, 10.6, Math.PI, 0); g.fill(); g.fillRect(6, 19, 22, 2); }
-  g.restore();
-}
-// ---- the rectangle: the four corners, the rounded shape the fillet leaves, the wish (hollow) and the effective dot (solid)
-function drawRect() {
-  const cv = $('rect'), g = cv.getContext('2d'), M = RM, S = cv.width - 2 * M, X = v => M + v * S, Y = v => M + v * S;
-  g.clearRect(0, 0, cv.width, cv.height);
-  const r = Object.fromEntries(FACTORS.map(k => [k, filletR(C, k)]));
-  g.beginPath();
-  g.moveTo(X(r.industry), Y(0)); g.lineTo(X(1 - r.food), Y(0)); if (r.food) g.arc(X(1 - r.food), Y(r.food), r.food * S, -Math.PI / 2, 0);
-  g.lineTo(X(1), Y(1 - r.science)); if (r.science) g.arc(X(1 - r.science), Y(1 - r.science), r.science * S, 0, Math.PI / 2);
-  g.lineTo(X(r.housing), Y(1)); if (r.housing) g.arc(X(r.housing), Y(1 - r.housing), r.housing * S, Math.PI / 2, Math.PI);
-  g.lineTo(X(0), Y(r.industry)); if (r.industry) g.arc(X(r.industry), Y(r.industry), r.industry * S, Math.PI, Math.PI * 1.5);
-  g.closePath();
-  const grad = g.createLinearGradient(X(0), Y(0), X(1), Y(1)); grad.addColorStop(0, 'rgba(255,179,71,.18)'); grad.addColorStop(1, 'rgba(79,163,255,.18)');
-  g.fillStyle = grad; g.fill(); g.strokeStyle = 'rgba(255,255,255,.35)'; g.lineWidth = 1.5; g.stroke(); g.lineWidth = 1;
-  g.font = 'bold 12px system-ui'; g.textBaseline = 'middle';
-  const lab = (k, x, y, align) => { g.fillStyle = FACTOR_COLOR[k]; g.textAlign = align; g.fillText(KIND_WORD[k] + (C.sup[k] < 0.97 ? ' ' + Math.round(C.sup[k] * 100) + '%' : ''), x, y); };
-  lab('industry', X(0), Y(0) - 14, 'left'); lab('food', X(1), Y(0) - 14, 'right'); lab('housing', X(0), Y(1) + 14, 'left'); lab('science', X(1), Y(1) + 14, 'right');
-  const w = C.dot, e = effectiveDot(C);
-  if (Math.hypot(w.x - e.x, w.y - e.y) > 0.002) { g.strokeStyle = 'rgba(255,255,255,.4)'; g.setLineDash([2, 3]); g.beginPath(); g.moveTo(X(w.x), Y(w.y)); g.lineTo(X(e.x), Y(e.y)); g.stroke(); g.setLineDash([]); }
-  g.strokeStyle = '#fff'; g.beginPath(); g.arc(X(w.x), Y(w.y), 6, 0, 6.283); g.stroke();
-  g.fillStyle = '#fff'; g.beginPath(); g.arc(X(e.x), Y(e.y), 5, 0, 6.283); g.fill();
-  cv.title = FACTORS.map(k => filletWhy(C, k, C.last)).join('\n');   // why a corner is rounded: on the hover, not on the page (his call)
-}
-// ---- the triangle: industry left, research right, development top
-const TRI_PTS = { industry: [28, 222], research: [222, 222], development: [125, 34] };
-function drawTri() {
-  const cv = $('tri'), g = cv.getContext('2d'); g.clearRect(0, 0, cv.width, cv.height);
-  const P = TRI_PTS; g.beginPath(); g.moveTo(...P.industry); g.lineTo(...P.research); g.lineTo(...P.development); g.closePath();
-  g.fillStyle = 'rgba(255,255,255,.05)'; g.fill(); g.strokeStyle = 'rgba(255,255,255,.35)'; g.stroke();
-  const t = normTri(C.tri), x = TRI.reduce((a, k) => a + t[k] * P[k][0], 0), y = TRI.reduce((a, k) => a + t[k] * P[k][1], 0);
-  g.font = 'bold 12px system-ui'; g.textBaseline = 'middle';
-  g.fillStyle = TRI_COLOR.industry; g.textAlign = 'left'; g.fillText(`industry ${Math.round(t.industry * 100)}%`, 6, 238);
-  g.fillStyle = TRI_COLOR.research; g.textAlign = 'right'; g.fillText(`research ${Math.round(t.research * 100)}%`, 244, 238);
-  g.fillStyle = TRI_COLOR.development; g.textAlign = 'center'; g.fillText(`development ${Math.round(t.development * 100)}%`, 125, 16);
-  g.fillStyle = '#fff'; g.beginPath(); g.arc(x, y, 5, 0, 6.283); g.fill();
-  const r = C.last; cv.title = `industry ${Math.round(r.hands.industry)} M hands for ${Math.round(r.cap.industry)} M of works · research ${Math.round(r.hands.research)} M for ${Math.round(r.cap.science)} M of labs · ${Math.round(r.hands.development)} M builders → ${r.dev.toFixed(1)} points an eon`;
-}
-function triFromPoint(px, py) {                     // barycentric, clamped into the triangle
-  const [ax, ay] = TRI_PTS.industry, [bx, by] = TRI_PTS.research, [cx, cy] = TRI_PTS.development, det = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
-  let a = ((by - cy) * (px - cx) + (cx - bx) * (py - cy)) / det, b = ((cy - ay) * (px - cx) + (ax - cx) * (py - cy)) / det, c = 1 - a - b;
-  a = Math.max(0, a); b = Math.max(0, b); c = Math.max(0, c); const s = a + b + c || 1; return { industry: a / s, research: b / s, development: c / s };
-}
+function drawMap() { drawSurface($('map'), C, { next: building(C), hover: hoverCell }); }
+function drawRect() { const cv = $('rect'); drawRectV(cv, C); cv.title = FACTORS.map(k => filletWhy(C, k, C.last)).join('\n'); }   // why a corner is rounded: on the hover, not on the page (his call)
+function drawTri() { const cv = $('tri'); drawTriV(cv, C.tri); const r = C.last; cv.title = `industry ${Math.round(r.hands.industry)} M hands for ${Math.round(r.cap.industry)} M of works · research ${Math.round(r.hands.research)} M for ${Math.round(r.cap.science)} M of labs · ${Math.round(r.hands.development)} M builders → ${r.dev.toFixed(1)} points an eon`; }
 // ---- the output of the eon: bars and ICON ROWS (his ask): plates = people eating (dim: unfed), sheaves = food past the mouths here
 // (a surplus for the colonies round it — logistics, later); gears = industry, money = what no build queue takes (here all of it: the
 // sandbox builds no ships); microscopes and tubes = science; hammers = the builders' work an eon
@@ -207,13 +120,11 @@ $('queue').addEventListener('drop', e => {
 $('queue').addEventListener('dragend', () => { dragId = null; document.querySelectorAll('.qcard.drag, .qcard.over').forEach(x => x.classList.remove('drag', 'over')); });
 
 // ---- input
-// the canvases are drawn at full size and SHOWN to fit (the line keeps its place on the right): a mouse position scales back to drawing pixels
-const toCanvas = (cv, e) => { const b = cv.getBoundingClientRect(); return [(e.clientX - b.left) * cv.width / b.width, (e.clientY - b.top) * cv.height / b.height]; };
-const cellAt = e => { const cv = $('map'), [mx, my] = toCanvas(cv, e), [ox, oy] = origin(), lx = mx - ox - GAP, ly = my - oy - GAP, x = Math.floor(lx / (CELL + GAP)), y = Math.floor(ly / (CELL + GAP)); return lx >= 0 && ly >= 0 && x < C.w && y < C.h && lx % (CELL + GAP) < CELL && ly % (CELL + GAP) < CELL ? y * C.w + x : -1; };
+const cellAt = e => cellAtV($('map'), C, e);
 $('map').addEventListener('click', e => {
   const i = cellAt(e); if (i < 0) return;
   if (e.shiftKey) { reset(i); return; }
-  const cell = C.cells[i], at = PLAN_CYCLE.findIndex(p => JSON.stringify(p) === JSON.stringify(cell.plan)); cell.plan = PLAN_CYCLE[(at + 1) % PLAN_CYCLE.length]; render();
+  C.cells[i].plan = nextPlan(C.cells[i].plan); render();
 });
 $('map').addEventListener('mousemove', e => {
   const i = cellAt(e); if (i !== hoverCell) { hoverCell = i; drawMap(); } const tip = $('tip');
@@ -225,7 +136,7 @@ $('map').addEventListener('mousemove', e => {
 $('map').addEventListener('mouseleave', () => { hoverCell = -1; $('tip').style.display = 'none'; drawMap(); });
 window.addEventListener('scroll', () => { $('tip').style.display = 'none'; }, { passive: true });
 const drag = (cv, fn) => { let on = false; const at = e => toCanvas(cv, e); cv.addEventListener('pointerdown', e => { on = true; cv.setPointerCapture(e.pointerId); fn(...at(e)); render(); }); cv.addEventListener('pointermove', e => { if (on) { fn(...at(e)); render(); } }); cv.addEventListener('pointerup', () => { on = false; }); };
-drag($('rect'), (px, py) => { const S = $('rect').width - 2 * RM; C.dot = { x: Math.max(0, Math.min(1, (px - RM) / S)), y: Math.max(0, Math.min(1, (py - RM) / S)) }; });
+drag($('rect'), (px, py) => { C.dot = dotFromPoint($('rect'), px, py); });
 drag($('tri'), (px, py) => { C.tri = triFromPoint(px, py); });
 $('reset').addEventListener('click', () => { run(false); LOG.length = 0; Q = []; reset(); });
 $('step').addEventListener('click', step);

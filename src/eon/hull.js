@@ -7,7 +7,7 @@
 // Silhouettes are built in (below) or drawn by the player in the editor and kept in a library.
 import { PACK } from './hullpack.js';
 export const HULL_VOLUME = 32;                 // volume per square of silhouette
-export const HULL_CLASSES = { starship: 'Starship', platform: 'Platform', structure: 'Structure', dock: 'Space dock' };
+export const HULL_CLASSES = { starship: 'Starship', platform: 'Platform', structure: 'District', dock: 'Space dock' };
 
 // symmetric shapes: give one half, get the whole
 const mirrorY = top => [...top, ...top.slice(1, -1).reverse().map(([x, y]) => [x, -y])];        // across the spine

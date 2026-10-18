@@ -7,7 +7,6 @@
 // empire standing has the galaxy. No roaming hostile fleets in a world: the empires are the enemy. Every empire also gets
 // `S.others`: where the other empires' colonies and fleets are, for its maps and its AI. No DOM.
 import { T, newState, newColony, compute, endEon, uid, cloneDesign, hostileWorth, peopleWord } from './model.js';
-import { gridOf, HOME_CELLS } from './districts.js';
 import { shipFromDesign, createBattle, rng32 } from './battle.js';
 import { allCapsules, designStats } from './modules.js';
 import { applyAction } from './replay.js';
@@ -40,7 +39,7 @@ function pickHome(S, taken) {
 function moveHome(S, pl) {
   const sol = S.places.find(p => p.id === 'home'), dock = sol.colony.structures[0];
   delete sol.colony; sol.fresh = Object.fromEntries(Object.keys(sol.fresh).map(k => [k, 1]));
-  pl.colony = newColony(100, 120, gridOf(pl), HOME_CELLS); pl.colony.structures.push({ ...dock, id: uid('u'), design: cloneDesign(dock.design) });
+  pl.colony = newColony(100, 120, pl, true); pl.colony.structures.push({ ...dock, id: uid('u'), design: cloneDesign(dock.design) });   // the old city: four mixed cells on its surface (colony.js)
   pl.fresh = Object.fromEntries(Object.keys(pl.fresh).map(k => [k, 0.9])); pl.note = 'the homeworld — your people have lived here for 2,000 years';
   for (const s of S.systems) s.home = s.id === pl.sys;
   S.homeSys = pl.sys; S.homePlace = pl.id;

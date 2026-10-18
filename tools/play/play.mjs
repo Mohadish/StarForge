@@ -67,7 +67,8 @@ const near = (ids, from) => ids.slice().sort((a, b) => lyBetween(S, from, a) - l
 
 // ---------------- the game ----------------
 const home = S.places.find(p => p.id === 'home'), HOME = home.sys;
-let rally = HOME, target = null, path = null, kind = 'war', stale = 0, lastSplit = null, lastFocusEon = -99, beaten = 0, lost = 0, colony = null, settled = 0, lastProgress = 0, waitingNoted = false, feeding = false;
+const leans = new Map();                             // each colony's development lean: crowded / hungry, held with a margin
+let rally = HOME, target = null, path = null, kind = 'war', stale = 0, lastSplit = null, lastFocusEon = -99, beaten = 0, lost = 0, colony = null, settled = 0, lastProgress = 0, waitingNoted = false;
 const NEED = { war: 1.6, long: 2.5 };                                              // the fleet to send, × the enemy's worth: lancers are glass, they go in numbers
 console.log(`seed "${seedText}": ${S.hostiles.length} hostile fleets, worth ${S.hostiles.map(h => hostileWorth(h)).sort((a, b) => a - b).join(' ')}`);
 act({ type: 'design', design: shipDesign('war') }); act({ type: 'design', design: shipDesign('long') }); act({ type: 'design', design: shipDesign('col') }); act({ type: 'design', design: dockDesign() });
@@ -78,13 +79,23 @@ act({ type: 'build', place: 'home', design: DOCK.id });
 
 for (let eon = 0; eon < MAX_EONS; eon++) {
   const c = compute(S), pc = c.colonies.find(x => x.pl.id === 'home'); if (!pc) { note('home is gone'); break; }
-  // ECONOMY: industry-heavy, social enough to feed everyone and build room, research for the sustain rule and the tech
+  // ECONOMY: industry-heavy, research for the sustain rule and the tech, a third of the people building the surface (the triangle's
+  // DEVELOPMENT corner, 2026-10-18); short of the sustain line, more at the works and labs; nothing left to build, the builders go to the labs (industry past half pollutes)
   let split = [0.5, 0.2, 0.3];
-  if (pc.surplus < 0.5) feeding = true; else if (pc.surplus > 8) feeding = false;   // hysteresis: the split flipped every eon on a 1-food threshold (2,000 orders a game)
-  if (feeding) split = [0.4, 0.15, 0.45];
-  if (pc.short > 0) split = [Math.min(0.6, split[0] + 0.1), split[1] + 0.05, Math.max(0.2, split[2] - 0.15)];
+  if (pc.short > 0) split = [0.6, 0.25, 0.15];
+  if (pc.G && pc.cap.slots >= pc.G.cells.length * 4 - 1) split = [0.5, 0.4, 0.1];   // a (nearly) full world — a slot torn down for re-making does not count   // industry held at half: past it, industrial pollution builds and its sickness caps the people (384 M on every home, 2026-10-18)
   const sum = split.reduce((a, v) => a + v, 0); split = split.map(v => v / sum);
   if (!lastSplit || split.some((v, i) => Math.abs(v - lastSplit[i]) > 0.02)) { act({ type: 'split', place: 'home', split }); lastSplit = split; }
+  // THE SURFACE (colony.js): each colony's development focus leans toward what it lacks — homes, farms, works, labs; the centre otherwise
+  for (const col of c.colonies) {
+    const G = col.G; if (!G || col.blockaded) continue;
+    // HYSTERESIS: a lean holds until the colony is clearly past it (the farm built one eon was torn down the next — 900 orders a game)
+    const was = leans.get(col.pl.id) || {}, crowded = col.P.people > (was.crowded ? 0.75 : 0.85) * col.housing, hungry = col.water && col.surplus < (was.hungry ? 0.1 * col.eat : 0.5); const overI = col.people.industry > col.cap.industry * (was.overI ? 0.95 : 1.05), overR = col.people.research > col.cap.science * (was.overR ? 0.95 : 1.05); leans.set(col.pl.id, { crowded, hungry, overI, overR });
+    let x = 0.5, y = 0.5;
+    if (crowded) { x -= 0.3; y += 0.3; } if (hungry) { x += 0.3; y -= 0.3; } if (overI) { x -= 0.3; y -= 0.3; } if (overR) { x += 0.3; y += 0.3; }
+    x = Math.round(Math.max(0, Math.min(1, x)) * 20) / 20; y = Math.round(Math.max(0, Math.min(1, y)) * 20) / 20;
+    if (Math.abs(x - G.dot.x) > 0.01 || Math.abs(y - G.dot.y) > 0.01) act({ type: 'devfocus', place: col.pl.id, x, y });
+  }
   // the focus leans to Extermination, one step every ten eons once cohesion can pay for it, up to 55 %
   if (S.cohesion >= 40 && S.eon - lastFocusEon >= 10 && S.focus[3] < 0.55) { const w = S.focus.slice(), step = 0.1; w[3] += step; for (const i of [0, 1, 2]) w[i] = Math.max(0, w[i] - step / 3); const t = w.reduce((a, v) => a + v, 0); act({ type: 'focus', w: w.map(v => v / t) }); lastFocusEon = S.eon; }
   // THE TARGET: the nearest hostile from the rally the heavy fleet can reach; failing that, one the lancers can

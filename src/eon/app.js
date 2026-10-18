@@ -2,7 +2,8 @@
 // Star system (the places of one system, colonies, ships), Design (modules as pieces on a board).
 import { $, clamp, fmt, signed, esc } from '../util.js';
 import { DOMAINS } from '../data/properties.js';
-import { XS, X_INFO, T, CENTER, FIELD_IDS, newState, compute, endEon, uid, isIntegrated, giveAttention, sendShip, recallShip, settle, starEons, sysDistance, develop, undevelop, setDistrict,
+import { XS, X_INFO, T, CENTER, FIELD_IDS, newState, compute, endEon, uid, isIntegrated, giveAttention, sendShip, recallShip, settle, starEons, sysDistance, worldOf,
+  setSplit, setDevFocus, planCell, queueAdd, queueCount, queueMove, queueDrop,
   LY, VOY, SCALE, shipRange, forecast, fleetRange, sendFleet, lyBetween, peopleWord, upgrade, hostileIn, hostileWord, hostileWorth, ZONE, bubbles, zoneOfSys, effectiveLy } from './model.js';
 import { KINDS, KIND_IDS, CLASS_NAME, GANTRY, GUN, PRESETS, applyPreset, allCapsules, designStats, isRelevant, dockFit, reachBand, fitModule, autoFit, traverseOf } from './modules.js';
 import { GALAXY, STARS, galaxyOf } from './galaxy.js';
@@ -24,7 +25,9 @@ import { applyEon } from './replay.js';
 import { WORLD, MAX_EMPIRES, createWorld, worldEndEon, worldSnapshot, worldRestore, worldPlayEon, applyWorldEon, ownerOf, invade, invasionOdds, newLog, campaignEon, finishLog, HIGHLIGHT } from './world.js';
 import { makeBrain } from './ai.js';
 import { designSpecHtml, modulesLine } from './spec.js';
-import { FACTORS, FACTOR_COLOR, SIZES, DISTRICT, sizeClassOf, habitabilityOf, habWord, cellEffect } from './districts.js';
+import { FACTORS, FACTOR_COLOR, SIZES, sizeClassOf, habitabilityOf, habWord } from './districts.js';
+import { SLOT, DEV, TRAITS, TRAIT, KIND_WORD as SLOT_WORD, xy, filletWhy, isFull, counts } from './colony.js';
+import { drawSurface, drawRect as drawDevRect, drawTri as drawEffortTri, triFromPoint, dotFromPoint, toCanvas, cellAt as surfaceCellAt, mapSize, nextPlan } from './colonyview.js';
 mountNav('eon', { into: document.getElementById('topbar') });
 
 const KEY = 'forge.eon.v8';
@@ -74,9 +77,10 @@ function fillThumbs(root) {                         // every <canvas data-thumb>
   for (const cv of root.querySelectorAll('canvas[data-thumb]')) {
     const ship = thumbShips.get(cv.dataset.thumb); if (!ship) continue;
     const lk = cv.dataset.foe ? fleetLook(cv.dataset.foe) : cv.dataset.emp != null && W ? empireLook(W.empires[+cv.dataset.emp]) : myLook(), key = ship.design.id + '|' + lk.key;
-    const draw = img => { const g = cv.getContext('2d'); g.clearRect(0, 0, cv.width, cv.height); const q = Math.min(cv.width / img.width, cv.height / img.height); g.drawImage(img, (cv.width - img.width * q) / 2, (cv.height - img.height * q) / 2, img.width * q, img.height * q); };
+    const draw = (img, c = cv) => { const g = c.getContext('2d'); g.clearRect(0, 0, c.width, c.height); const q = Math.min(c.width / img.width, c.height / img.height); g.drawImage(img, (c.width - img.width * q) / 2, (c.height - img.height * q) / 2, img.width * q, img.height * q); };
     const had = thumbCache.get(key); if (had) { draw(had); continue; }
-    thumbOf(ship, lk, 120).then(img => { if (!img) return; thumbCache.set(key, img); if (cv.isConnected) draw(img); });
+    // painted later: onto this canvas, or — when the panel was redrawn meanwhile (the colony pop-up redraws its line) — onto its successors
+    thumbOf(ship, lk, 120).then(img => { if (!img) return; thumbCache.set(key, img); if (cv.isConnected) draw(img); else for (const c of document.querySelectorAll('canvas[data-thumb]')) if (c.dataset.thumb === cv.dataset.thumb && !c.dataset.foe && c.dataset.emp == null && cv.dataset.emp == null && !cv.dataset.foe) draw(img, c); });
   }
 }
 // stacks: ships at rest grouped by design, the freshest first inside each
@@ -250,7 +254,17 @@ function showMode(chip) {
 // the reach of your best starship resting at a star (for the galaxy map's rings); 0 when none rests there
 const ringR = sysId => { const c = LAST; if (!c) return 0; return Math.max(0, ...c.ships.filter(s => !s.u.dest && placeOf(s.u.at)?.sys === sysId).map(s => s.range || 0)); };
 
-function load() { try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (s && (s.version === 8 || s.version === 9)) return upgrade(s); } catch (e) { /* new game */ } return newState(); }
+function load() {
+  try {
+    const raw = localStorage.getItem(KEY), s = JSON.parse(raw || 'null');
+    if (s && (s.version === 8 || s.version === 9)) {
+      // a save from before the colony SURFACE (2026-10-18): keep it as it was, once, before upgrade() turns its districts into slots
+      if (s.places && s.places.some(p => p.colony && !p.colony.surface) && !localStorage.getItem(KEY + '.pre-slots')) try { localStorage.setItem(KEY + '.pre-slots', raw); } catch (e) { /* no room: go on */ }
+      return upgrade(s);
+    }
+  } catch (e) { /* new game */ }
+  return newState();
+}
 function save() { if (SIM) return; try { localStorage.setItem(KEY, JSON.stringify(S)); if (W && !REPLAY) localStorage.setItem(KEY + '.world', JSON.stringify({ seedText: W.seedText, n: W.n, galaxy: W.galaxy, me: W.me, focus: W.focus || null, snap: worldSnapshot(W) })); else localStorage.removeItem(KEY + '.world'); } catch (e) { /* ignore */ } }   // the world too, while you play in one (a replay or a running simulation is not kept)
 function loadHulls() { try { return JSON.parse(localStorage.getItem(HULL_KEY) || '[]') || []; } catch (e) { return []; } }
 function saveHulls() { try { localStorage.setItem(HULL_KEY, JSON.stringify(HULLS)); } catch (e) { /* ignore */ } setUserHulls(HULLS); }
@@ -885,9 +899,9 @@ $('sMap').addEventListener('click', e => {
   const id = parked || placeAt(e); if (!id) return;
   if (pickCount() && pickScope?.kind === 'system' && id !== pickScope.place) { sendTo = id; return refresh(); }   // ships picked: a click on another place is where they go
   if (id !== selPlace) fleetPopPlace = null; selPlace = id; refresh();
+  if (placeOf(id)?.colony && !parked) openColPop(id);  // one of your colonies: its pop-up (his call — the colony over the map, not in a sidebar)
 });
 
-const PT = [{ x: 100, y: 16 }, { x: 22, y: 134 }, { x: 178, y: 134 }];   // industry / research / social
 function renderSystem(c) {
   if (!sysOf(selSys)) selSys = S.homeSys;
   if (placeOf(selPlace)?.sys !== selSys) selPlace = sysOf(selSys).star;
@@ -916,32 +930,14 @@ function renderSystem(c) {
   if (pl.kind === 'star' && (c.sysResearch[pl.sys] || 0) - st.inOrbit > 0) who.push(`every other lab in this system, at ${T.starShare * 100}%`);
   h += `<div class="${who.length ? 'okbox' : 'note'}" style="margin-top:6px">${who.length ? 'Being studied: ' + who.join(' · ') + '.' : `Nobody is studying it, so it adds nothing to your research. ${pl.landable ? 'Settle it, or park a ship with a lab in orbit.' : 'Park a ship or a station with a lab in orbit.'}`}</div>`;
 
-  // the colony
+  // the colony: a line of figures here — the colony itself (development, effort, the surface, the production line) is its POP-UP
   if (pc) {
-    const P = pc.P, w = P.split, mx = w[0] * PT[0].x + w[1] * PT[1].x + w[2] * PT[2].x, my = w[0] * PT[0].y + w[1] * PT[1].y + w[2] * PT[2].y;
-    const queue = pc.queue.filter(q => !q.gone).map(q => `<div class="dcard" style="cursor:default"><div class="n"><span>${esc(q.d.name)}</span><span>${!q.noDock && q.need > 1e-6 && (S.reserves || 0) >= q.need ? `<button class="x" data-buynow="${q.item.id}" data-planet="${pl.id}" title="pay what is left from the reserves">⚡ Buy now (${fmt(q.need)})</button> ` : ''}<button class="x" data-unq="${q.item.id}" data-planet="${pl.id}">✕</button></span></div>
-      <div class="prog"><div style="width:${100 * Math.min(1, (q.item.progress + q.spend) / q.cost)}%;background:var(--cost)"></div></div>
-      <div class="tiny">${q.noDock ? '<b class="up">waiting — there is no space dock here to put it together in</b>' : `${fmt(q.item.progress)} / ${fmt(q.cost)} · ${q.finishes ? '<b class="down">finished this eon</b>' : q.joining ? `paid for — joining the sections, ${plural(q.joinLeft, 'eon')} left` : Number.isFinite(q.eta) ? 'ready in ' + plural(q.eta, 'eon') : 'nobody in industry'}`}${q.sections > 1 ? ` · <b class="up">too big for the ${q.fit.w} × ${q.fit.h} gantry: built in ${q.sections} sections, ${extraCost(q.fit)}</b>` : ''}${q.ds.klass !== 'structure' && q.ds.housing > 0 ? ` · takes ${peopleWord(Math.max(0, Math.min(q.ds.housing * SCALE.shipHousing, P.people - 5)))} people aboard` : ''}</div></div>`).join('');
-    const slips = pc.gantries.slice().sort((a, b) => b.w * b.h - a.w * a.h);
+    const P = pc.P, n = pc.G ? counts(pc.G) : null, line = pc.queue.filter(q => !q.gone);
     h += `<h3>The colony</h3>
-      ${planetMapHtml(pc, pl)}
-      <div class="tiny" style="margin:6px 0">${peopleWord(P.people)} people of ${peopleWord(pc.housing)} room <b class="${pc.dPeople < 0 ? 'up' : 'down'}">${pc.dPeople < 0 ? '−' : '+'}${peopleWord(Math.abs(pc.dPeople))}</b>${pc.full ? (pc.housing >= pc.roomCap - 1e-6 ? ' · <b class="up">the world is full — no cell left for housing</b>' : ' · <b class="up">room is full — develop a housing district</b>') : ''}${!pc.water ? ' · <b class="up">no water: the settlers live on their stores — no growth</b>' : ` · food ${signed(pc.surplus)}`} · ${pc.factories} factor${pc.factories === 1 ? 'y' : 'ies'}${pc.newFactories ? ` <b class="down">+${pc.newFactories}</b>` : ''}${pc.toReserves > 0 ? ` · <b class="down">+${fmt(pc.toReserves)} to the reserves</b>` : ''} · happiness ${Math.round(P.happiness)}${pc.needI > 0 ? ` · sustain ${fmt(pc.needI)} industry / ${fmt(pc.needR)} research${pc.short > 0.005 ? ` <b class="up">${Math.round(pc.short * 100)} % short — unrest</b>` : ' ✓'}` : ''}${pc.pol.industry + pc.pol.social + pc.pol.research > 1 ? ` · pollution: <span title="an industrial world: people sicken">industrial ${Math.round(pc.pol.industry)}</span> · <span title="a soft society: industry and research slacken">docile ${Math.round(pc.pol.social)}</span> · <span title="a bookish society: the social share slackens">aloof ${Math.round(pc.pol.research)}</span> — a share held past half builds its own up; ease off and it clears` : ''}</div>
-      <svg class="ptri" data-planet="${pl.id}" width="200" height="150" viewBox="0 0 200 150">
-        <polygon points="100,16 22,134 178,134" fill="rgba(255,255,255,.03)" stroke="rgba(255,255,255,.35)"/>
-        <text x="100" y="11" text-anchor="middle" fill="#ffb347" font-size="10" font-weight="700">INDUSTRY</text>
-        <text x="2" y="147" text-anchor="start" fill="#5fe3d0" font-size="10" font-weight="700">RESEARCH</text>
-        <text x="198" y="147" text-anchor="end" fill="#f5a3c7" font-size="10" font-weight="700">SOCIAL</text>
-        <circle r="8" cx="${mx}" cy="${my}"/></svg>
-      <div class="fx three">
-        <div style="border-color:#ffb347"><span>Industry</span><b>${fmt(pc.industry)}</b>${fmt(pc.people.industry)} people</div>
-        <div style="border-color:#5fe3d0"><span>Research</span><b>${fmt(pc.research)}</b>${fmt(pc.people.research)} people</div>
-        <div style="border-color:#f5a3c7"><span>Social</span><b>${fmt(pc.social)}</b>${fmt(pc.people.social)} people</div></div>
-      <div class="tiny" style="margin-top:6px">${slips.length ? `Space dock: gantry <b>${slips.map(s => `${s.w} × ${s.h}`).join(', ')}</b>. A ship or platform that fits inside is built whole; a bigger one is built in sections and costs more.` : '<b class="up">No space dock here</b> — ships and platforms cannot be built until there is one. Structures need none.'}</div>
-      <h3>Build queue</h3>${queue || '<div class="tiny">Empty.</div>'}
-      <div style="display:flex;gap:6px;margin-top:4px"><select data-addsel="${pl.id}" style="flex:1">${S.designs.map(d => { const t = designStats(S, d, c.caps).t; return `<option value="${d.id}">${esc(d.name)} — ${CLASS_NAME[t.klass].toLowerCase()}, ${fmt(t.cost)}</option>`; }).join('')}</select><button data-add="${pl.id}">Build</button></div>
-      <h3>Structures</h3>${P.structures.map(u => `<span class="chip" style="border-color:var(--line)">${esc(u.name)}</span>`).join('') || '<span class="tiny">none</span>'}`;
+      <div class="tiny" style="margin:4px 0 8px">${peopleWord(P.people)} people of ${peopleWord(pc.housing)} room <b class="${pc.dPeople < 0 ? 'up' : 'down'}">${pc.dPeople < 0 ? '−' : '+'}${peopleWord(Math.abs(pc.dPeople))}</b> · industry ${fmt(pc.industry)} · research ${fmt(pc.research)} · ${pc.water ? `food ${signed(pc.surplus)}` : '<b class="up">no water</b>'}${n ? ` · ${n.total} of ${pc.G.cells.length * SLOT.per} slots built` : ''}${pc.blockaded ? ` · <b class="up">blockaded ${pc.blockaded} of ${WORLD.siege} eons</b>` : ''}${line.length ? ` · building ${esc(line[0].d.name)}${line.length > 1 ? ` and ${plural(line.length - 1, 'more project')}` : ''}` : ' · the production line is empty'}</div>
+      <button class="go" data-colpop="${pl.id}" style="width:100%">Open the colony ▸ <span class="tiny">development · effort · production</span></button>
+      <h3>Districts built here</h3>${P.structures.map(u => `<span class="chip" style="border-color:var(--line)">${esc(u.name)}</span>`).join('') || '<span class="tiny">none</span>'}`;
   }
-
   // ANOTHER EMPIRE's colony: what it is, and LANDING TROOPS (his rule: a colony is taken by troops, never by siege)
   if (owner) {
     const Q = owner.E.places.find(q => q.id === pl.id).colony, odds = invasionOdds(W, S, pl.id);
@@ -965,106 +961,124 @@ function renderSystem(c) {
   if (!pc && !owner && pl.landable) h += `<div class="tiny" style="margin-top:8px">To settle ${esc(pl.name)}: build a ship that has a habitat (the people go aboard when it is built), send it here, and press Settle. The ship becomes the colony's first building.</div>`;
   $('sPanel').innerHTML = h; fillThumbs($('sPanel'));
 }
-// THE PLANET MAP (his design, 2026-10-18): the world's grid of DISTRICTS — each developed cell a tile whose four quarters show its
-// design's mix (industry orange, food green, housing blue, science cyan; a placeholder look, the same for everyone, in the empire's
-// colour, until his style sheets come); an empty cell is a dashed frame — click it and pick a design to develop it; a developed cell
-// can be re-made. Under the map: the capacities against the pops (the planet's triangle is the effort, the districts the room for
-// it), the development queue, and the district designs (add your own: a name and four shares).
-const FACTOR_WORD = { industry: 'industry', food: 'food', housing: 'housing', science: 'science' };
-let distEdit = null;                                 // the district-design editor's draft { id?, name, mix }
-function tileHtml(d, eff, col, size = 44) {
-  const q = f => Math.max(0, Math.min(1, (d.mix[f] || 0)));   // each quarter's fill = the factor's share (the raw design; the panel below tells the effective)
-  const quarter = (f, x, y) => `<div style="position:absolute;left:${x}%;top:${y}%;width:50%;height:50%;display:flex;align-items:flex-end;justify-content:flex-start;padding:2px"><div style="width:${Math.round(q(f) * 100)}%;height:${Math.round(q(f) * 100)}%;background:${FACTOR_COLOR[f]};opacity:.85;border-radius:2px"></div></div>`;
-  return `<div class="tile" style="position:relative;width:${size}px;height:${size}px;border:1px solid ${col};border-radius:4px;background:#0b1120;overflow:hidden" title="${esc(d.name)}: ${FACTORS.map(f => `${FACTOR_WORD[f]} ${Math.round((d.mix[f] || 0) * 100)} %`).join(', ')}${eff ? ` · effective ${FACTORS.map(f => Math.round(eff[f] * 100) + ' %').join(' / ')}${eff.staffed < 0.999 ? ` · short of hands (${Math.round(eff.staffed * 100)} %)` : ''}${eff.purity > 0.5 ? ' · pure — a focus shock hits it hard' : ''}` : ''}">${quarter('industry', 0, 0)}${quarter('food', 50, 0)}${quarter('housing', 0, 50)}${quarter('science', 50, 50)}</div>`;
+// THE COLONY POP-UP (his design, 2026-10-18 — "no sidebars: click on a planet and its surface pops up"): one of your colonies over the
+// map. On top the COLONY DEVELOPMENT FOCUS (the rectangle — industry, food, housing, science — with its live fillet) and the EFFORT
+// (the triangle — industry, research, development); under them the SURFACE (cells of four slots growing out of the landing; click a
+// cell to plan it); under that the eon's OUTPUT as bars and icon rows. On the right the PRODUCTION LINE: a card per project — the
+// design's own picture, its name and numbers, a progress bar; the top card is being built; drag to re-order, − n ＋ for how many of
+// it, ✕ to drop it, ⚡ to buy the rest from the reserves; '＋ Add construction project' lists your ships, platforms and docks.
+// The rules and the pictures are colony.js and colonyview.js — the same ones the sandbox (planet.html) runs.
+let colPop = null, cpHover = -1, cpAdd = false, cpDrag = null;
+const WORLD_KIND = { living: 'living', ocean: 'ocean', ice: 'ice', other: 'barren' };
+const cpColony = () => colPop && LAST ? LAST.colonies.find(x => x.pl.id === colPop) || null : null;
+const cpWhy = pc => ({ staffed: pc.staffed, fed: pc.fed, housing: pc.housing, people: pc.P.people, food: pc.food / T.foodPerHead, eat: pc.P.people });
+const cpSkeleton = () => `<div class="cpbox"><div class="cphead"><b id="cpName"></b><span id="cpMeta"></span><button class="x" data-cpclose title="close (Esc)">✕</button></div>
+  <div class="cpgrid"><div class="cpmain">
+    <div class="cprow2"><div class="cpcard cpwidget"><h3>Colony development focus</h3><canvas id="cpRect" width="250" height="250"></canvas></div>
+      <div class="cpcard cpwidget"><h3>Effort — the people</h3><canvas id="cpTri" width="250" height="250"></canvas></div></div>
+    <div class="cpcard"><canvas id="cpMap"></canvas><div class="tiny" style="margin-top:4px">Drag the dot in the rectangle: the builders build toward it — a corner the colony cannot use rounds off and holds the dot back (hover the rectangle: why). Click a cell to plan it (industry → food → housing → science → pairs → any): that kind goes there first. ⛏ deposits · 🌾 fertile · ☼ calm · ✦ anomaly: that kind yields ×${TRAIT.boost} there. ⚒ the next slot, ✕ a slot being torn down.</div></div>
+    <div class="cpcard" id="cpOut"></div></div>
+  <div class="cpcard cpqueue" id="cpQueue"></div></div></div>`;
+function openColPop(placeId) {
+  colPop = placeId; cpAdd = false; cpHover = -1;
+  const el = $('colPop'); el.innerHTML = cpSkeleton(); el.hidden = false;
+  [$('cpMap').width, $('cpMap').height] = mapSize();
+  const light = () => { LAST = compute(S); renderColPop(); };                        // while dragging: the pop-up alone (the rest on release)
+  const dragOn = (cv, fn) => {
+    cv.addEventListener('pointerdown', e => { cpDrag = cv.id; cv.setPointerCapture(e.pointerId); fn(...toCanvas(cv, e)); light(); });
+    cv.addEventListener('pointermove', e => { if (cpDrag === cv.id) { fn(...toCanvas(cv, e)); light(); } });
+    cv.addEventListener('pointerup', () => { if (cpDrag) { cpDrag = null; save(); refresh(); } });
+  };
+  dragOn($('cpRect'), (x, y) => { const d = dotFromPoint($('cpRect'), x, y); setDevFocus(S, colPop, d.x, d.y); });
+  dragOn($('cpTri'), (x, y) => { const t = triFromPoint(x, y); setSplit(S, colPop, [t.industry, t.research, t.development]); });
+  const map = $('cpMap');
+  map.addEventListener('click', e => { const pc = cpColony(); if (!pc) return; const i = surfaceCellAt(map, pc.G, e); if (i < 0) return; toastErr(planCell(S, colPop, i, nextPlan(pc.G.cells[i].plan))); save(); refresh(); });
+  map.addEventListener('mousemove', e => {
+    const pc = cpColony(); if (!pc) return; const i = surfaceCellAt(map, pc.G, e), tip = $('cpTip');
+    if (i !== cpHover) { cpHover = i; drawSurface(map, pc.G, { next: pc.next, hover: i, frameColor: cpFrame() }); }
+    if (i < 0) { tip.style.display = 'none'; return; }
+    const cell = pc.G.cells[i], out = pc.perCell[i], [x, y] = xy(pc.G, i);
+    tip.innerHTML = `<b>cell ${x + 1},${y + 1}</b> · ${cell.trait === 'none' ? 'plain ground' : `${cell.trait} ground (${SLOT_WORD[TRAITS[cell.trait]]} × ${TRAIT.boost})`}${cell.plan ? ` · planned: ${cell.plan.map(k => SLOT_WORD[k]).join(' + ')}` : ''}<br>${cell.slots.length ? `slots: ${cell.slots.map(k => `<span style="color:${FACTOR_COLOR[k]}">${SLOT_WORD[k]}</span>`).join(', ')}<br>gives: ${FACTORS.filter(k => out[k] > 0.5).map(k => `${SLOT_WORD[k]} ${Math.round(out[k])} M`).join(' · ')}${out.staffed < 0.999 ? `<br><span class="up">short of hands: no home of its own (${Math.round(out.staffed * 100)} %)</span>` : ''}${out.purity > 0.99 ? '<br><span class="up">pure: a focus shock hits it hardest</span>' : ''}` : 'not built yet'}`;
+    tip.style.display = 'block'; tip.style.left = Math.min(innerWidth - 300, e.clientX + 14) + 'px'; tip.style.top = (e.clientY + 14) + 'px';
+  });
+  map.addEventListener('mouseleave', () => { cpHover = -1; $('cpTip').style.display = 'none'; const pc = cpColony(); if (pc) drawSurface(map, pc.G, { next: pc.next, frameColor: cpFrame() }); });
+  renderColPop();
 }
-function planetMapHtml(pc, pl) {
-  const P = pc.P, grid = pc.grid; if (!grid) return '';
-  const col = (S.look && S.look.colA) || '#7ef3b0', designs = S.districts || [], dev = (P.develop || []), sel = `<select data-devsel="${pl.id}">${designs.map(d => `<option value="${d.id}">${esc(d.name)}</option>`).join('')}</select>`;
-  const cells = (P.cells || []).map((cell, i) => {
-    const d = cell && designs.find(x => x.id === cell.design), dv = dev.find(it => it.cell === i), dd = dv && designs.find(x => x.id === dv.design), row = pc.develop.find(x => x.item === dv);
-    const inner = d ? tileHtml(d, cellEffect(d.mix, LAST ? LAST.shock : 0), col) : `<div class="tile empty" style="width:44px;height:44px;border:1px dashed ${col}66;border-radius:4px;background:rgba(255,255,255,.02)"></div>`;
-    const badge = dv ? `<div class="tiny" style="position:absolute;left:0;right:0;bottom:0;background:rgba(11,17,32,.85);text-align:center;font-size:9px;line-height:12px">${esc(dd ? dd.name : '?')} ${row && Number.isFinite(row.eta) ? row.eta + 'e' : ''}</div>` : '';
-    return `<div data-cell="${i}" data-planet="${pl.id}" style="position:relative;cursor:pointer" title="${d ? `${esc(d.name)} — click to re-make it as the chosen design (${DISTRICT.upgrade} industry)` : `empty — click to develop it as the chosen design (${DISTRICT.cost} industry)`}">${inner}${badge}</div>`;
-  }).join('');
-  const capRow = f => { const pops = f === 'industry' ? pc.people.industry : f === 'science' ? pc.people.research : f === 'food' ? pc.people.social : P.people, cap = f === 'housing' ? pc.housing : pc.cap[f], over = pops > cap + 0.5; return `<span style="color:${FACTOR_COLOR[f]}" title="${f === 'housing' ? 'people against the room' : 'pops of the triangle against what the districts can employ at full effect; the rest work at ' + Math.round(DISTRICT.idle * 100) + ' %'}">${FACTOR_WORD[f]} <b class="${over ? 'up' : ''}">${fmt(pops)} / ${fmt(cap)}</b></span>`; };
-  const queue = pc.develop.filter(x => !x.gone).map(x => `<div class="dcard" style="cursor:default"><div class="n"><span>${x.upgrade ? 're-make' : 'develop'} cell ${x.item.cell + 1} as ${esc(x.d.name)}</span><button class="x" data-undev="${x.item.id}" data-planet="${pl.id}">✕</button></div><div class="prog"><div style="width:${100 * Math.min(1, ((x.item.progress || 0) + x.spend) / x.cost)}%;background:var(--cost)"></div></div><div class="tiny">${fmt((x.item.progress || 0) + x.spend)} / ${fmt(x.cost)} · ${x.finishes ? '<b class="down">done this eon</b>' : Number.isFinite(x.eta) ? 'ready in ' + plural(x.eta, 'eon') : 'nobody in industry'}</div></div>`).join('');
-  const ed = distEdit || { name: '', mix: { industry: 0.25, food: 0.25, housing: 0.25, science: 0.25 } };
-  const editor = `<details ${distEdit ? 'open' : ''} style="margin-top:6px"><summary class="tiny" style="cursor:pointer">District designs (${designs.length}) — add your own</summary>
-    <div style="display:flex;flex-wrap:wrap;gap:6px;margin:6px 0">${designs.map(d => `<div style="display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:8px;padding:4px 6px">${tileHtml(d, null, col, 28)}<span><b>${esc(d.name)}</b><br><span class="tiny">${FACTORS.map(f => `${FACTOR_WORD[f].slice(0, 3)} ${Math.round(d.mix[f] * 100)}`).join(' · ')}</span></span><button class="x" data-dedit="${d.id}" title="edit a copy">✎</button></div>`).join('')}</div>
-    <div style="display:grid;grid-template-columns:1fr repeat(4,64px) auto;gap:4px;align-items:center"><input type="text" data-dname value="${esc(ed.name)}" placeholder="name">${FACTORS.map(f => `<input type="number" data-dmix="${f}" value="${Math.round((ed.mix[f] || 0) * 100)}" min="0" max="100" title="${FACTOR_WORD[f]} %" style="width:60px;border-color:${FACTOR_COLOR[f]}">`).join('')}<button class="go" data-dsave>${ed.id ? 'Save' : 'Add'}</button></div>
-    <div class="tiny" style="margin-top:4px">Shares are normalised. The square: industry cuts food (${Math.round(-DISTRICT.couple.food.industry * 100)} %), food cuts housing (${Math.round(-DISTRICT.couple.housing.food * 100)} %), housing cuts science (${Math.round(-DISTRICT.couple.science.housing * 100)} %), science cuts industry (${Math.round(-DISTRICT.couple.industry.science * 100)} %) — each by the other's share; the good diagonals: housing helps industry (+${Math.round(DISTRICT.couple.industry.housing * 100)} %), science helps food (+${Math.round(DISTRICT.couple.food.science * 100)} %). A district with less than ${Math.round(DISTRICT.staff.need * 100)} % housing is short of hands (down to ${Math.round(DISTRICT.staff.floor * 100)} %); a pure district takes a focus shock hardest. Science across the districts speeds growth (health); a hungry planet works worse.</div></details>`;
-  return `<div class="tiny" style="margin-bottom:4px">A <b>${SIZES[sizeClassOf(pl)].name}</b> world — ${grid.w} × ${grid.h} districts, ${pc.cap.cells} developed · ${esc(habWord(habitabilityOf(pl)))}</div>
-    <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap"><div class="pmap" style="display:grid;grid-template-columns:repeat(${grid.w},44px);gap:3px">${cells}</div>
-    <div class="tiny" style="flex:1;min-width:160px">${['industry', 'science', 'food', 'housing'].map(capRow).join('<br>')}<div style="margin-top:6px">Develop as ${sel} then click a cell.</div></div></div>
-    ${queue ? `<div style="margin-top:6px">${queue}</div>` : ''}${editor}`;
+function closeColPop() { colPop = null; cpDrag = null; $('colPop').hidden = true; $('cpTip').style.display = 'none'; }
+const cpFrame = () => (S.look && S.look.colA) ? S.look.colA + '99' : 'rgba(126,243,176,.45)';   // the developed cells framed in the empire's colour
+function renderColPop() {
+  if (!colPop) return; const pc = cpColony(); if (!pc || !pc.G) return closeColPop();
+  const pl = pc.pl, P = pc.P, G = pc.G, size = SIZES[sizeClassOf(pl)], home = pl.id === (S.homePlace || 'home');
+  $('cpName').textContent = pl.name;
+  $('cpMeta').textContent = `${home ? 'HOMEWORLD' : 'COLONY'}   TYPE: ${WORLD_KIND[worldOf(pl)].toUpperCase()}   SIZE: ${size.name.toUpperCase()} ${size.w} × ${size.h}`;
+  $('cpMeta').title = habWord(habitabilityOf(pl));
+  drawSurface($('cpMap'), G, { next: pc.next, hover: cpHover, frameColor: cpFrame() });
+  drawDevRect($('cpRect'), G, { noFood: !pc.water }); $('cpRect').title = FACTORS.map(k => filletWhy(G, k, cpWhy(pc))).join('\n');
+  drawEffortTri($('cpTri'), { industry: P.split[0], research: P.split[1], development: P.split[2] });
+  $('cpTri').title = `industry: ${fmt(pc.people.industry)} M hands for ${fmt(pc.cap.industry)} M of works · research: ${fmt(pc.people.research)} M for ${fmt(pc.cap.science)} M of labs · development: ${fmt(pc.people.development)} M builders → ${pc.dev.toFixed(1)} points an eon`;
+  $('cpOut').innerHTML = cpOutHtml(pc);
+  $('cpQueue').innerHTML = cpQueueHtml(pc); fillThumbs($('cpQueue'));
 }
-// THE SURFACE (his ask, 2026-10-16): the colony from above, in the system panel — city blocks that multiply with its people (one
-// per SURF.block million; a huge city counts more a block), farm plots that follow its FOOD (a plot per SURF.farm units: the ones
-// its people need, green when the food is there and red when it is short — so the fields tell the food story), and its
-// structures as their outlines, no more. Everything sits on a sunflower spiral: what is there stays put, new blocks grow at the rim.
-const SURF = { block: 5, farm: 4, gold: 2.399963 };
-function surfaceCounts(pc) {
-  let per = SURF.block; while (pc.P.people / per > 240) per *= 2;
-  const blocks = Math.max(1, Math.ceil(pc.P.people / per)), roomBlocks = Math.max(blocks, Math.ceil(pc.housing / per));
-  const need = Math.max(1, Math.ceil(pc.eat / SURF.farm)), have = Math.max(0, Math.round(pc.food / SURF.farm));
-  return { per, blocks, roomBlocks, need, have };
+const cpBar = (name, val, max, col, text) => `<div class="cpbar"><span style="color:${col}">${name}</span><div class="track"><div style="width:${Math.min(100, 100 * val / Math.max(1e-9, max))}%;background:${col}"></div></div><b>${text}</b></div>`;
+const reps = (icon, n, max = 40) => icon.repeat(Math.max(0, Math.min(max, Math.round(n))));
+function cpOutHtml(pc) {
+  const P = pc.P, G = pc.G, fedM = pc.food / T.foodPerHead, eatM = P.people, toLine = pc.queue.reduce((a, q) => a + (q.spend || 0), 0), next = pc.next;
+  const plates = Math.ceil(eatM / 20), fedPlates = Math.min(plates, Math.ceil(Math.min(fedM, eatM) / 20)), grain = Math.floor(Math.max(0, fedM - eatM) / 20);
+  const cellName = i => xy(G, i).map(v => v + 1).join(',');
+  const nextLine = pc.blockaded ? '<b class="up">blockaded — nothing is built</b>'
+    : !next ? (isFull(G) ? `the world is fully developed and in balance — ${fmt(pc.people.development)} M builders stand idle: move them in the triangle` : 'nothing to build')
+    : next.demolish ? `tearing down a <b style="color:${FACTOR_COLOR[next.demolish]}">${SLOT_WORD[next.demolish]}</b> slot in cell ${cellName(next.cell)} (${DEV.demolish} pts), then <b style="color:${FACTOR_COLOR[next.kind]}">${SLOT_WORD[next.kind]}</b> goes up in its place (${DEV.cost} pts)`
+    : `next: <b style="color:${FACTOR_COLOR[next.kind]}">${SLOT_WORD[next.kind]}</b> in cell ${cellName(next.cell)}${G.cells[next.cell].plan ? ' — planned' : TRAITS[G.cells[next.cell].trait] === next.kind ? ` — ${G.cells[next.cell].trait} ground` : ''} · ${DEV.cost} pts a slot, ${pc.dev > 0 ? plural(Math.max(1, Math.ceil((DEV.cost - (G.progress || 0)) / pc.dev)), 'eon') : 'nobody builds'}`;
+  const pol = pc.pol.industry + pc.pol.social + pc.pol.research > 1 ? ` · pollution: <span title="an industrial world: people sicken">industrial ${Math.round(pc.pol.industry)}</span> · <span title="the development corner held past half: industry and research slacken">docile ${Math.round(pc.pol.social)}</span> · <span title="the research corner held past half: the builders slacken">aloof ${Math.round(pc.pol.research)}</span>` : '';
+  return `
+    ${cpBar('people', P.people, pc.housing, FACTOR_COLOR.housing, `${peopleWord(P.people)} / ${peopleWord(pc.housing)} <span class="tiny">homes · ${pc.dPeople >= 0 ? '+' : '−'}${peopleWord(Math.abs(pc.dPeople))}</span>`)}
+    ${pc.water ? cpBar('food', Math.min(fedM, eatM), eatM, FACTOR_COLOR.food, `${fmt(fedM)} / ${fmt(eatM)} M <span class="tiny">fed / eat</span>`) + `<div class="icons" title="a plate = 20 M people eating (dim: unfed); a sheaf = 20 M more fed than live here — a surplus for the colonies round it (logistics, later)">${reps('🍽', fedPlates)}<span class="dim">${reps('🍽', plates - fedPlates)}</span> ${reps('🌾', grain, 30)}${pc.fed < 1 ? ` <b class="up" style="font-size:12px">hungry — works at ${Math.round(pc.hungry * 100)} %</b>` : ''}</div>`
+      : `<div class="cpbar"><span style="color:${FACTOR_COLOR.food}">food</span><span class="tiny" style="grid-column:2 / 4">no water: the settlers live on their stores — no farms, no growth</span></div>`}
+    ${cpBar('industry', Math.min(pc.people.industry, pc.cap.industry), pc.cap.industry, FACTOR_COLOR.industry, `${fmt(pc.industry)} <span class="tiny">${fmt(pc.people.industry)} M hands / ${fmt(pc.cap.industry)} M works</span>`)}
+    <div class="icons" title="a gear = 10 industry; a wrench = 10 of it into the production line; money = 10 into the reserves (credits)">${reps('⚙', pc.industry / 10)} <span class="tiny">→</span> ${reps('🔧', toLine / 10)}${reps('💰', pc.toReserves / 10)}<span class="tiny"> ${Math.round(toLine)} to the line${pc.newFactories ? ` · ${pc.newFactories} factor${pc.newFactories === 1 ? 'y' : 'ies'} built` : ''} · ${Math.round(pc.toReserves)} to the reserves</span></div>
+    ${cpBar('science', Math.min(pc.people.research, pc.cap.science), pc.cap.science, FACTOR_COLOR.science, `${fmt(pc.research)} <span class="tiny">${fmt(pc.people.research)} M / ${fmt(pc.cap.science)} M labs</span>`)}
+    <div class="icons" title="a microscope or a tube = 10 research">${Array.from({ length: Math.min(40, Math.round(pc.research / 10)) }, (_, i) => i % 2 ? '🧪' : '🔬').join('')}</div>
+    ${cpBar('building', G.progress || 0, next && next.demolish ? DEV.demolish : DEV.cost, '#f5a3c7', `${pc.dev.toFixed(1)} <span class="tiny">pts/eon · ${fmt(pc.people.development)} M builders</span>`)}
+    <div class="icons" title="a hammer = one builder point an eon (a slot costs ${DEV.cost}, tearing one down ${DEV.demolish})">${reps('🔨', pc.dev)}</div>
+    <div class="tiny" style="margin:0 0 6px 92px">${nextLine}${pc.cap.pure ? ` · <span class="up">${plural(pc.cap.pure, 'pure cell')}</span>` : ''}</div>
+    <div class="tiny">happiness ${Math.round(P.happiness)} · ${pc.factories} factor${pc.factories === 1 ? 'y' : 'ies'}${pc.needI > 0 ? ` · sustain ${fmt(pc.needI)} industry / ${fmt(pc.needR)} research${pc.short > 0.005 ? ` <b class="up">${Math.round(pc.short * 100)} % short — unrest</b>` : ' ✓'}` : ''}${pol}${pc.blockaded ? ` · <b class="up">blockaded ${pc.blockaded} of ${WORLD.siege} eons</b>` : ''}</div>`;
 }
-function drawSurface(cv, pc) {
-  const W = cv.clientWidth || 300, H = 240; if (cv.width !== W) cv.width = W; if (cv.height !== H) cv.height = H;
-  const g = cv.getContext('2d'), P = pc.P, { per, blocks, roomBlocks, need, have } = surfaceCounts(pc), col = lookOf(pc.pl).color;
-  g.fillStyle = '#04070f'; g.fillRect(0, 0, W, H); g.fillStyle = col; g.globalAlpha = 0.09; g.fillRect(0, 0, W, H); g.globalAlpha = 1;   // the ground, in the world's tint
-  const cx = W * 0.4, cy = H / 2, spot = (i, step, r0) => { const r = r0 + step * Math.sqrt(i), a = i * SURF.gold; return [cx + r * Math.cos(a), cy + r * Math.sin(a)]; };
-  // the city, and its ROOM (the housing) as a dashed ring where the blocks would end
-  const step = 6.5, rRoom = step * Math.sqrt(roomBlocks) + 4;
-  g.strokeStyle = pc.full ? 'rgba(255,121,121,.6)' : 'rgba(255,255,255,.28)'; g.setLineDash([3, 4]); g.lineWidth = 1; g.beginPath(); g.arc(cx, cy, rRoom, 0, 7); g.stroke(); g.setLineDash([]);
-  for (let i = 0; i < blocks; i++) { const [x, y] = spot(i, step, 0); g.fillStyle = 'rgba(232,240,255,.16)'; g.fillRect(x - 2.5, y - 2.5, 5, 5); g.strokeStyle = '#e8f0ff'; g.strokeRect(x - 2.5, y - 2.5, 5, 5); }
-  // the farms, round the city: fed plots green, the ones it is short of red and dashed, spare ones faint — none without water
-  const plots = pc.water ? Math.max(need, have) : 0, fstep = 11;
-  for (let i = 0; i < plots; i++) {
-    const [x, y] = spot(i, fstep, rRoom + 12), fed = i < have, spare = i >= need;
-    g.setLineDash(fed ? [] : [2, 2]); g.strokeStyle = fed ? (spare ? 'rgba(126,243,176,.45)' : '#7ef3b0') : '#ff7979'; g.fillStyle = fed ? `rgba(126,243,176,${spare ? 0.06 : 0.16})` : 'rgba(255,121,121,.08)';
-    g.fillRect(x - 4, y - 4, 8, 8); g.strokeRect(x - 4, y - 4, 8, 8);
-  }
-  g.setLineDash([]);
-  if (!pc.water) { g.fillStyle = '#ff7979'; g.font = 'bold 11px sans-serif'; g.textAlign = 'center'; g.fillText('no water — no farms', cx, H - 10); g.textAlign = 'left'; }
-  // the factories: scattered round the city's rim (his call: not a quarter of their own), a small orange square each, growing outward
-  const fac = Math.min(pc.factories, 400);
-  for (let i = 0; i < fac; i++) { const [x, y] = spot(blocks + i * 1.7, step, 2); g.fillStyle = 'rgba(255,179,71,.2)'; g.fillRect(x - 2.5, y - 2.5, 5, 5); g.strokeStyle = '#ffb347'; g.lineWidth = 1; g.strokeRect(x - 2.5, y - 2.5, 5, 5); }
-  // the structures: their outlines in a column at the right, the biggest first, a landed ship dashed
-  const sts = P.structures.map(u => { const t = designStats(S, u.design, LAST.caps).t; return { u, hull: t.hull, dock: t.dock }; }).sort((a, b) => b.hull.area - a.hull.area);
-  const colX = W * 0.86, slotH = Math.min(44, (H - 16) / Math.max(1, sts.length)); let y0 = 8 + slotH / 2;
-  for (const { u, hull, dock } of sts) {
-    const k = Math.min(48 / hull.bw, (slotH - 14) / hull.bh), b = hull.box, mx = (b.minx + b.maxx) / 2, my = (b.miny + b.maxy) / 2;
-    g.beginPath(); hull.poly.forEach(([x, y], i) => i ? g.lineTo(colX + (x - mx) * k, y0 + (y - my) * k) : g.moveTo(colX + (x - mx) * k, y0 + (y - my) * k)); g.closePath();
-    g.setLineDash(u.landed ? [3, 2] : []); g.strokeStyle = dock ? '#e8c56b' : '#ffb347'; g.fillStyle = dock ? 'rgba(232,197,107,.12)' : 'rgba(255,179,71,.12)'; g.fill(); g.stroke(); g.setLineDash([]);
-    g.fillStyle = '#9eb3d8'; g.font = '9px sans-serif'; g.textAlign = 'center'; g.fillText(u.name.length > 14 ? u.name.slice(0, 13) + '…' : u.name, colX, y0 + (slotH - 14) / 2 + 9);
-    y0 += slotH;
-  }
-  g.textAlign = 'left';
+// what the line can build: ships, platforms and docks (a district with a gantry) — the surface builds itself from development
+const cpBuildable = (d, caps) => { const t = designStats(S, d, caps).t; return t.klass !== 'structure' || t.gantries.length > 0; };
+function cpQueueHtml(pc) {
+  const caps = LAST.caps, pl = pc.pl, rows = pc.queue.filter(q => !q.gone), slips = pc.gantries.slice().sort((a, b) => b.w * b.h - a.w * a.h);
+  const card = (q, i) => {
+    const tid = 'cq|' + q.d.id; try { thumbShips.set(tid, paintedShip(q.d, caps)); } catch (e) { /* no picture: the frame stays empty */ }
+    const top = i === 0 && !q.noDock, done = Math.round(100 * Math.min(1, (q.item.progress || 0) / q.cost));
+    const status = q.noDock ? '<b class="up">no space dock here</b>' : q.joining ? `joining its sections, ${plural(q.joinLeft, 'eon')}` : top ? '<span class="down">building</span>' : 'waiting';
+    const when = q.noDock ? '' : !Number.isFinite(q.eta) ? 'nobody in industry' : q.count > 1 ? `first in ${plural(q.eta, 'eon')}, all ${q.count} in ${q.etaAll}` : `ready in ${plural(q.eta, 'eon')}`;
+    const buy = !q.noDock && q.need > 1e-6 && (S.reserves || 0) >= q.need ? `<button class="x" data-buynow="${q.item.id}" data-planet="${pl.id}" title="pay what is left of this one from the reserves">⚡ ${fmt(q.need)}</button>` : '';
+    return `<div class="qcard ${top ? 'top' : ''}" draggable="true" data-cq="${q.item.id}" title="drag to change its place in the line">
+      <canvas class="qimg" data-thumb="${tid}" width="64" height="56"></canvas>
+      <div class="qinfo"><b>${esc(q.d.name)}</b>${fmt(q.cost)} ⚙ each · ${status}<br>${when}${q.sections > 1 ? ` · <span class="up" title="too big for the ${q.fit.w} × ${q.fit.h} gantry: ${extraCost(q.fit)}">${q.sections} sections</span>` : ''}${q.ds.klass !== 'structure' && q.ds.housing > 0 ? ` · takes ${peopleWord(Math.max(0, Math.min(q.ds.housing * SCALE.shipHousing, pc.P.people - 5)))} aboard` : ''}
+        <div class="qctl"><button class="x" data-cqminus="${q.item.id}" title="one fewer">−</button><input type="number" min="1" max="99" value="${q.count}" data-cqcount="${q.item.id}" title="how many of these — type it"><button class="x" data-cqplus="${q.item.id}" title="one more">＋</button>${buy}</div></div>
+      <div class="qbtns"><button class="x" data-cqdel="${q.item.id}" title="drop it">✕</button></div>
+      <div class="qbar"><div style="width:${done}%"></div></div></div>`;
+  };
+  const menu = cpAdd ? `<div class="qmenu">${S.designs.filter(d => cpBuildable(d, caps)).map(d => { const t = designStats(S, d, caps).t; return `<button data-cqadd="${d.id}"><span>${esc(d.name)} <small>${CLASS_NAME[t.klass].toLowerCase()}</small></span><small>${fmt(t.cost)} ⚙</small></button>`; }).join('')}</div>` : '';
+  return `<h3>Production</h3><button class="go" data-cqopen style="width:100%">＋ Add construction project</button>${menu}
+    ${rows.map(card).join('') || '<div class="tiny">Nothing in the line — the industry builds factories, then goes to the reserves.</div>'}
+    <div class="tiny" style="margin-top:6px">${slips.length ? `Space dock: gantry ${slips.map(s => `${s.w} × ${s.h}`).join(', ')} — a hull that fits is built whole, a bigger one in sections (dearer, slower).` : '<b class="up">No space dock here</b> — ships and platforms wait until there is one.'}</div>`;
 }
-
-let triDrag = null;
-function moveTri(e) {
-  const svg = document.querySelector(`.ptri[data-planet="${triDrag}"]`); if (!svg) return;
-  const r = svg.getBoundingClientRect(), x = (e.clientX - r.left) * 200 / r.width, y = (e.clientY - r.top) * 150 / r.height;
-  const [a, b, c] = PT, det = (b.y - c.y) * (a.x - c.x) + (c.x - b.x) * (a.y - c.y);
-  let l1 = ((b.y - c.y) * (x - c.x) + (c.x - b.x) * (y - c.y)) / det, l2 = ((c.y - a.y) * (x - c.x) + (a.x - c.x) * (y - c.y)) / det, l3 = 1 - l1 - l2;
-  l1 = clamp(l1, 0, 1); l2 = clamp(l2, 0, 1); l3 = clamp(l3, 0, 1);
-  const t = l1 + l2 + l3 || 1;
-  placeOf(triDrag).colony.split = [l1 / t, l2 / t, l3 / t];
-  refresh();
-}
-document.addEventListener('pointerdown', e => { const s = e.target.closest('.ptri'); if (!s) return; triDrag = s.dataset.planet; e.preventDefault(); moveTri(e); });
-addEventListener('pointermove', e => { if (triDrag) moveTri(e); });
-addEventListener('pointerup', () => { if (triDrag) { triDrag = null; save(); } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && colPop) closeColPop(); });
+// the line's cards: drag one onto another and it takes that one's place
+document.addEventListener('dragstart', e => { const c = e.target.closest?.('[data-cq]'); if (!c) return; cpDrag = 'q:' + c.dataset.cq; c.classList.add('drag'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', 'cq:' + c.dataset.cq); });
+document.addEventListener('dragover', e => { const c = e.target.closest?.('[data-cq]'); if (!c || !String(cpDrag).startsWith('q:')) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; document.querySelectorAll('.qcard.over').forEach(x => x.classList.remove('over')); c.classList.add('over'); });
+document.addEventListener('drop', e => {
+  const c = e.target.closest?.('[data-cq]'); if (!c || !String(cpDrag).startsWith('q:') || !colPop) return; e.preventDefault();
+  const id = cpDrag.slice(2), P = placeOf(colPop)?.colony; cpDrag = null; if (!P) return;
+  const to = P.queue.findIndex(q => q.id === c.dataset.cq); if (to >= 0 && id !== c.dataset.cq) toastErr(queueMove(S, colPop, id, to));
+  save(); refresh();
+});
+document.addEventListener('dragend', () => { if (String(cpDrag).startsWith('q:')) cpDrag = null; document.querySelectorAll('.qcard.drag, .qcard.over').forEach(x => x.classList.remove('drag', 'over')); });
+document.addEventListener('change', e => { const t = e.target.closest?.('[data-cqcount]'); if (!t || !colPop) return; toastErr(queueCount(S, colPop, t.dataset.cqcount, +t.value)); save(); refresh(); });   // "make 4 of this in one block"
 addEventListener('resize', () => { if (!LAST) return; if (tab === 'system') drawMap(LAST); if (tab === 'galaxy') drawGalaxy(LAST); });
 
-function enqueue(placeId, designId) {
-  const P = placeOf(placeId)?.colony, d = S.designs.find(x => x.id === designId);
-  if (!P || !d) return;
-  P.queue.push({ id: uid('q'), designId, progress: 0 });
-  save(); refresh();
-}
 
 // =====================================================================
 // DESIGN — systems on the left, the hull in the middle, weapons on the right
@@ -1261,14 +1275,14 @@ function renderDesign(c) {
   const chip = d.klass !== 'structure';                                           // a SHIP: chips on the painted ship · a STRUCTURE: modules one by one
   if (chip && chipsFor !== d.id) { gameChips.set(d.chips || chipsOfDesign(d, 1)); chipsFor = d.id; rebuildFromChips(d, c); }
   showMode(chip);
-  const KL = { starship: 'a star drive: it crosses between stars', platform: 'thrusters only: a ship or a platform that moves inside its own system and cannot leave it', structure: 'no engine: built on the ground' };
-  $('dKlass').innerHTML = [['starship', 'Starship'], ['platform', 'Platform · in-system'], ['structure', 'Structure']].map(([k, l]) => `<button class="${d.klass === k ? 'go' : 'x'}" data-dklass="${k}" style="flex:1" title="${KL[k]}">${l}</button>`).join('');
+  const KL = { starship: 'a star drive: it crosses between stars', platform: 'thrusters only: a ship or a platform that moves inside its own system and cannot leave it', structure: 'no engine: a district, built on the ground' };
+  $('dKlass').innerHTML = [['starship', 'Starship'], ['platform', 'Platform · in-system'], ['structure', 'District']].map(([k, l]) => `<button class="${d.klass === k ? 'go' : 'x'}" data-dklass="${k}" style="flex:1" title="${KL[k]}">${l}</button>`).join('');
 
   DS = designStats(S, d, c.caps);
   const t = DS.t;
   const hasShield = DS.shields.length > 0, isShip = t.klass !== 'structure', nDes = shipDesignCount();
   const why = t.dock ? `a space dock: ships are put together inside its gantry${isShip ? ' — and with an engine it can move' : ''}`
-    : { structure: 'no engine: it is built on the ground', platform: 'thrusters only: it crawls from place to place inside its own system and cannot leave it', starship: 'it has a star drive: next eon to any place in its system, and it can cross to other stars' }[t.klass];
+    : { structure: 'no engine: a district, built on the ground', platform: 'thrusters only: it crawls from place to place inside its own system and cannot leave it', starship: 'it has a star drive: next eon to any place in its system, and it can cross to other stars' }[t.klass];
   $('dClass').innerHTML = note ? `<span class="up">${esc(note)}</span>` : `${badgeOf(t)} <span class="tiny">${why} · ship designs <b class="${nDes >= MAX_SHIP_DESIGNS ? 'up' : ''}">${nDes} / ${MAX_SHIP_DESIGNS}</b></span>`;
   // which dock would build this — colony by colony, and the best of them as a size bar under the hull
   const fits = isShip ? c.colonies.map(p => ({ p, fit: dockFit(p.gantries, t.hull.area) })) : [];
@@ -1396,6 +1410,7 @@ function refresh() {
   if (tab === 'system') renderSystem(c);
   if (tab === 'design') renderDesign(c);
   renderShipPop();                                   // the spec pop-up follows the state (an eon ended, a ship moved)
+  renderColPop();                                    // the colony pop-up too
   renderFleetPop(true); renderSendBadge();           // the fleet pop-up and the send-here badge on the maps
 }
 function go(next) {
@@ -1422,13 +1437,19 @@ document.addEventListener('click', e => {
   }
   if ((t = q('[data-opensys]'))) return openSystem(t.dataset.opensys);
   if ((t = q('[data-gplace]'))) return openSystem(placeOf(t.dataset.gplace).sys, t.dataset.gplace);
+  // THE COLONY POP-UP: open it, close it, its production line (add, how many, drop)
+  if ((t = q('[data-colpop]'))) return openColPop(t.dataset.colpop);
+  if ((t = q('[data-cpclose]'))) return closeColPop();
+  if ((t = q('[data-cqopen]'))) { cpAdd = !cpAdd; return renderColPop(); }
+  if ((t = q('[data-cqadd]'))) { cpAdd = false; toastErr(queueAdd(S, colPop, t.dataset.cqadd, 1)); save(); return refresh(); }
+  if ((t = q('[data-cqplus]')) || (t = q('[data-cqminus]'))) { const id = t.dataset.cqplus || t.dataset.cqminus, it = placeOf(colPop)?.colony?.queue.find(x => x.id === id); if (!it) return; toastErr(queueCount(S, colPop, id, (it.count || 1) + (t.dataset.cqplus ? 1 : -1))); save(); return refresh(); }
+  if ((t = q('[data-cqdel]'))) { toastErr(queueDrop(S, colPop, t.dataset.cqdel)); save(); return refresh(); }
   if ((t = q('[data-unq]'))) { const P = placeOf(t.dataset.planet).colony; P.queue = P.queue.filter(x => x.id !== t.dataset.unq); save(); return refresh(); }
   if ((t = q('[data-buynow]'))) {                      // BUY NOW: the rest of a queue item paid from the reserves (stored industry)
     const pc = LAST.colonies.find(x => x.pl.id === t.dataset.planet), qi = pc && pc.queue.find(x => x.item && x.item.id === t.dataset.buynow); if (!qi || qi.noDock) return;
     if ((S.reserves || 0) < qi.need - 1e-6) return say('Not enough in the reserves');
     S.reserves -= qi.need; qi.item.progress += qi.need; save(); return refresh();
   }
-  if ((t = q('[data-add]'))) return enqueue(t.dataset.add, document.querySelector(`[data-addsel="${t.dataset.add}"]`).value);
   if ((t = q('[data-send]'))) { toastErr(sendShip(S, t.dataset.send, document.querySelector(`[data-dest="${t.dataset.send}"]`).value)); save(); return refresh(); }
   if ((t = q('[data-recall]'))) { recallShip(S, t.dataset.recall); save(); return refresh(); }
   if ((t = q('[data-gpick]'))) { const k = t.dataset.gpick, n = clamp((picks.get(k) || 0) + +t.dataset.d, 0, +t.dataset.max); if (n) picks.set(k, n); else picks.delete(k); return refresh(); }
@@ -1450,11 +1471,6 @@ document.addEventListener('click', e => {
     selMod = null; save(); return refresh();
   }
   if ((t = q('[data-settle]'))) { const u = S.ships.find(x => x.id === t.dataset.settle), o = u && W ? ownerOf(W, S, u.at) : null; toastErr(o ? `${o.name} holds it — land troops instead` : settle(S, t.dataset.settle)); save(); return refresh(); }
-  // DISTRICTS: a cell → develop (or re-make) it as the chosen design; ✕ on a queued one; the design editor
-  if ((t = q('[data-cell]'))) { const sel = $('sPanel').querySelector(`[data-devsel="${t.dataset.planet}"]`); toastErr(develop(S, t.dataset.planet, +t.dataset.cell, sel ? sel.value : 'dist-mixed')); save(); return refresh(); }
-  if ((t = q('[data-undev]'))) { toastErr(undevelop(S, t.dataset.planet, t.dataset.undev)); save(); return refresh(); }
-  if ((t = q('[data-dedit]'))) { const d = (S.districts || []).find(x => x.id === t.dataset.dedit); if (d) distEdit = { name: d.name + ' II', mix: { ...d.mix } }; return refresh(); }
-  if ((t = q('[data-dsave]'))) { const root = t.parentElement, name = root.querySelector('[data-dname]').value.trim(), mix = {}; for (const f of FACTORS) mix[f] = Math.max(0, +root.querySelector(`[data-dmix="${f}"]`).value || 0) / 100; const err = setDistrict(S, { id: distEdit && distEdit.id, name, mix }); if (err) return toastErr(err); distEdit = null; save(); return refresh(); }
   if ((t = q('[data-invade]'))) { if (!W) return; const err = invade(W, S, t.dataset.invade); if (err) toastErr(err); else say(S.report.at(-1)?.text || 'The troops have landed'); save(); return refresh(); }
   if ((t = q('[data-hull]'))) { const d = design(); if (!d) return; d.hull = t.dataset.hull; fitGunsFor = d.id; save(); return refresh(); }
   if ((t = q('[data-hulldel]'))) return deleteHull(t.dataset.hulldel);
@@ -1499,7 +1515,7 @@ $('dAuto').onclick = () => { const d = design(); if (!d) return; const done = au
 $('dName').oninput = e => { const d = design(); if (d) { d.name = e.target.value; save(); } };
 $('dName').onblur = () => refresh();
 // a new design is a starship with a pair of beams (a structure when the ship slots are full); a copy keeps chips, paint and class
-$('dNew').onclick = () => { leaveOutline(); const full = shipDesignCount() >= MAX_SHIP_DESIGNS; const d = { id: uid('d'), name: 'New design', klass: full ? 'structure' : 'starship', modules: [], chips: full ? [] : [{ type: 'weapon', kind: 'weapon_energy', h: 1, role: null }], paint: { plating: 0, fittings: 0, seed: Math.floor(Math.random() * 1000) } }; S.designs.push(d); curDesign = d.id; selMod = null; chipsFor = null; save(); if (full) say(`${MAX_SHIP_DESIGNS} ship designs at most — this one is a structure; delete a ship design to make room`); else refresh(); };
+$('dNew').onclick = () => { leaveOutline(); const full = shipDesignCount() >= MAX_SHIP_DESIGNS; const d = { id: uid('d'), name: 'New design', klass: full ? 'structure' : 'starship', modules: [], chips: full ? [] : [{ type: 'weapon', kind: 'weapon_energy', h: 1, role: null }], paint: { plating: 0, fittings: 0, seed: Math.floor(Math.random() * 1000) } }; S.designs.push(d); curDesign = d.id; selMod = null; chipsFor = null; save(); if (full) say(`${MAX_SHIP_DESIGNS} ship designs at most — this one is a district; delete a ship design to make room`); else refresh(); };
 $('dCopy').onclick = () => { const d = design(); if (!d) return; if ((d.klass || DS?.t.klass) !== 'structure' && shipDesignCount() >= MAX_SHIP_DESIGNS) return say(`${MAX_SHIP_DESIGNS} ship designs at most — delete one first (refits come later)`); leaveOutline(); const c = JSON.parse(JSON.stringify(d)); c.id = uid('d'); c.name = d.name + ' II'; for (const m of c.modules) m.id = uid('m'); S.designs.push(c); curDesign = c.id; selMod = null; chipsFor = null; save(); refresh(); };
 $('dDel').onclick = () => { const d = design(); if (!d || !confirm(`Delete the design "${d.name}"? What is already built stays.`)) return; leaveOutline(); S.designs = S.designs.filter(x => x.id !== d.id); curDesign = S.designs[0]?.id || null; selMod = null; chipsFor = null; save(); refresh(); };
 $('eEnd').onclick = () => {
@@ -1570,7 +1586,7 @@ function renderReplayBar() {
   }
   if (!REPLAY) { bar.hidden = true; return; }
   const W = REPLAY.world, eon = replayEon(), ended = REPLAY.ended;
-  const word = a => a.type === 'send' ? `send ${a.n} × ${designWord(a.design)} ${sysWord(a.from)} → ${a.toPlace ? (placeOf(a.toPlace)?.name || a.toPlace) : sysWord(a.to)}` : a.type === 'sendmix' ? `send ${(a.mix || []).map(m => `${m.n} × ${designWord(m.design)}`).join(' + ')} ${sysWord(a.from)} → ${a.toPlace ? (placeOf(a.toPlace)?.name || a.toPlace) : sysWord(a.to)}` : a.type === 'invade' ? `land troops on ${placeOf(a.place)?.name || a.place}` : a.type === 'develop' ? `develop a district at ${placeOf(a.place)?.name || a.place} (${(S.districts || []).find(d => d.id === a.design)?.name || a.design})` : a.type === 'district' ? `district design ${a.design.name}` : a.type === 'settle' ? `settle ${placeOf(a.place)?.name || a.place}` : a.type === 'build' ? `build ${designWord(a.design)}` : a.type === 'buynow' ? 'buy now' : a.type === 'split' ? `split ${a.split.map(v => Math.round(v * 100)).join(' / ')}` : a.type === 'design' ? `design ${a.design.name}` : a.type === 'focus' ? 'move the focus' : a.type;
+  const word = a => a.type === 'send' ? `send ${a.n} × ${designWord(a.design)} ${sysWord(a.from)} → ${a.toPlace ? (placeOf(a.toPlace)?.name || a.toPlace) : sysWord(a.to)}` : a.type === 'sendmix' ? `send ${(a.mix || []).map(m => `${m.n} × ${designWord(m.design)}`).join(' + ')} ${sysWord(a.from)} → ${a.toPlace ? (placeOf(a.toPlace)?.name || a.toPlace) : sysWord(a.to)}` : a.type === 'invade' ? `land troops on ${placeOf(a.place)?.name || a.place}` : a.type === 'devfocus' ? `development focus at ${placeOf(a.place)?.name || a.place}` : a.type === 'plan' ? `plan a cell at ${placeOf(a.place)?.name || a.place}` : a.type === 'count' || a.type === 'qmove' || a.type === 'unq' ? 'the production line' : a.type === 'develop' || a.type === 'district' ? '(an old district order)' : a.type === 'settle' ? `settle ${placeOf(a.place)?.name || a.place}` : a.type === 'build' ? `build ${designWord(a.design)}` : a.type === 'buynow' ? 'buy now' : a.type === 'split' ? `split ${a.split.map(v => Math.round(v * 100)).join(' / ')}` : a.type === 'design' ? `design ${a.design.name}` : a.type === 'focus' ? 'move the focus' : a.type;
   const acts = (W ? REPLAY.log.empires[REPLAY.view].actions : REPLAY.log.actions).filter(a => a.eon === eon);
   const events = W ? (REPLAY.log.events || []).filter(e => e.eon === eon - 1) : [];
   const who = W ? `<select data-rview title="look through this empire's eyes">${W.empires.map((E, i) => `<option value="${i}" ${i === REPLAY.view ? 'selected' : ''}>${esc(E.name)}${E.dead ? ' (fallen)' : ''}</option>`).join('')}</select><button class="${GOD ? 'go' : 'x'}" data-rgod title="the galaxy map shows every empire — spheres, colonies, fleets, ships under way — and the panel a scoreboard; click any fleet or ship">👁 God mode${GOD ? ' ✓' : ''}</button>` : '';

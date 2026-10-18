@@ -126,7 +126,7 @@ export const TURRET = { base: 90, pow: 0.8, kind: { weapon_energy: 1.3, weapon_k
 export const traverseOf = (kind, size) => (TURRET.kind[kind] || 0) * TURRET.base / Math.pow(Math.max(0.05, size || 1), TURRET.pow);   // at 0 hull a ship runs at 50%; a fabricator patches so many HP/s per industry, up to half the hull over a battle
 export const armorBulk = n => n + ARMOR.ring * n * (n - 1) / 2;   // total volume of n layers, in units of one layer
 export const KIND_IDS = Object.keys(KINDS);
-export const CLASS_NAME = { structure: 'Structure', platform: 'Platform', starship: 'Starship' };
+export const CLASS_NAME = { structure: 'District', platform: 'Platform', starship: 'Starship' };   // 'structure' shows as DISTRICT (his name, 2026-10-18 — the class is to be redesigned); the saved class keeps its key
 export const isRelevant = (kind, channel) => TRIANGLE.includes(channel) || KINDS[kind].stats.some(s => s.from.includes(channel));
 export const scaleOf = mod => { const K = KINDS[mod.kind]; return K.scale ? clamp(mod.k || 1, K.scale.min, K.scale.max) : 1; };
 // how far a gun reaches, in words and colour — to be tuned once battles show what matters

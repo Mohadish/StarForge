@@ -27,7 +27,6 @@ export const AI_DESIGNS = {
 };
 const DOCK = { id: 'ai-dock', name: 'Great dock', klass: 'structure', hull: 'cradle', modules: [{ id: 'ai-g1', kind: 'gantry', w: 8, h: 4, n: 1, caps: [] }, { id: 'ai-r1', kind: 'reactor', k: 0.25, n: 1, caps: [] }] };
 const NEED = { war: 1.6, long: 2.5 }, BASE = 400;                                 // the fleet to send, × what guards the target (an empty colony still asks a real fleet)
-const DISTRICT_DEV_MIN = 1;                                                      // (a colony with any industry develops)
 const HEAL2 = [0, 4, 2, 1, 0.5, 0];                                              // strain healed by two eons' rest, by zone (model.js ZONE)
 const D = AI_DESIGNS, COMBAT = ['war', 'screen', 'raid', 'sniper', 'carrier', 'long'];
 // THE CYCLE (fleetplan.js TACTICS): what beats what — the counter of a class is the class that beats it
@@ -114,7 +113,8 @@ export function makeBrain(W, S, opts = {}) {
   const mixWord = m => Object.entries(m).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${Math.round(v * 100)} % ${D[k].name.replace('AI ', '')}`).join(', ');
 
   const HOME = S.homeSys, HOMEPLACE = S.homePlace || 'home';
-  let rally = HOME, target = null, path = null, kind = 'war', stale = 0, lastSplit = null, lastFocusEon = -99, colony = null, lastProgress = 0, waitingNoted = false, feeding = false, shortHold = 0, lastMove = 0, assault = null, lastMixWord = '';
+  const leans = new Map();                             // each colony's development lean: crowded / hungry, held with a margin
+  let rally = HOME, target = null, path = null, kind = 'war', stale = 0, lastSplit = null, lastFocusEon = -99, colony = null, lastProgress = 0, waitingNoted = false, shortHold = 0, lastMove = 0, assault = null, lastMixWord = '';
   const B = { settled: 0, lost: 0, taken: 0, invasions: 0, stuckSince: 0, shipsBefore: 0 };
   for (const k of Object.keys(D)) act({ type: 'design', design: shipDesign(k) }); act({ type: 'design', design: dockDesign() });
   const T0 = Object.fromEntries(Object.keys(D).map(k => [k, designStats(S, S.designs.find(d => d.id === D[k].id)).t])), REACH = Object.fromEntries(Object.keys(D).map(k => [k, shipRange(T0[k])]));
@@ -134,23 +134,26 @@ export function makeBrain(W, S, opts = {}) {
   function plan() {
     if (S.dead) return; maps = new Map();                                             // the eon's path searches start afresh (the sphere moved)
     const c = compute(S), pc = c.colonies.find(x => x.pl.id === HOMEPLACE); if (!pc) return;
-    // ECONOMY: industry-heavy, social enough to feed everyone and build room, research for the sustain rule and the tech
+    // ECONOMY: industry-heavy, research for the sustain rule and the tech, a third of the people building the surface (the triangle's
+    // DEVELOPMENT corner, 2026-10-18); short of the sustain line, more at the works and labs; a world with nothing left to build lends
+    // its builders to the labs (industry past half pollutes)
     let split = [0.5, 0.2, 0.3];
-    if (pc.surplus < 0.5) feeding = true; else if (pc.surplus > 8) feeding = false;   // hysteresis: the split flipped every eon on a 1-food threshold
-    if (feeding) split = [0.4, 0.15, 0.45];
     if (pc.short > 0) shortHold = 6; else if (shortHold > 0) shortHold--;              // held a few eons: the split flipped every eon on the sustain line
-    if (shortHold > 0) split = [Math.min(0.6, split[0] + 0.1), split[1] + 0.05, Math.max(0.2, split[2] - 0.15)];
+    if (shortHold > 0) split = [0.6, 0.25, 0.15];
+    if (pc.G && pc.cap.slots >= pc.G.cells.length * 4 - 1) split = [0.5, 0.4, 0.1];   // a (nearly) full world — a slot torn down for re-making does not count   // industry held at half: past it, industrial pollution builds and its sickness caps the people (384 M on every home, 2026-10-18)
     const sum = split.reduce((a, v) => a + v, 0); split = split.map(v => v / sum);
     if (!lastSplit || split.some((v, i) => Math.abs(v - lastSplit[i]) > 0.02)) { act({ type: 'split', place: HOMEPLACE, split }); lastSplit = split; }
-    // DISTRICTS (2026-10-18): every colony develops its grid, one cell at a time, to what it is short of — room when the people press
-    // the housing, farms when the food runs short, foundries when the industry pops outgrow their districts, a campus when the
-    // researchers do; otherwise a mixed district. A developed cell is re-made only when crowded and nothing is free.
+    // THE SURFACE (colony.js): every colony's development focus leans toward what it lacks — homes when the people press the housing,
+    // farms when the food runs short, works when the industry hands outnumber the works, labs when the researchers do; the centre
+    // otherwise (a bit of everything). The fillet keeps a lean from running to a corner the colony cannot use.
     for (const col of c.colonies) {
-      const P = col.P; if (!P.cells || !P.cells.length || (P.develop && P.develop.length) || col.blockaded) continue;
-      const free = P.cells.findIndex(x => !x); if (free < 0) continue;
-      const crowded = P.people > 0.85 * col.housing, hungry = col.water && col.surplus < 0, overI = col.people.industry > col.cap.industry * 1.1, overR = col.people.research > col.cap.science * 1.1, overF = col.water && col.people.social > col.cap.food * 1.1;
-      const design = crowded ? 'dist-housing' : hungry || overF ? 'dist-farms' : overI ? 'dist-foundry' : overR ? 'dist-campus' : 'dist-mixed';
-      if (col.industry * DISTRICT_DEV_MIN <= col.industry) act({ type: 'develop', place: col.pl.id, cell: free, design });
+      const G = col.G; if (!G || col.blockaded) continue;
+      // HYSTERESIS: a lean holds until the colony is clearly past it (the farm built one eon was torn down the next — 900 orders a game)
+      const was = leans.get(col.pl.id) || {}, crowded = col.P.people > (was.crowded ? 0.75 : 0.85) * col.housing, hungry = col.water && col.surplus < (was.hungry ? 0.1 * col.eat : 0.5); const overI = col.people.industry > col.cap.industry * (was.overI ? 0.95 : 1.05), overR = col.people.research > col.cap.science * (was.overR ? 0.95 : 1.05); leans.set(col.pl.id, { crowded, hungry, overI, overR });
+      let x = 0.5, y = 0.5;
+      if (crowded) { x -= 0.3; y += 0.3; } if (hungry) { x += 0.3; y -= 0.3; } if (overI) { x -= 0.3; y -= 0.3; } if (overR) { x += 0.3; y += 0.3; }
+      x = Math.round(Math.max(0, Math.min(1, x)) * 20) / 20; y = Math.round(Math.max(0, Math.min(1, y)) * 20) / 20;
+      if (Math.abs(x - G.dot.x) > 0.01 || Math.abs(y - G.dot.y) > 0.01) act({ type: 'devfocus', place: col.pl.id, x, y });
     }
     // the focus leans to its corner (opts.focus; Extermination by default), one step every ten eons once cohesion can pay for it, up to FOCUS_TOP; 'mid' never moves
     if (bias != null && bias >= 0 && S.cohesion >= 40 && W.eon - lastFocusEon >= 10 && S.focus[bias] < FOCUS_TOP) { const w = S.focus.slice(), step = 0.1; w[bias] += step; for (const i of [0, 1, 2, 3]) if (i !== bias) w[i] = Math.max(0, w[i] - step / 3); const t = w.reduce((a, v) => a + v, 0); act({ type: 'focus', w: w.map(v => v / t) }); lastFocusEon = W.eon; }

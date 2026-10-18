@@ -18,7 +18,8 @@
 import { PROPERTIES, DOMAINS, CHANNEL_X, RARITY } from '../data/properties.js';
 import { designStats, allCapsules, passiveOf, dockFit, fleetWarp } from './modules.js';
 import { generateGalaxy } from './galaxy.js';
-import { DISTRICT, STARTER_DISTRICTS, HOME_CELLS, gridOf, capacities, employed, newCells, normMix } from './districts.js';
+import { DISTRICT, FACTORS, gridOf, employed } from './districts.js';
+import { newSurface, capsOf, building, developStep, creepFillet, isFull, SLOT, DEV, FILLET, LEVEL1, KIND_WORD } from './colony.js';
 import { sizeFatigue, createBattle, shipFromDesign, rng32 } from './battle.js';
 import { composePlan, buildPlan, naturalShips, planStrip, TACTIC_IDS, TACTICS } from './fleetplan.js';
 
@@ -174,9 +175,30 @@ function rand(S) {
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 }
 const perField = v => Object.fromEntries(FIELD_IDS.map(f => [f, typeof v === 'function' ? v(f) : v]));
-// a colony: its people, the room it was born with, the planet's triangle, the build queue — and its DISTRICTS (districts.js): the
-// world's grid of cells, `starter` of them developed already (the homeworld's old city; a new colony's landing site), the development queue
-export const newColony = (people, baseHousing = 0, grid = null, starter = ['dist-mixed']) => ({ people, baseHousing, split: [1 / 3, 1 / 3, 1 / 3], happiness: 60, queue: [], structures: [], factories: 0, cells: newCells(grid, starter), develop: [] });
+// a colony: its people, the room it was born with, the planet's triangle (industry / research / DEVELOPMENT), the production line —
+// and its SURFACE (colony.js): the world's cells of four slots, the development focus, the fillet (`home`: the homeworld's old city)
+export const newColony = (people, baseHousing = 0, pl = null, home = false) => ({ people, baseHousing, split: [1 / 3, 1 / 3, 1 / 3], happiness: 60, queue: [], structures: [], factories: 0, surface: pl ? surfaceFor(pl, home) : null });
+export function surfaceFor(pl, home = false) { const g = gridOf(pl); return g ? newSurface({ w: g.w, h: g.h, seed: pl.id + '|ground', home, water: waterOf(pl) }) : null; }
+// an OLDER colony gets a surface (2026-10-18 morning: cells developed to district designs — each becomes four slots by its design's
+// mix, largest remainders first; before that: no cells — a fresh surface); the development queue of the old designs is dropped
+const LEGACY_MIX = { 'dist-mixed': [0.25, 0.25, 0.25, 0.25], 'dist-housing': [0, 0.3, 0.7, 0], 'dist-farms': [0, 0.7, 0.3, 0], 'dist-foundry': [0.7, 0, 0.3, 0], 'dist-campus': [0, 0, 0.3, 0.7] };   // industry, food, housing, science
+function migrateColony(S, pl) {
+  const P = pl.colony, g = gridOf(pl); if (P.surface !== undefined && P.surface !== null) return P.surface; if (!g) return null;
+  if (!Array.isArray(P.cells)) { P.surface = surfaceFor(pl, pl.id === (S.homePlace || 'home')); delete P.develop; return P.surface; }
+  const G = newSurface({ w: g.w, h: g.h, seed: pl.id + '|ground', water: waterOf(pl) }); G.cells.forEach(c => { c.slots = []; });
+  let first = -1;
+  P.cells.forEach((cell, i) => {
+    if (!cell || !cell.design || i >= G.cells.length) return;
+    const d = (S.districts || []).find(x => x.id === cell.design), mix = d ? FACTORS.map(f => d.mix[f] || 0) : LEGACY_MIX[cell.design] || LEGACY_MIX['dist-mixed'];
+    const t = mix.reduce((a, v) => a + v, 0) || 1, raw = mix.map(v => v / t * SLOT.per), n = raw.map(Math.floor), r = SLOT.per - n.reduce((a, v) => a + v, 0);
+    raw.map((v, k) => [v - n[k], k]).sort((a, b) => b[0] - a[0] || a[1] - b[1]).slice(0, r).forEach(([, k]) => n[k]++);
+    FACTORS.forEach((f, k) => { for (let m = 0; m < n[k]; m++) G.cells[i].slots.push(f); });
+    if (first < 0) first = i;
+  });
+  if (first >= 0) G.landing = first; else G.cells[G.landing].slots = waterOf(pl) ? ['housing', 'food'] : ['housing', 'industry'];
+  delete P.cells; delete P.develop; P.surface = G; return G;
+}
+const surfaceOf = (S, pl) => migrateColony(S, pl);    // a world snapshot from before the slots meets the engine here (upgrade() does it for a save)
 
 // a starting design: a silhouette and a list of modules ({ kind, n?, w/h for a gantry, k for a reactor })
 function design(name, hull, kinds) {
@@ -204,9 +226,9 @@ export function newState(seed = 7, o = {}) {           // o.galaxy: { count, rad
     ],
   };
   spawnHostiles(S);
-  S.districts = STARTER_DISTRICTS.map(d => ({ id: d.id, name: d.name, mix: { ...d.mix } }));   // the district designs (districts.js), the player's to add to
+  S.slotLevels = { ...LEVEL1 };                         // the empire's four slot kinds, one global design each (colony.js); breakthroughs will raise them
   const home = S.places.find(p => p.id === 'home');
-  home.colony = newColony(100, 120, gridOf(home), HOME_CELLS);
+  home.colony = newColony(100, 120, home, true);
   home.fresh = perField(0.9);                          // two thousand years of looking at the same sky
   // the standard space dock: a 4 × 2 gantry — whatever fits inside it can be built
   home.colony.structures.push({ id: uid('u'), name: 'Space dock', klass: 'structure', design: cloneDesign(S.designs.find(d => d.name === 'Space dock')), eon: 0 });
@@ -283,8 +305,10 @@ export function compute(S) {
   const moved = moveDist > 0.005, shock = moved && reach > 1e-6 ? clamp(moveDist / reach, 0, 1) : 0;
   // colonies
   const colonies = S.places.filter(pl => pl.colony).map(pl => {
-    const P = pl.colony, [si, sr, ss] = P.split, mp = P.people, factor = clamp(0.5 + P.happiness / 120, 0.5, 1.25);
-    const pol = P.pol || { industry: 0, research: 0, social: 0 }, docile = 1 - T.pol.max * pol.social / 100, aloof = 1 - T.pol.max * pol.research / 100;   // pollution's drag
+    const P = pl.colony, [si, sr, sd] = P.split, mp = P.people, factor = clamp(0.5 + P.happiness / 120, 0.5, 1.25);
+    // pollution's drag (a share held past half for long builds its own up): industrial — people sicken; docile (the development
+    // corner) — industry and research slacken; aloof (the research corner) — the builders slacken
+    const pol = P.pol || { industry: 0, research: 0, social: 0 }, docile = 1 - T.pol.max * pol.social / 100, aloof = 1 - T.pol.max * pol.research / 100;
     const flat = { industry: 0, research: 0, social: 0, upkeep: 0, housing: 0 }, gantries = [];
     // the gantries here: the colony's own docks, and any dock of yours parked in orbit
     for (const u of P.structures) {
@@ -293,66 +317,72 @@ export function compute(S) {
       for (const gt of t.gantries) gantries.push({ ...gt, of: u.name, at: pl.name });
     }
     for (const { u, t } of ships) if (!u.dest && u.at === pl.id) for (const gt of t.gantries) gantries.push({ ...gt, of: u.name, at: pl.name });
-    const people = { industry: mp * si, research: mp * sr, social: mp * ss };
-    // DISTRICTS (his design, 2026-10-18): the developed cells are the planet's CAPACITY — pops within it work whole, the rest at idle;
-    // the triangle above stays the effort. A pure district is hit by the focus shock (districts.js cellEffect)
-    const cap = capacities(P, S.districts || [], shock), grid = gridOf(pl), cellsAll = grid ? grid.w * grid.h : 0;
-    const social = employed(people.social, cap.food) * aloof + flat.social;   // the social share's farms: the food districts
-    const waterHere = waterOf(pl), fed = waterHere ? clamp((social * T.foodPerSocial) / Math.max(1e-9, mp * T.foodPerHead), 0, 1) : 1, hungry = 1 - DISTRICT.hunger * (1 - fed);   // a hungry planet works worse (his strain)
+    const people = { industry: mp * si, research: mp * sr, development: mp * sd };
+    // THE SURFACE (his design, 2026-10-18 — colony.js): cells of four slots, industry / food / housing / science. The slots are the
+    // CAPACITY — works and labs that employ the triangle's hands (the rest work at idle), homes, farms that feed; the triangle is the
+    // EFFORT, and its third corner, DEVELOPMENT, builds the next slot toward the colony's development focus. A pure cell takes the focus shock.
+    const G = surfaceOf(S, pl), water = waterOf(pl), grid = gridOf(pl), cellsAll = grid ? grid.w * grid.h : 0;
+    const { cap, perCell } = G ? capsOf(G, { levels: S.slotLevels || LEVEL1, shock }) : { cap: { industry: 0, food: 0, housing: 0, science: 0, cells: 0, scienceShare: 0, pure: 0, slots: 0 }, perCell: [] };
+    // FOOD from the farms (the M people they feed; a landed ship's social systems add theirs) — only where there is water (his spec,
+    // 2026-10-16): without it the settlers live on their stores — no food, no growth, no famine — until supply lines exist (later)
+    const eat = mp * T.foodPerHead, food = water ? cap.food * T.foodPerHead + flat.social * T.foodPerSocial : 0, surplus = water ? food - eat : 0;
+    const fed = water ? clamp(food / Math.max(1e-9, eat), 0, 1) : 1, hungry = 1 - DISTRICT.hunger * (1 - fed);   // a hungry planet works worse (his strain)
     const industry = Math.max(0, employed(people.industry, cap.industry) * factor * docile * hungry + flat.industry + (P.factories || 0) * T.factoryOut - flat.upkeep);   // the factories: a flat trickle each
     const research = employed(people.research, cap.science) * factor * docile * hungry + flat.research;
     const housing = P.baseHousing + flat.housing + cap.housing;
     const blockaded = P.blockaded || 0;              // BLOCKADED by another empire's fleet (world.js): nothing gets built, nothing reaches the reserves, nobody grows, the mood sours
-    // the DEVELOPMENT queue first (up to DISTRICT.devShare of the industry), then the build queue
-    let left = blockaded ? 0 : industry, ahead = 0; const done = [], queue = [], develop = [];
-    let devLeft = Math.min(left, industry * DISTRICT.devShare), devAhead = 0;
-    for (const item of P.develop || []) {
-      const d = (S.districts || []).find(x => x.id === item.design), cell = (P.cells || [])[item.cell];
-      if (!d || cell === undefined) { develop.push({ item, gone: true }); continue; }
-      const cost = cell && cell.design ? DISTRICT.upgrade : DISTRICT.cost, need = Math.max(0, cost - (item.progress || 0)), spend = Math.min(devLeft, need);
-      devLeft -= spend; left -= spend; devAhead += need;
-      const finishes = spend >= need - 1e-6, eta = finishes ? 1 : industry * DISTRICT.devShare > 0 ? Math.max(1, Math.ceil(devAhead / (industry * DISTRICT.devShare) - 1e-9)) : Infinity;
-      develop.push({ item, d, cost, need, spend, finishes, eta, upgrade: !!(cell && cell.design) });
-    }
+    const dev = blockaded ? 0 : people.development * DEV.perM * aloof * hungry;   // the builders' points this eon
+    // THE PRODUCTION LINE (his ask, 2026-10-18): the top item takes the industry; a unit paid for leaves the rest to the next unit of the
+    // same item (an item is N of one design), then to the next item; what nobody needs makes factories, then reserves
+    let left = blockaded ? 0 : industry, ahead = 0; const done = [], queue = [];
     for (const item of P.queue) {
       const d = S.designs.find(x => x.id === item.designId);
       if (!d) { queue.push({ item, gone: true }); continue; }
       // anything with an engine is put together in a gantry: whole if it fits, in sections (dearer) if not
       const ds = designStats(S, d, caps).t, fit = ds.klass === 'structure' ? null : dockFit(gantries, ds.hull.area), noDock = ds.klass !== 'structure' && !fit;
-      const sections = fit ? fit.sections : 1, cost = ds.cost * (fit ? fit.mult : 1);
-      // …and slower: once it is paid for, the sections still have to be joined — eons that cost nothing but time
+      const sections = fit ? fit.sections : 1, cost = ds.cost * (fit ? fit.mult : 1), count = Math.max(1, Math.round(item.count || 1));
+      // …and slower: once paid for, the sections still have to be joined — eons that cost nothing but time (one unit at a time)
       const joinNeed = (sections - 1) * T.sectionEons, joinLeft = joinNeed - Math.min(item.joined || 0, joinNeed);
-      const need = Math.max(0, cost - item.progress), joining = !noDock && need <= 1e-6 && joinLeft > 0;
-      const spend = noDock ? 0 : Math.min(left, need);
-      left -= spend; if (!noDock) ahead += need;
-      const finishes = !noDock && spend >= need - 1e-6 && (joining ? joinLeft <= 1 : joinLeft <= 0);
-      const eta = noDock ? Infinity : need <= 1e-6 ? Math.max(1, joinLeft) : industry > 0 ? Math.max(1, Math.ceil(ahead / industry - 1e-9)) + joinLeft : Infinity;
-      queue.push({ item, d, ds, noDock, fit, sections, cost, need, spend, joining, joinNeed, joinLeft, finishes, eta });
-      if (finishes) done.push({ item, d, ds, sections });
+      const need = Math.max(0, cost - (item.progress || 0)), aheadBefore = ahead;
+      let p = item.progress || 0, j = item.joined || 0, built = 0, spend = 0, joining = false;
+      if (!noDock) for (let k = 0; k < count; k++) {
+        const nd = Math.max(0, cost - p), jl = joinNeed - Math.min(j, joinNeed);
+        if (nd <= 1e-6 && jl > 0) { joining = true; j++; if (jl <= 1) { built++; p = 0; j = 0; } break; }   // joining takes the eon
+        const put = Math.min(left, nd); left -= put; spend += put; p += put;
+        if (p < cost - 1e-6 || jl > 0) break;        // not paid yet, or paid and the joining starts next eon
+        built++; p = 0; j = 0;                       // a whole unit: the next one starts on what is left
+      }
+      if (!noDock) ahead += need + cost * (count - 1);
+      const eta = noDock ? Infinity : need <= 1e-6 ? Math.max(1, joinLeft) : industry > 0 ? Math.max(1, Math.ceil((aheadBefore + need) / industry - 1e-9)) + joinLeft : Infinity;
+      const etaAll = noDock ? Infinity : industry > 0 ? Math.max(1, Math.ceil(ahead / industry - 1e-9)) + joinLeft + joinNeed * (count - 1) : Infinity;
+      queue.push({ item, d, ds, noDock, fit, sections, cost, count, need, spend, joining, joinNeed, joinLeft, built, finishes: built > 0, eta, etaAll, progressAfter: p, joinedAfter: j });
+      for (let k = 0; k < built; k++) done.push({ item, d, ds, sections });
     }
-    // WATER → FOOD (his spec, 2026-10-16): farms only where there is water; without it the settlers live on their stores — no
-    // food, no growth, no famine — until supply lines exist (later)
-    const water = waterOf(pl), eat = mp * T.foodPerHead, food = water ? social * T.foodPerSocial : 0, surplus = water ? food - eat : 0;
-    // ROOM comes from the housing districts now (and the room the colony was born with); the world's grid is the ceiling
-    const roomCap = P.baseHousing + flat.housing + cellsAll * DISTRICT.pops, houses = 0;
-    // the industry share builds the queue; with nothing left to build it builds FACTORIES (one per pop at most), and past that it
-    // piles up RESERVES — stored industry, the empire's money
+    // ROOM: the homes on the surface (and the room the colony was born with); a world of homes is the ceiling
+    const roomCap = P.baseHousing + flat.housing + cellsAll * SLOT.per * SLOT.cap.housing, houses = 0;
+    // the industry nothing in the line needed builds FACTORIES (one per pop at most), and past that it piles up RESERVES — stored industry, the empire's money
     const spare = left, canBuild = Math.max(0, Math.floor(mp) - (P.factories || 0)), newFactories = Math.min(canBuild, Math.floor(spare / T.factoryCost)), toReserves = spare - newFactories * T.factoryCost;
     // SUSTAIN: a big society needs industry and research at work for its own sake; short of it, unrest — people leave, the mood sours
     const ramp = Math.pow(clamp((mp - T.sustain.from) / (T.sustain.to - T.sustain.from), 0, 1), 2), needI = ramp * T.sustain.industry * mp, needR = ramp * T.sustain.research * mp;
     const short = Math.max(0, needI > 0 ? 1 - industry / needI : 0, needR > 0 ? 1 - research / needR : 0);
-    let dPeople = surplus >= 0 ? surplus * T.growthPerFood * (1 + DISTRICT.health * cap.scienceShare) : surplus * T.starvePerFood;   // science across the districts = food and health: faster growth
+    let dPeople = surplus >= 0 ? surplus * T.growthPerFood * (1 + DISTRICT.health * cap.scienceShare) : surplus * T.starvePerFood;   // science across the cells = health: faster growth
     const full = mp >= housing - 1e-6;
     if (dPeople > 0) dPeople = Math.max(0, Math.min(dPeople, housing - mp));        // nowhere to live = no growth
     if (mp > housing + 0.5) dPeople = Math.min(dPeople, -1);                        // overcrowded
     dPeople -= mp * short * T.sustain.unrest + mp * pol.industry / 100 * T.pol.sicken;   // unrest, and the sick of an industrial world
     if (blockaded && dPeople > 0) dPeople = 0;
-    const happyTarget = clamp(20 + 120 * ss - 60 * short - T.moveShock * shock - 0.3 * pol.industry - T.upkeep.grumble * clamp(S.unpaid || 0, 0, 1) - (blockaded ? T.ground.mood : 0), 0, 100), happiness = P.happiness + (happyTarget - P.happiness) * 0.3;
-    const polNext = { industry: clamp(pol.industry + (si - 0.5) * T.pol.rate, 0, 100), research: clamp(pol.research + (sr - 0.5) * T.pol.rate, 0, 100), social: clamp(pol.social + (ss - 0.5) * T.pol.rate, 0, 100) };
-    return { pl, P, people, factor, flat, industry, research, social, gantries, housing, full, queue, done, spare, food, eat, surplus, dPeople, happiness, happyTarget,
-      water, roomCap, houses, factories: P.factories || 0, newFactories, toReserves, needI, needR, short, pol, polNext, blockaded, cap, grid, cellsAll, develop };
+    // the MOOD: science across the cells is also health, care, learning, entertainment (his words) — 25 % of it sits where a third of
+    // the people in the social corner sat before (60)
+    const happyTarget = clamp(20 + 160 * cap.scienceShare - 60 * short - T.moveShock * shock - 0.3 * pol.industry - T.upkeep.grumble * clamp(S.unpaid || 0, 0, 1) - (blockaded ? T.ground.mood : 0), 0, 100), happiness = P.happiness + (happyTarget - P.happiness) * 0.3;
+    const polNext = { industry: clamp(pol.industry + (si - 0.5) * T.pol.rate, 0, 100), research: clamp(pol.research + (sr - 0.5) * T.pol.rate, 0, 100), social: clamp(pol.social + (sd - 0.5) * T.pol.rate, 0, 100) };
+    // THE FILLET's targets and what the colony is SHORT of (colony.js): idle works and labs, hunger and empty homes, a surplus nobody eats
+    const staffed = { industry: cap.industry > 0 ? Math.min(1, people.industry / cap.industry) : 1, science: cap.science > 0 ? Math.min(1, people.research / cap.science) : 1 };
+    const want = { industry: staffed.industry, science: staffed.science, housing: fed * Math.min(1, mp * FILLET.empty / Math.max(1, housing)), food: water && food > 0 ? Math.min(1, eat / food) : 1 };
+    const lack = { food: water && food < eat, housing: housing < mp, industry: people.industry > cap.industry, science: people.research > cap.science };
+    const next = G && !blockaded ? building(G, { noFood: !water, lack }) : null;
+    return { pl, P, people, factor, flat, industry, research, food, gantries, housing, full, queue, done, spare, eat, surplus, fed, hungry, dPeople, happiness, happyTarget,
+      water, roomCap, houses, factories: P.factories || 0, newFactories, toReserves, needI, needR, short, pol, polNext, blockaded, cap, perCell, grid, cellsAll, G, dev, staffed, want, lack, next };
   });
-
   // who is studying what: research power on the ground and in orbit, place by place
   const ground = {}, orbit = {}, sysResearch = {}, sysOfPlace = Object.fromEntries(S.places.map(p => [p.id, p.sys]));
   const inSys = (sys, v) => { sysResearch[sys] = (sysResearch[sys] || 0) + v; };
@@ -380,8 +410,10 @@ export function compute(S) {
       sources: sources.sort((a, b) => b.c - a.c), lean: leanOf(f, S.focus) };
   });
 
-  const pops = colonies.reduce((a, p) => a + p.P.people, 0), socialShare = pops > 0 ? colonies.reduce((a, p) => a + p.people.social, 0) / pops : 1 / 3;
-  const cohesionGain = T.cohesionRate * (0.5 + socialShare) * Math.pow(1 - clamp(S.cohesion / 100, 0, 1), T.cohesionCurve);
+  // COHESION grows faster with science across the cells (care, learning — his words: science is also health and social care); 25 % of
+  // it counts as the third of the people in the social corner did before
+  const pops = colonies.reduce((a, p) => a + p.P.people, 0), sciShare = pops > 0 ? colonies.reduce((a, p) => a + p.P.people * p.cap.scienceShare, 0) / pops : 0.25;
+  const cohesionGain = T.cohesionRate * (0.5 + sciShare * 4 / 3) * Math.pow(1 - clamp(S.cohesion / 100, 0, 1), T.cohesionCurve);
   const steadyNext = moved ? 0 : (S.steady || 0) + 1;
   const setback = Math.floor(moveDist * T.focusSetback);
   const speed = T.integrate * (1 + Math.min(steadyNext, 10) * T.steadyBonus) * clamp(Math.sqrt(research / 33), 0.5, 3);
@@ -458,7 +490,7 @@ export function settle(S, shipId) {
   if (!pl.landable) return `Nothing can land on ${pl.name}`;
   if (pl.colony) return `${pl.name} is already settled`;
   if (!(u.people > 0)) return 'There are no people on board';
-  pl.colony = newColony(u.people, T.room[worldOf(pl)] ?? T.room.other, gridOf(pl));   // the landing site: one mixed district developed
+  pl.colony = newColony(u.people, T.room[worldOf(pl)] ?? T.room.other, pl);   // the landing site: a home and a farm (a dry world: a home and a works)
   pl.colony.structures.push({ id: uid('u'), name: 'Landed ' + u.name, klass: 'structure', design: u.design, eon: S.eon, landed: true, grade: Math.max(0.05, (u.st ?? 100) / 100) });
   S.ships = S.ships.filter(x => x !== u);
   return null;
@@ -468,8 +500,11 @@ export const peopleWord = v => v >= 1 ? `${v >= 100 ? Math.round(v) : v.toFixed(
 // an old save (version 8) brought up to date: people aboard ships to a ship's scale, crossings into voyages, landed ships marked
 export function upgrade(S) {
   S.cohesion = Math.min(100, S.cohesion || 0);                                   // cohesion runs 0–100 now (2026-10-16); an older save may hold more
-  if (!S.districts) S.districts = STARTER_DISTRICTS.map(d => ({ id: d.id, name: d.name, mix: { ...d.mix } }));   // DISTRICTS (2026-10-18): an older colony gets its grid, the homeworld its old city
-  for (const pl of S.places) if (pl.colony && !pl.colony.cells) { pl.colony.cells = newCells(gridOf(pl), pl.id === (S.homePlace || 'home') ? HOME_CELLS : ['dist-mixed']); pl.colony.develop = []; }
+  // THE SURFACE (2026-10-18): every colony gets its cells of four slots (an older one's district designs turned into slots); the
+  // district designs themselves are gone — the four slot kinds are the empire's designs now
+  if (!S.slotLevels) S.slotLevels = { ...LEVEL1 };
+  for (const pl of S.places) if (pl.colony) migrateColony(S, pl);
+  delete S.districts;
   if (S.version >= 9) { if (!S.hostiles) spawnHostiles(S); return S; }
   const caps = allCapsules(S);
   for (const u of S.ships) {
@@ -538,7 +573,7 @@ export function endEon(S) {
   const c = compute(S), rep = [];
   for (const pc of c.colonies) {
     const P = pc.P, name = pc.pl.name;
-    for (const q of pc.queue) if (!q.gone) { q.item.progress += q.spend; if (q.joining) q.item.joined = (q.item.joined || 0) + 1; }
+    for (const q of pc.queue) if (!q.gone) { q.item.progress = q.progressAfter; q.item.joined = q.joinedAfter; if (q.built) q.item.count = q.count - q.built; }   // a unit built: one fewer of the item left
     for (const { d, ds, sections } of pc.done) {
       const unit = { id: uid('u'), name: d.name, klass: ds.klass, design: cloneDesign(d), eon: S.eon };
       if (sections > 1) unit.sections = sections;                 // put together from sections — the hull remembers
@@ -551,18 +586,21 @@ export function endEon(S) {
       }
       rep.push({ kind: 'build', text: `${name}: built ${d.name}` + (sections > 1 ? ` in ${sections} sections` : '') + (unit.people ? ` — ${peopleWord(unit.people)} people went aboard` : '') });
     }
-    const doneIds = new Set(pc.done.map(x => x.item.id));
-    P.queue = P.queue.filter(q => !doneIds.has(q.id) && S.designs.some(d => d.id === q.designId));
+    P.queue = P.queue.filter(q => (q.count ?? 1) > 0 && S.designs.some(d => d.id === q.designId));
     for (const q of pc.queue) if (q.noDock && !q.item.warned) { q.item.warned = true; rep.push({ kind: 'bad', text: `${name}: ${q.d.name} cannot be built — there is no space dock here` }); }
     const before = P.people;
     P.people = Math.max(1, P.people + pc.dPeople);
     if (pc.surplus < 0) rep.push({ kind: 'bad', text: `${name}: not enough food — ${(before - P.people).toFixed(1)} people lost` });
     if (pc.short > 0.05) rep.push({ kind: 'bad', text: `${name}: unrest — a society of ${peopleWord(before)} needs ${Math.round(pc.needI)} industry and ${Math.round(pc.needR)} research at work and is ${Math.round(pc.short * 100)} % short` });
     P.happiness = pc.happiness;
-    // the DEVELOPMENT queue: cells developed or re-made (districts.js); then the industry share's factories and reserves
-    if (!P.cells) P.cells = []; if (!P.develop) P.develop = [];
-    for (const dv of pc.develop) if (!dv.gone) { dv.item.progress = (dv.item.progress || 0) + dv.spend; if (dv.finishes) { P.cells[dv.item.cell] = { design: dv.item.design }; rep.push({ kind: 'build', text: `${name}: ${dv.upgrade ? 're-made' : 'developed'} a district as ${dv.d.name}` }); } }
-    P.develop = P.develop.filter(it => { const dv = pc.develop.find(x => x.item === it); return dv && !dv.gone && !dv.finishes; });
+    // THE SURFACE (colony.js): the builders' points buy slots toward the development focus (a full world tears one down and builds
+    // the new kind the next eon); the fillet creeps toward what each corner can support. A district completed is reported.
+    if (pc.G) {
+      const wasFull = isFull(pc.G), log = developStep(pc.G, pc.dev, { noFood: !pc.water, lack: pc.lack });
+      for (const e of log) if (e.kind === 'slot' && e.done) { const n = {}; for (const k of pc.G.cells[e.cell].slots) n[k] = (n[k] || 0) + 1; rep.push({ kind: 'build', text: `${name}: a district completed — ${Object.entries(n).map(([k, v]) => `${v} ${KIND_WORD[k]}`).join(', ')}` }); }
+      if (!wasFull && isFull(pc.G)) rep.push({ kind: 'build', text: `${name}: the whole world is developed — from now on the builders re-make it toward the focus, one slot at a time` });
+      creepFillet(pc.G, pc.want);
+    }
     if (pc.newFactories > 0) { P.factories = (P.factories || 0) + pc.newFactories; rep.push({ kind: 'build', text: `${name}: ${pc.newFactories} factor${pc.newFactories === 1 ? 'y' : 'ies'} built with the industry nothing in the queue needed` }); }
   }
 
@@ -642,27 +680,43 @@ export function endEon(S) {
   if (c.shortNext > 0.005) rep.push({ kind: 'bad', text: `The reserves ran dry: ${Math.round(c.shortNext * 100)} % of the upkeep (military ${Math.round(c.upkeep.military)}, social ${Math.round(c.upkeep.social)}, research ${Math.round(c.upkeep.research)}) went unpaid — the fleet wears, people grumble, research slows` });
   S.cohesion = clamp(S.cohesion + c.cohesionGain - c.moveCost, c.moved ? T.cohesionFloor : 0, 100);
   if (c.moved) rep.push({ kind: 'focus', text: `Society shifted its focus (−${c.moveCost.toFixed(1)} cohesion${c.shock > 0.5 ? ', a shock to the people' : ''})` + (c.setback ? ` — ${c.setback} step${c.setback > 1 ? 's' : ''} of research lost in every field` : '') });
-  for (const pc of c.colonies) { const was = pc.pol, now = pc.polNext; pc.P.pol = now; for (const [k, word] of [['industry', 'industrial pollution — people sicken'], ['social', 'a docile society — industry and research slacken'], ['research', 'an aloof society — the social share slackens']]) if (now[k] >= 50 && was[k] < 50) rep.push({ kind: 'bad', text: `${pc.pl.name}: ${word}` }); }
+  for (const pc of c.colonies) { const was = pc.pol, now = pc.polNext; pc.P.pol = now; for (const [k, word] of [['industry', 'industrial pollution — people sicken'], ['social', 'a docile society — industry and research slacken'], ['research', 'an aloof society — the builders slacken']]) if (now[k] >= 50 && was[k] < 50) rep.push({ kind: 'bad', text: `${pc.pl.name}: ${word}` }); }
   S.focusStart = [...S.focus];
   S.report = rep; S.eon++;
   return rep;
 }
 
-// DISTRICT orders: develop a cell (or re-make a developed one) to a design, take an order back, add or replace a district design
-export function develop(S, placeId, cell, designId) {
-  const pl = S.places.find(p => p.id === placeId), P = pl && pl.colony; if (!P) return 'No colony there';
-  if (!P.cells || cell < 0 || cell >= P.cells.length) return 'No such cell';
-  if (!(S.districts || []).some(d => d.id === designId)) return 'No such district design';
-  if (P.cells[cell] && P.cells[cell].design === designId) return 'It is that already';
-  if ((P.develop || []).some(it => it.cell === cell)) return 'That cell is being developed';
-  (P.develop = P.develop || []).push({ id: uid('v'), cell, design: designId, progress: 0 }); return null;
+// THE COLONY'S ORDERS (his pop-up, 2026-10-18): the triangle, the development focus (the dot on the rectangle), a cell's plan, and the
+// production line — add N of a design, change how many, move an item up or down the line
+const colonyAt = (S, placeId) => (S.places.find(p => p.id === placeId) || {}).colony || null;
+export function setSplit(S, placeId, split) {
+  const P = colonyAt(S, placeId); if (!P) return 'No colony there';
+  const v = (split || []).slice(0, 3).map(x => Math.max(0, +x || 0)), t = v.reduce((a, x) => a + x, 0); if (v.length !== 3 || !(t > 0)) return 'A split is three shares';
+  P.split = v.map(x => x / t); return null;
 }
-export function undevelop(S, placeId, itemId) { const P = (S.places.find(p => p.id === placeId) || {}).colony; if (!P) return 'No colony there'; P.develop = (P.develop || []).filter(it => it.id !== itemId); return null; }
-export function setDistrict(S, d) {
-  if (!d || !d.name) return 'A district design needs a name';
-  const rec = { id: d.id || uid('dd'), name: String(d.name).slice(0, 24), mix: normMix(d.mix || {}) };
-  const i = (S.districts = S.districts || []).findIndex(x => x.id === rec.id); if (i >= 0) S.districts[i] = rec; else S.districts.push(rec); return null;
+export function setDevFocus(S, placeId, x, y) {
+  const P = colonyAt(S, placeId); if (!P || !P.surface) return 'No colony there';
+  P.surface.dot = { x: clamp(+x || 0, 0, 1), y: clamp(+y || 0, 0, 1) }; return null;
 }
+export function planCell(S, placeId, cell, plan) {
+  const P = colonyAt(S, placeId), G = P && P.surface; if (!G) return 'No colony there';
+  if (!(cell >= 0 && cell < G.cells.length)) return 'No such cell';
+  if (plan != null && (!Array.isArray(plan) || !plan.length || plan.some(k => !FACTORS.includes(k)))) return 'A plan is a list of slot kinds';
+  G.cells[cell].plan = plan ? [...new Set(plan)] : null; return null;
+}
+export function queueAdd(S, placeId, designId, n = 1) {
+  const P = colonyAt(S, placeId); if (!P) return 'No colony there'; if (!S.designs.some(d => d.id === designId)) return 'No such design';
+  P.queue.push({ id: uid('q'), designId, progress: 0, count: clamp(Math.round(n) || 1, 1, 99) }); return null;
+}
+export function queueCount(S, placeId, itemId, n) {
+  const it = (colonyAt(S, placeId)?.queue || []).find(q => q.id === itemId); if (!it) return 'Nothing like that in the line';
+  it.count = clamp(Math.round(+n) || 1, 1, 99); return null;
+}
+export function queueMove(S, placeId, itemId, to) {
+  const Q = colonyAt(S, placeId)?.queue; if (!Q) return 'No colony there'; const from = Q.findIndex(q => q.id === itemId); if (from < 0) return 'Nothing like that in the line';
+  const [it] = Q.splice(from, 1); Q.splice(clamp(Math.round(to) || 0, 0, Q.length), 0, it); return null;
+}
+export function queueDrop(S, placeId, itemId) { const P = colonyAt(S, placeId); if (!P) return 'No colony there'; P.queue = P.queue.filter(q => q.id !== itemId); return null; }
 // hand one more point of attention to a field; with none left it is taken from the field that has the most
 export function giveAttention(S, field, d) {
   const total = FIELD_IDS.reduce((a, f) => a + (S.attention[f] || 0), 0);
