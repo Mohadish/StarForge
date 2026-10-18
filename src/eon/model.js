@@ -518,6 +518,17 @@ export function undoSend(S, shipId) {
   for (const x of mates) { x.dest = null; x.eta = 0; delete x.voy; delete x.trip; delete x.sentEon; }
   return null;
 }
+// RE-AIM PART OF A FLEET that left this eon (his ask, 2026-10-18: "pick which ones undo their travel, or send them to a new
+// position"): nothing has moved yet, so the fleet is set back at rest and sent again — the chosen ships to `newDest` (null: they
+// stay), the rest to where the fleet was going (a fleet's reach is its ships' together, so both parts get their own crossing)
+export function regroupSend(S, fleetIds, pickedIds, newDest = null) {
+  const ships = fleetIds.map(id => S.ships.find(x => x.id === id)).filter(u => canUndoSend(S, u)); if (!ships.length) return 'Too late — the eon has ended since; call them back instead';
+  const oldDest = ships[0].dest, picked = new Set(pickedIds);
+  for (const u of ships) { u.dest = null; u.eta = 0; delete u.voy; delete u.trip; delete u.sentEon; }
+  const rest = ships.filter(u => !picked.has(u.id)).map(u => u.id), chosen = ships.filter(u => picked.has(u.id)).map(u => u.id);
+  if (rest.length) { const err = sendFleet(S, rest, oldDest); if (err) return err; }
+  return chosen.length && newDest ? sendFleet(S, chosen, newDest) : null;
+}
 export const sendShip = (S, shipId, placeId) => sendFleet(S, [shipId], placeId);
 // Call back: inside a system the ship simply stays; between stars the whole fleet turns round — the way back is what it has
 // covered, on the same voyage (the light years keep adding up: past halfway, turning round is as dear as going on)

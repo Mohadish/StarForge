@@ -3,7 +3,7 @@
 import { $, clamp, fmt, signed, esc } from '../util.js';
 import { DOMAINS } from '../data/properties.js';
 import { XS, X_INFO, T, CENTER, FIELD_IDS, newState, compute, endEon, uid, isIntegrated, giveAttention, sendShip, recallShip, settle, starEons, sysDistance, worldOf,
-  setSplit, setDevFocus, planCell, queueAdd, queueCount, queueMove, queueDrop, canUndoSend, undoSend,
+  setSplit, setDevFocus, planCell, queueAdd, queueCount, queueMove, queueDrop, canUndoSend, undoSend, regroupSend,
   LY, VOY, SCALE, shipRange, forecast, fleetRange, sendFleet, lyBetween, peopleWord, upgrade, hostileIn, hostileWord, hostileWorth, ZONE, bubbles, zoneOfSys, effectiveLy } from './model.js';
 import { KINDS, KIND_IDS, CLASS_NAME, GANTRY, GUN, PRESETS, applyPreset, allCapsules, designStats, isRelevant, dockFit, reachBand, fitModule, autoFit, traverseOf } from './modules.js';
 import { GALAXY, STARS, galaxyOf } from './galaxy.js';
@@ -58,7 +58,7 @@ const empireLook = E => { const L = E.look || {}, lk = lookFromColors(L.style ||
 // offered there), a place on the system map. At most MAX_SHIP_DESIGNS ship designs (structures do not count).
 const MAX_SHIP_DESIGNS = 12;
 let picks = new Map(), pickScope = null, sendTo = null, sendPlace = null;   // sendPlace: on the galaxy, WHERE in the chosen system (his ask, 2026-10-18) — the star when none
-const sendDest = () => pickScope && pickScope.kind === 'galaxy' ? (sendPlace && placeOf(sendPlace)?.sys === sendTo ? sendPlace : sysOf(sendTo).star) : sendTo;   // design id → how many of it are picked · { kind: 'galaxy', sys } | { kind: 'system', place } · the destination clicked (a system, or a place)
+const sendDest = () => pickScope && (pickScope.kind === 'galaxy' || pickScope.kind === 'outgoing') ? (sendPlace && placeOf(sendPlace)?.sys === sendTo ? sendPlace : sysOf(sendTo).star) : sendTo;   // design id → how many of it are picked · { kind: 'galaxy', sys } | { kind: 'system', place } · the destination clicked (a system, or a place)
 let fleetPopPlace = null;                            // the system map's fleet pop-up: the place whose parked ships it shows (its triangles clicked)
 const shipDesignCount = () => S.designs.filter(d => designStats(S, d, LAST ? LAST.caps : allCapsules(S)).t.klass !== 'structure').length;
 // THE LOOK: every ship of yours wears your coat (a plating style and two colours, chosen in Design); a hostile fleet wears one of
@@ -91,17 +91,21 @@ function groupsOf(list) {
   for (const g of m.values()) { g.ships.sort((a, b) => (b.u.st ?? 100) - (a.u.st ?? 100)); g.range = Math.min(...g.ships.map(s => s.range || 0)); }
   return [...m.values()].sort((a, b) => b.t.cost - a.t.cost);
 }
+// OUTGOING (his ask, 2026-10-18): a fleet sent to another star THIS eon has not moved yet — it waits at its star's left, one icon
+// per fleet, and can still be undone in part or sent elsewhere. Its key: the fleet's id (a ship sent alone: its own id)
+const outKeyOf = u => u && u.voy && canUndoSend(S, u) ? u.voy.fleet || u.id : null;
 const canLeave = s => s.u.klass === 'starship' && !s.t.underDriven;
 const picked = groups => groups.flatMap(g => g.ships.slice(0, Math.min(g.ships.length, picks.get(g.key) || 0)));
 const pickCount = () => [...picks.values()].reduce((a, n) => a + n, 0);
 function setScope(scope) {
-  const same = pickScope && pickScope.kind === scope.kind && pickScope.sys === scope.sys && pickScope.place === scope.place;
+  const same = pickScope && pickScope.kind === scope.kind && pickScope.sys === scope.sys && pickScope.place === scope.place && pickScope.key === scope.key;
   if (!same) { picks = new Map(); sendTo = null; } pickScope = scope;
 }
 // the stacks of the current scope (what the send buttons act on)
 function scopeGroups(c) {
   if (!pickScope) return [];
   if (pickScope.kind === 'galaxy') return groupsOf(c.ships.filter(s => !s.u.dest && placeOf(s.u.at)?.sys === pickScope.sys && canLeave(s)));
+  if (pickScope.kind === 'outgoing') return groupsOf(c.ships.filter(s => outKeyOf(s.u) === pickScope.key));   // a fleet that left this eon: its ships
   return groupsOf(c.ships.filter(s => !s.u.dest && s.u.at === pickScope.place));
 }
 function stackRow(g, { send = true, settleAt = null, foe = null } = {}) {
@@ -400,7 +404,7 @@ function drawGalaxy(c) {
   const reachR = ringR(gSel);
   if (gMode === 'fleet' && reachR > 0 && G.pos[gSel]) { const p = G.pos[gSel]; g.strokeStyle = '#fff'; g.globalAlpha = 0.45; g.setLineDash([2, 4]); g.beginPath(); g.arc(p.x, p.y, reachR * LY * G.k, 0, 7); g.stroke(); g.setLineDash([]); g.globalAlpha = 1; }
   // picked ships, and the star they would go to
-  if (sendTo && pickScope?.kind === 'galaxy' && G.pos[pickScope.sys] && G.pos[sendTo]) { const a = G.pos[pickScope.sys], b = G.pos[sendTo]; g.strokeStyle = '#7ef3b0'; g.lineWidth = 2; g.setLineDash([6, 5]); g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke(); g.setLineDash([]); g.lineWidth = 1; }
+  if (sendTo && (pickScope?.kind === 'galaxy' || pickScope?.kind === 'outgoing') && G.pos[pickScope.sys] && G.pos[sendTo]) { const a = G.pos[pickScope.sys], b = G.pos[sendTo]; g.strokeStyle = '#7ef3b0'; g.lineWidth = 2; g.setLineDash([6, 5]); g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke(); g.setLineDash([]); g.lineWidth = 1; }
   // derelicts, where they broke down (in God mode everyone's)
   for (const E of GE || [S]) for (const w of E.derelicts || []) { const a = G.pos[w.A], b = G.pos[w.B]; if (!a || !b) continue; const x = a.x + (b.x - a.x) * w.pos, y = a.y + (b.y - a.y) * w.pos; g.strokeStyle = '#8a93a8'; g.lineWidth = 1.5; g.beginPath(); g.moveTo(x - 4, y - 4); g.lineTo(x + 4, y + 4); g.moveTo(x + 4, y - 4); g.lineTo(x - 4, y + 4); g.stroke(); g.lineWidth = 1; }
   // ships crossing between stars (in God mode every empire's, in its colour; each dot is clickable)
@@ -408,7 +412,8 @@ function drawGalaxy(c) {
   // a click opens the whole fleet (his ask, 2026-10-17: "I'm clicking at a fleet in transit and I see one ship")
   const flights = GE ? GE.flatMap((E, k) => E.dead || !GODC || !GODC[k] ? [] : GODC[k].ships.map(s => ({ u: s.u, k, E, col: E.look.colA }))) : c.ships.map(s => ({ u: s.u, k: null, E: S, col: '#7ef3b0' }));
   const convoys = new Map();
-  for (const f of flights) { const u = f.u; if (!u.dest) continue; const V = u.voy, key = `${f.k}|${V && V.fleet ? V.fleet : V ? `${V.A}>${V.B}@${(V.pos ?? 0).toFixed(2)}` : `${u.at}>${u.dest}@${u.eta}`}`; (convoys.get(key) || convoys.set(key, { ...f, ids: [] }).get(key)).ids.push(u.id); }
+  // (this eon's departures wait at their star — the OUTGOING icons below — not on the line)
+  for (const f of flights) { const u = f.u; if (!u.dest) continue; if (!GE && outKeyOf(u)) continue; const V = u.voy, key = `${f.k}|${V && V.fleet ? V.fleet : V ? `${V.A}>${V.B}@${(V.pos ?? 0).toFixed(2)}` : `${u.at}>${u.dest}@${u.eta}`}`; (convoys.get(key) || convoys.set(key, { ...f, ids: [] }).get(key)).ids.push(u.id); }
   // WATER ROUTES between stars (his ask, 2026-10-18): a blue dotted line from the star that sends water to the dry colony's star
   if (!GE) for (const pc of c.colonies) for (const r of pc.waterRoutes || []) { if (r.sys === pc.pl.sys) continue; const a = G.pos[r.sys], b = G.pos[pc.pl.sys]; if (!a || !b) continue; g.setLineDash([2, 4]); g.strokeStyle = '#4fa3ff'; g.globalAlpha = r.chance < 0.9 ? 0.5 : 0.8; g.lineWidth = 1.5; g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke(); g.setLineDash([]); g.globalAlpha = 1; g.lineWidth = 1; }
   for (const [key, { u, k: ek, E, col, ids }] of convoys) {
@@ -471,6 +476,26 @@ function drawGalaxy(c) {
     g.fillStyle = labelCol; g.font = (bold ? 'bold ' : '') + '10px sans-serif';
     g.fillText(s.home && !GE ? s.name + ' · home' : label, p.x, p.y + size + 13);
   }
+  // OUTGOING FLEETS (his ask, 2026-10-18): what left a star THIS eon waits at its LEFT, where the resting fleet sits on its right — the
+  // same triangle, turned toward where it goes, at a fixed spot whatever the zoom; several fleets line up leftward, each with its own
+  // dotted line to its destination. Click one: its ships, to undo their travel in part or send them elsewhere
+  G.out = {};
+  if (!GE) {
+    const bySys = new Map();
+    for (const { u } of c.ships) { const key = outKeyOf(u); if (!key) continue; const sys = u.voy.A; let m = bySys.get(sys); if (!m) bySys.set(sys, m = new Map()); let o = m.get(key); if (!o) m.set(key, o = { key, sys, to: u.voy.B, dest: u.dest, ids: [] }); o.ids.push(u.id); }
+    for (const [sys, m] of bySys) {
+      const p = G.pos[sys], st = sysOf(sys) && STARS[sysOf(sys).type]; if (!p || !st) continue;
+      const size = 2.6 + 3.2 * st.size, foreignHere = (S.others || []).some(o => o.fleets.some(f => f.sys === sys)), x0 = p.x - size - 15 - (foreignHere ? 34 : 0), y = p.y - size - 7;
+      [...m.values()].sort((a, b) => a.key < b.key ? -1 : a.key > b.key ? 1 : 0).forEach((o, i) => {
+        const x = x0 - i * 28, b = G.pos[o.to], on = pickScope && pickScope.kind === 'outgoing' && pickScope.key === o.key, hov = gHover === 'out:' + o.key; G.out[o.key] = { ...o, x, y };
+        if (b) { g.setLineDash([4, 5]); g.strokeStyle = '#7ef3b0'; g.globalAlpha = on || hov ? 0.9 : 0.55; g.lineWidth = on ? 2 : 1.2; g.beginPath(); g.moveTo(x, y); g.lineTo(b.x, b.y); g.stroke(); g.setLineDash([]); g.globalAlpha = 1; g.lineWidth = 1; }
+        const ang = b ? Math.atan2(b.y - y, b.x - x) + Math.PI / 2 : 0;
+        g.save(); g.translate(x, y + 1); g.rotate(ang); g.fillStyle = on ? '#fff' : '#7ef3b0'; g.beginPath(); g.moveTo(0, -9); g.lineTo(8, 7); g.lineTo(-8, 7); g.closePath(); g.fill(); g.restore();
+        if (on || hov) { g.strokeStyle = on ? '#7ef3b0' : 'rgba(255,255,255,.6)'; g.lineWidth = 1.5; g.beginPath(); g.arc(x, y + 1, 13, 0, 7); g.stroke(); g.lineWidth = 1; }
+        g.font = 'bold 10px sans-serif'; g.textAlign = 'center'; g.fillStyle = on ? '#fff' : '#7ef3b0'; g.fillText(String(o.ids.length), x, y + 24);
+      });
+    }
+  }
   g.textAlign = 'left';
   renderFleetPop(false); renderSendBadge();          // the overlays follow a pan or a zoom
 }
@@ -498,6 +523,11 @@ function godFleetAt(e) {                             // God mode: an empire's fl
   for (const [key, f] of Object.entries(G.gfleet)) if (Math.hypot(mx - f.x, my - f.y - 1) < 14) return key;
   return null;
 }
+function outAt(e) {                                   // an OUTGOING fleet's icon (left this eon, at its star's left) under the mouse
+  const G = $('gMap')._geo; if (!G || !G.out) return null; const [mx, my] = mapXY(e);
+  for (const o of Object.values(G.out)) if (Math.hypot(mx - o.x, my - o.y - 1) < 13) return o;
+  return null;
+}
 function myShipAt(e) {                               // your fleet under way under the mouse → { ids }
   const G = $('gMap')._geo; if (!G || !G.myship) return null; const [mx, my] = mapXY(e); let best = null, bd = 9;
   for (const sh of Object.values(G.myship)) { const d = Math.hypot(mx - sh.x, my - sh.y); if (d < bd) { bd = d; best = sh; } }
@@ -523,6 +553,7 @@ $('gMap').addEventListener('mousemove', e => {
     else if (id) h = sysBlurb(sysOf(id));
     $('gHover').innerHTML = h; if (LAST) drawGalaxy(LAST); return;
   }
+  const oa = outAt(e); if (oa) { if (gHover !== 'out:' + oa.key) { const to = placeOf(oa.dest); gHover = 'out:' + oa.key; gHoverFleet = false; $('gMap').style.cursor = 'pointer'; $('gHover').innerHTML = `<b>Your fleet leaving for ${esc(to ? to.name : '?')}</b> — ${plural(oa.ids.length, 'ship')}, it left this eon. Click it: undo the travel for some or all, or send them elsewhere.`; if (LAST) drawGalaxy(LAST); } return; }
   const ms = myShipAt(e); if (ms) { const u = S.ships.find(x => x.id === ms.ids[0]), to = u && placeOf(u.dest); gHover = 'ms'; $('gMap').style.cursor = 'pointer'; $('gHover').innerHTML = u ? `<b>Your ${ms.ids.length > 1 ? `fleet of ${plural(ms.ids.length, 'ship')}` : esc(u.name)}</b> → ${esc(to ? to.name : '?')} · ${plural(u.eta, 'eon')} — click it: ${canUndoSend(S, u) ? 'undo the send (it left this eon)' : 'call it back'}` : ''; return; }
   const f = fleetAt(e), id = f || sysAt(e); if (id === gHover && !!f === gHoverFleet) return;
   gHover = id; gHoverFleet = !!f; $('gMap').style.cursor = id ? 'pointer' : 'default';
@@ -538,9 +569,11 @@ $('gMap').addEventListener('click', e => {
     const gs = godShipAt(e); if (gs) { godPick = gs.ids.length > 1 ? { kind: 'transit', k: gs.k, ids: gs.ids, key: gs.key } : { kind: 'ship', k: gs.k, id: gs.id }; gMode = 'god'; return refresh(); }
     const id = sysAt(e); if (!id) return; godPick = null; gSel = id; gMode = 'god'; return refresh();
   }
+  const oa = outAt(e); if (oa) { setScope({ kind: 'outgoing', sys: oa.sys, key: oa.key }); sendTo = null; sysPop = null; gSel = oa.sys; gMode = 'system'; return refresh(); }   // a fleet leaving this eon: its ships, to undo or send elsewhere
   const ms = myShipAt(e); if (ms) { e.stopPropagation(); return openShipPop(null, ms.ids, e.clientX, e.clientY); }   // your fleet under way: its card (undo / call back)
   const f = fleetAt(e), id = f || sysAt(e); if (!id) { if (sysPop) { sysPop = null; refresh(); } return; }   // empty space: the system pop-up closes
-  if (!f && pickCount() && pickScope?.kind === 'galaxy' && id !== pickScope.sys) { sendTo = id; sysPop = null; return refresh(); }
+  if (!f && pickCount() && (pickScope?.kind === 'galaxy' || pickScope?.kind === 'outgoing') && id !== pickScope.sys) { sendTo = id; sysPop = null; return refresh(); }
+  if (pickScope && pickScope.kind === 'outgoing') { pickScope = null; picks = new Map(); sendTo = null; }   // nothing chosen of a leaving fleet: a star click is just a star click
   gSel = id; gMode = f ? 'fleet' : 'system'; sysPop = f ? null : id; refresh();   // a star: its worlds in a pop-up beside it (his ask, 2026-10-18)
 });
 $('gMap').addEventListener('dblclick', e => { if (fleetAt(e) || godFleetAt(e) || godShipAt(e)) return; const id = sysAt(e); if (id) openSystem(id); });
@@ -691,6 +724,7 @@ const batchOf = n => n < 20 ? Math.max(1, Math.ceil(n * 0.2)) : Math.ceil(n * 0.
 function fleetPopWhere() {                           // which pop-up is live now, and the canvas it sits on
   if (!LAST || !pickScope) return null;
   if (tab === 'galaxy' && gMode === 'fleet' && pickScope.kind === 'galaxy') return { el: $('fleetPop'), cv: $('gMap'), kind: 'galaxy' };
+  if (tab === 'galaxy' && pickScope.kind === 'outgoing') return { el: $('fleetPop'), cv: $('gMap'), kind: 'outgoing' };   // a fleet that left this eon
   if (tab === 'system' && fleetPopPlace && pickScope.kind === 'system' && pickScope.place === fleetPopPlace) return { el: $('sFleetPop'), cv: $('sMap'), kind: 'system' };
   return null;
 }
@@ -703,19 +737,21 @@ function renderFleetPop(full = true) {
   for (const id of ['fleetPop', 'sFleetPop']) { const e = $(id); if (e) e.hidden = true; }
   const P = fleetPopWhere(); if (!P) return;
   const G = P.cv._geo; if (!G) return;
-  const anchor = P.kind === 'galaxy' ? G.fleet && G.fleet[pickScope.sys] : G.pos[pickScope.place]; if (!anchor) return;
+  const anchor = P.kind === 'outgoing' ? G.out && G.out[pickScope.key] : P.kind === 'galaxy' ? G.fleet && G.fleet[pickScope.sys] : G.pos[pickScope.place]; if (!anchor) { if (P.kind === 'outgoing') { pickScope = null; picks = new Map(); } return; }
   const groups = scopeGroups(LAST); if (!groups.length) return;
   if (full) {
-    const where = P.kind === 'galaxy' ? sysOf(pickScope.sys).name : placeOf(pickScope.place).name, ships = picked(groups), total = ships.length;
+    const out = P.kind === 'outgoing' ? anchor : null, dest = out && placeOf(out.dest), where = out ? `${dest ? dest.name : '?'}${dest && dest.kind !== 'star' ? ` (${sysOf(dest.sys).name})` : ''}` : P.kind === 'galaxy' ? sysOf(pickScope.sys).name : placeOf(pickScope.place).name, ships = picked(groups), total = ships.length;
     const rows = groups.map(g => { const max = g.ships.length, n = Math.min(max, picks.get(g.key) || 0), here = max - n, b = batchOf(max);
       return `<div class="fprow"><span class="h">${esc(g.name)} <b>×${here}</b></span><span class="ar"><button data-fp="${g.key}|${-b}" ${n ? '' : 'disabled'} title="${b} back">«</button><button data-fp="${g.key}|-1" ${n ? '' : 'disabled'} title="one back">‹</button><button data-fp="${g.key}|1" ${here ? '' : 'disabled'} title="one over">›</button><button data-fp="${g.key}|${b}" ${here ? '' : 'disabled'} title="${b} over">»</button></span><span class="s"><b>×${n}</b>${n ? ' ' + esc(g.name) : ''}</span></div>`; }).join('');
     let foot;
-    if (!total) foot = `Move ships to the right, then <b>click ${P.kind === 'galaxy' ? 'a star' : 'a place'}</b> on the map to send them.`;
+    if (out) foot = !total ? 'It left this eon — nothing has moved yet. Move ships to the right, then <b>undo their travel</b>, or <b>click another star</b> to send them there instead.'
+      : `<button class="go" data-outundo title="they stay where they are; the rest go on">↶ Undo travel for ${plural(total, 'ship')}</button> — or <b>click another star</b> to send ${total === 1 ? 'it' : 'them'} there; the rest go on to ${esc(where)}.`;
+    else if (!total) foot = `Move ships to the right, then <b>click ${P.kind === 'galaxy' ? 'a star' : 'a place'}</b> on the map to send them.`;
     else if (P.kind === 'galaxy') { const R = fleetRange(S, ships.map(s => s.u)), st = Math.min(...ships.map(s => s.u.st ?? 100)); foot = `<b>${plural(total, 'ship')}</b> to send · reach <b>${R.toFixed(1)} ly</b> (by bulk) · the weakest at ${Math.round(st)} % — <b>click a star</b> on the map.`; }
     else foot = `<b>${plural(total, 'ship')}</b> to send — <b>click a place</b> on the map${ships.some(canLeave) ? ', or <button class="x" data-ptogalaxy>another star ▸</button>' : ''}.`;
-    P.el.innerHTML = `<div class="fphead"><b>Your fleet at ${esc(where)}</b><button class="x" data-fpall title="everything over">⇶ all</button><button class="x" data-pclear title="everything back">⇇ none</button><button class="x" data-fpclose title="close">✕</button></div><div class="cols"><span>here</span><span></span><span>to send</span></div>${rows}<div class="foot tiny">${foot}</div>`;
+    P.el.innerHTML = `<div class="fphead"><b>${out ? `Leaving for ${esc(where)}` : `Your fleet at ${esc(where)}`}</b><button class="x" data-fpall title="everything over">⇶ all</button><button class="x" data-pclear title="everything back">⇇ none</button><button class="x" data-fpclose title="close">✕</button></div><div class="cols"><span>${out ? 'leaving' : 'here'}</span><span></span><span>${out ? 'to change' : 'to send'}</span></div>${rows}<div class="foot tiny">${foot}</div>`;
   }
-  P.el.hidden = false; placeOverlay(P.el, P.cv, anchor, P.kind === 'galaxy' ? 26 : 30);
+  P.el.hidden = false; placeOverlay(P.el, P.cv, anchor, P.kind === 'system' ? 30 : 26);
 }
 // THE SYSTEM POP-UP ON THE GALAXY (his ask, 2026-10-18: "click a star system and see its planets; hover one for its details; click a
 // colony of mine and get its panel; click outside and go anywhere else"): the star's worlds in a row beside it, the star first
@@ -749,7 +785,7 @@ document.addEventListener('click', e => {
 function renderSendBadge() {
   for (const [id, cvId, kind, tabName] of [['sendBadge', 'gMap', 'galaxy', 'galaxy'], ['sSendBadge', 'sMap', 'system', 'system']]) {
     const el = $(id); if (!el) continue; el.hidden = true;
-    if (!LAST || !sendTo || !pickScope || pickScope.kind !== kind || tab !== tabName) continue;
+    if (!LAST || !sendTo || !pickScope || (pickScope.kind === 'outgoing' ? 'galaxy' : pickScope.kind) !== kind || tab !== tabName) continue;
     const cv = $(cvId), G = cv._geo, p = G && G.pos[sendTo]; if (!p) continue;
     const ships = picked(scopeGroups(LAST)); if (!ships.length) continue;
     let line;
@@ -776,7 +812,7 @@ function parkedAt(e) {                               // the row of triangles und
 document.addEventListener('click', e => {
   const fp = e.target.closest('[data-fp]'); if (fp) { const [key, d] = fp.dataset.fp.split('|'); const g = scopeGroups(LAST).find(x => x.key === key); if (!g) return; picks.set(key, clamp((picks.get(key) || 0) + +d, 0, g.ships.length)); return refresh(); }
   if (e.target.closest('[data-fpall]')) { for (const g of scopeGroups(LAST)) if (canLeave(g.ships[0]) || pickScope.kind === 'system') picks.set(g.key, g.ships.length); return refresh(); }
-  if (e.target.closest('[data-fpclose]')) { picks = new Map(); sendTo = null; if (tab === 'galaxy') gMode = 'system'; fleetPopPlace = null; return refresh(); }
+  if (e.target.closest('[data-fpclose]')) { picks = new Map(); sendTo = null; if (pickScope && pickScope.kind === 'outgoing') pickScope = null; if (tab === 'galaxy') gMode = 'system'; fleetPopPlace = null; return refresh(); }
 });
 function openSystem(id, placeId) {
   selSys = gSel = id;
@@ -1557,13 +1593,14 @@ document.addEventListener('click', e => {
   }
   if ((t = q('[data-send]'))) { toastErr(sendShip(S, t.dataset.send, document.querySelector(`[data-dest="${t.dataset.send}"]`).value)); save(); return refresh(); }
   if ((t = q('[data-recall]'))) { recallShip(S, t.dataset.recall); save(); return refresh(); }
+  if ((t = q('[data-outundo]'))) { const all = scopeGroups(LAST).flatMap(g => g.ships.map(x => x.u.id)), chosen = picked(scopeGroups(LAST)).map(x => x.u.id); toastErr(regroupSend(S, all, chosen, null)); picks.clear(); sendTo = null; pickScope = null; save(); return refresh(); }   // part of an outgoing fleet stays home
   if ((t = q('[data-unsend]'))) { toastErr(undoSend(S, t.dataset.unsend)); save(); return refresh(); }
   if ((t = q('[data-sendplace]'))) { sendPlace = t.dataset.sendplace; return refresh(); }   // the galaxy's send: WHERE in the chosen system
   if ((t = q('[data-gpick]'))) { const k = t.dataset.gpick, n = clamp((picks.get(k) || 0) + +t.dataset.d, 0, +t.dataset.max); if (n) picks.set(k, n); else picks.delete(k); return refresh(); }
   if ((t = q('[data-gall]'))) { const k = t.dataset.gall, max = +t.dataset.max; if ((picks.get(k) || 0) === max) picks.delete(k); else picks.set(k, max); return refresh(); }
   if ((t = q('[data-pclear]'))) { picks.clear(); sendTo = null; return refresh(); }
   if ((t = q('[data-pcancel]'))) { sendTo = null; return refresh(); }
-  if ((t = q('[data-psend]'))) { const ships = picked(scopeGroups(LAST)), dest = sendDest(); toastErr(sendFleet(S, ships.map(x => x.u.id), dest)); picks.clear(); sendTo = null; sendPlace = null; save(); return refresh(); }
+  if ((t = q('[data-psend]'))) { const ships = picked(scopeGroups(LAST)), dest = sendDest(); if (pickScope && pickScope.kind === 'outgoing') { const all = scopeGroups(LAST).flatMap(g => g.ships.map(x => x.u.id)); toastErr(regroupSend(S, all, ships.map(x => x.u.id), dest)); picks.clear(); sendTo = null; sendPlace = null; pickScope = null; save(); return refresh(); } toastErr(sendFleet(S, ships.map(x => x.u.id), dest)); picks.clear(); sendTo = null; sendPlace = null; save(); return refresh(); }
   if ((t = q('[data-ptogalaxy]'))) { const keep = new Map(picks), sys = placeOf(pickScope.place).sys; pickScope = { kind: 'galaxy', sys }; picks = keep; sendTo = null; gSel = sys; gMode = 'fleet'; return go('galaxy'); }
   if ((t = q('[data-watch]'))) return watchBattle(t.dataset.watch);
   if ((t = q('[data-gsys]'))) { gMode = 'system'; return refresh(); }
