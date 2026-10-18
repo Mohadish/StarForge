@@ -25,7 +25,7 @@ import { applyEon } from './replay.js';
 import { WORLD, MAX_EMPIRES, createWorld, worldEndEon, worldSnapshot, worldRestore, worldPlayEon, applyWorldEon, ownerOf, invade, invasionOdds, newLog, campaignEon, finishLog, HIGHLIGHT } from './world.js';
 import { makeBrain } from './ai.js';
 import { designSpecHtml, modulesLine } from './spec.js';
-import { FACTORS, FACTOR_COLOR, SIZES, sizeClassOf, habitabilityOf, habWord } from './districts.js';
+import { FACTORS, FACTOR_COLOR, SIZES, sizeClassOf, gridOf, habitabilityOf, habWord } from './districts.js';
 import { SLOT, DEV, TRAITS, TRAIT, KIND_WORD as SLOT_WORD, xy, filletWhy, isFull, counts } from './colony.js';
 import { drawSurface, drawRect as drawDevRect, drawTri as drawEffortTri, triFromPoint, dotFromPoint, toCanvas, cellAt as surfaceCellAt, mapSize, nextPlan } from './colonyview.js';
 mountNav('eon', { into: document.getElementById('topbar') });
@@ -327,7 +327,7 @@ function renderEmpire(c, skipTetra) {
     ${row('Built this eon', builds.length ? builds.join(', ') : 'nothing finishes')}
     ${row('Integration', `${c.speed.toFixed(1)}% per eon${c.moved ? ' — the focus moved' : ''}`)}
     ${row('Cohesion', `+${c.cohesionGain.toFixed(1)} earned${c.moveCost > 0.05 ? `, −${c.moveCost.toFixed(1)} spent on the focus` : ''}`)}
-    ${row('Reserves', `${fmt(S.reserves || 0)} · excess +${fmt(c.income)} − upkeep ${fmt(c.upkeep.total)} <span class="tiny">(military ${fmt(c.upkeep.military)} · social ${fmt(c.upkeep.social)} · research ${fmt(c.upkeep.research)})</span> = <b class="${c.net < 0 ? 'up' : 'down'}">${c.net < 0 ? '−' : '+'}${fmt(Math.abs(c.net))}</b>${c.shortNext > 0.005 ? ` · <b class="up">${Math.round(c.shortNext * 100)} % will go unpaid</b>` : ''}${c.unpaid > 0.005 ? ` · <b class="up">last eon ${Math.round(c.unpaid * 100)} % unpaid: the fleet wears, people grumble, research slows</b>` : ''}`, c.net < 0 ? 'up' : '')}</div>`;
+    ${row('Reserves', `${fmt(S.reserves || 0)} · excess +${fmt(c.income)} − upkeep ${fmt(c.upkeep.total)} <span class="tiny">(military ${fmt(c.upkeep.military)} · social ${fmt(c.upkeep.social)} · research ${fmt(c.upkeep.research)}${c.upkeep.water > 0.005 ? ` · water ${fmt(c.upkeep.water)}` : ''})</span> = <b class="${c.net < 0 ? 'up' : 'down'}">${c.net < 0 ? '−' : '+'}${fmt(Math.abs(c.net))}</b>${c.shortNext > 0.005 ? ` · <b class="up">${Math.round(c.shortNext * 100)} % will go unpaid</b>` : ''}${c.unpaid > 0.005 ? ` · <b class="up">last eon ${Math.round(c.unpaid * 100)} % unpaid: the fleet wears, people grumble, research slows</b>` : ''}`, c.net < 0 ? 'up' : '')}</div>`;
 
   $('eFields').innerHTML = `<div class="tiny" style="margin-bottom:8px">You have <b>${T.attention}</b> points of attention; <b>${c.free}</b> ${c.free === 1 ? 'is' : 'are'} unspent. Giving a field one more takes it from the spare ones, then from the field that has the most.
       The stars are how much there is to find — they come from the places you are studying, not from how hard you look.</div>`
@@ -409,6 +409,8 @@ function drawGalaxy(c) {
   const flights = GE ? GE.flatMap((E, k) => E.dead || !GODC || !GODC[k] ? [] : GODC[k].ships.map(s => ({ u: s.u, k, E, col: E.look.colA }))) : c.ships.map(s => ({ u: s.u, k: null, E: S, col: '#7ef3b0' }));
   const convoys = new Map();
   for (const f of flights) { const u = f.u; if (!u.dest) continue; const V = u.voy, key = `${f.k}|${V && V.fleet ? V.fleet : V ? `${V.A}>${V.B}@${(V.pos ?? 0).toFixed(2)}` : `${u.at}>${u.dest}@${u.eta}`}`; (convoys.get(key) || convoys.set(key, { ...f, ids: [] }).get(key)).ids.push(u.id); }
+  // WATER ROUTES between stars (his ask, 2026-10-18): a blue dotted line from the star that sends water to the dry colony's star
+  if (!GE) for (const pc of c.colonies) for (const r of pc.waterRoutes || []) { if (r.sys === pc.pl.sys) continue; const a = G.pos[r.sys], b = G.pos[pc.pl.sys]; if (!a || !b) continue; g.setLineDash([2, 4]); g.strokeStyle = '#4fa3ff'; g.globalAlpha = r.chance < 0.9 ? 0.5 : 0.8; g.lineWidth = 1.5; g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke(); g.setLineDash([]); g.globalAlpha = 1; g.lineWidth = 1; }
   for (const [key, { u, k: ek, E, col, ids }] of convoys) {
     const pOf = id => (E.places.find(p => p.id === id) || {}).sys;
     const V = u.voy, a = V ? G.pos[V.A] : G.pos[pOf(u.at)], b = V ? G.pos[V.B] : G.pos[pOf(u.dest)]; if (!a || !b || a === b) continue;
@@ -537,9 +539,9 @@ $('gMap').addEventListener('click', e => {
     const id = sysAt(e); if (!id) return; godPick = null; gSel = id; gMode = 'god'; return refresh();
   }
   const ms = myShipAt(e); if (ms) { e.stopPropagation(); return openShipPop(null, ms.ids, e.clientX, e.clientY); }   // your fleet under way: its card (undo / call back)
-  const f = fleetAt(e), id = f || sysAt(e); if (!id) return;
-  if (!f && pickCount() && pickScope?.kind === 'galaxy' && id !== pickScope.sys) { sendTo = id; return refresh(); }
-  gSel = id; gMode = f ? 'fleet' : 'system'; refresh();
+  const f = fleetAt(e), id = f || sysAt(e); if (!id) { if (sysPop) { sysPop = null; refresh(); } return; }   // empty space: the system pop-up closes
+  if (!f && pickCount() && pickScope?.kind === 'galaxy' && id !== pickScope.sys) { sendTo = id; sysPop = null; return refresh(); }
+  gSel = id; gMode = f ? 'fleet' : 'system'; sysPop = f ? null : id; refresh();   // a star: its worlds in a pop-up beside it (his ask, 2026-10-18)
 });
 $('gMap').addEventListener('dblclick', e => { if (fleetAt(e) || godFleetAt(e) || godShipAt(e)) return; const id = sysAt(e); if (id) openSystem(id); });
 // ZOOM with the wheel, about the mouse; PAN with a middle- or right-drag (his ask, 2026-10-15)
@@ -715,6 +717,35 @@ function renderFleetPop(full = true) {
   }
   P.el.hidden = false; placeOverlay(P.el, P.cv, anchor, P.kind === 'galaxy' ? 26 : 30);
 }
+// THE SYSTEM POP-UP ON THE GALAXY (his ask, 2026-10-18: "click a star system and see its planets; hover one for its details; click a
+// colony of mine and get its panel; click outside and go anywhere else"): the star's worlds in a row beside it, the star first
+let sysPop = null;
+function placeTip(pl) {                               // a world in words: what it is, its size and nature, who is there, what there is to learn
+  const own = pl.colony ? null : ownerOfPlace(pl.id), g = gridOf(pl), size = g ? SIZES[sizeClassOf(pl)] : null, pc = LAST && LAST.colonies.find(x => x.pl.id === pl.id), H = hostileIn(S, pl.sys);
+  const here = LAST ? LAST.ships.filter(s => !s.u.dest && s.u.at === pl.id).length : 0, learn = topFields(pl).filter(x => x[2] > 0.06).slice(0, 3);
+  return `<b>${esc(pl.name)}</b> · ${KIND_WORD[pl.kind]}${size ? ` · ${size.name} ${size.w} × ${size.h}` : ''}<br>${pl.landable ? esc(habWord(habitabilityOf(pl))) : esc(pl.note || '')}`
+    + (pc ? `<br><span style="color:#7ef3b0">your colony — ${peopleWord(pc.P.people)} people · industry ${fmt(pc.industry)} · research ${fmt(pc.research)}${pc.water ? '' : pc.waterNeed > 0 ? ` · water ${fmt(pc.waterIn)} / ${fmt(pc.waterNeed)} M` : ' · no water'}</span><br><b>click: open the colony</b>` : own ? `<br><span style="color:${own.col}">${esc(own.E.name)}'s colony</span>` : pl.landable ? '<br>can be settled' : '')
+    + (here ? `<br>${plural(here, 'ship')} of yours in orbit` : '') + (H ? `<br><span class="up">⚔ ${esc(hostileWord(H))}</span>` : '')
+    + (learn.length ? `<br><span class="tiny">to learn: ${learn.map(([f, now]) => `${DOMAINS[f].name} ${pct(now)}`).join(' · ')}</span>` : '');
+}
+function renderSysPop() {
+  const el = $('sysPop'); if (!el) return; el.hidden = true;
+  if (!sysPop || tab !== 'galaxy' || godEmpires() || pickCount() || !LAST) return;
+  const G = $('gMap')._geo, p = G && G.pos[sysPop], s = sysOf(sysPop); if (!p || !s) return;
+  const places = placesIn(sysPop);
+  const row = places.map(pl => { const lk = lookOf(pl), r = Math.round(Math.max(6, Math.min(15, lk.size * 1.1))), own = pl.colony ? null : ownerOfPlace(pl.id), ring = pl.colony ? '#7ef3b0' : own ? own.col : 'transparent', pc = LAST.colonies.find(x => x.pl.id === pl.id);
+    const dry = pc && !pc.water && pc.waterIn < pc.waterNeed - 0.5;
+    return `<button class="sp ${pl.colony ? 'mine' : ''}" data-spplace="${pl.id}"><i style="width:${2 * r}px;height:${2 * r}px;background:${lk.color};outline:2px solid ${ring};outline-offset:2px"></i><small>${esc(pl.name)}</small>${pl.colony ? `<em>${peopleWord(pl.colony.people)}${dry ? ' · 💧!' : ''}</em>` : own ? `<em style="color:${own.col}">${esc(own.E.name)}</em>` : ''}</button>`; }).join('');
+  el.innerHTML = `<div class="fphead"><b>${esc(s.name)}</b><span class="tiny">${STARS[s.type].name}</span><button class="x" data-opensys="${s.id}" title="the star-system screen">open ▸</button><button class="x" data-spclose title="close (or click outside)">✕</button></div><div class="sprow">${row}</div><div class="tiny">Hover a world for its details${places.some(pl => pl.colony) ? ' · click your colony to open it' : ''} · click another to see it in the system.</div>`;
+  el.hidden = false; placeOverlay(el, $('gMap'), p, 22);
+}
+document.addEventListener('mouseover', e => { const b = e.target.closest?.('[data-spplace]'), tip = $('cpTip'); if (!b) return; const pl = placeOf(b.dataset.spplace); if (!pl) return; tip.innerHTML = placeTip(pl); tip.style.display = 'block'; const r = b.getBoundingClientRect(); tip.style.left = Math.min(innerWidth - 300, r.left) + 'px'; tip.style.top = (r.bottom + 6) + 'px'; });
+document.addEventListener('mouseout', e => { if (e.target.closest?.('[data-spplace]') && !e.relatedTarget?.closest?.('[data-spplace]')) $('cpTip').style.display = 'none'; });
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-spclose]')) { sysPop = null; $('cpTip').style.display = 'none'; return refresh(); }
+  const b = e.target.closest('[data-spplace]'); if (b) { const pl = placeOf(b.dataset.spplace); $('cpTip').style.display = 'none'; if (!pl) return; if (pl.colony) return openColPop(pl.id); sysPop = null; return openSystem(pl.sys, pl.id); }
+  if (sysPop && !e.target.closest('#sysPop') && e.target.id !== 'gMap') { sysPop = null; $('sysPop').hidden = true; }   // a click anywhere else closes it (a click on the map is the map's own)
+});
 function renderSendBadge() {
   for (const [id, cvId, kind, tabName] of [['sendBadge', 'gMap', 'galaxy', 'galaxy'], ['sSendBadge', 'sMap', 'system', 'system']]) {
     const el = $(id); if (!el) continue; el.hidden = true;
@@ -870,6 +901,17 @@ function drawMap(c) {
     g.setLineDash([4, 5]); g.strokeStyle = 'rgba(126,243,176,.45)'; g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke(); g.setLineDash([]);
     g.fillStyle = '#7ef3b0'; g.beginPath(); g.arc(x, y, 4, 0, 7); g.fill();
   }
+  // THE WATER (his ask, 2026-10-18: "a dotted line that shows the trade route"): blue dots from each source in this system to the dry
+  // colony it waters; water from another star comes in from the edge, toward that star
+  for (const pc of c.colonies) {
+    if (pc.water || pc.pl.sys !== selSys) continue; const b = G.pos[pc.pl.id]; if (!b) continue;
+    for (const r of pc.waterRoutes) {
+      const a = r.sys === selSys ? G.pos[r.from] : null; g.setLineDash([2, 5]); g.strokeStyle = '#4fa3ff'; g.lineWidth = 2; g.globalAlpha = 0.75;
+      if (a && a !== b) { g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke(); }
+      else if (!a) { const s0 = sysOf(selSys), s1 = sysOf(r.sys), ang = Math.atan2(s1.y - s0.y, s1.x - s0.x), ex = b.x + Math.cos(ang) * 130, ey = b.y + Math.sin(ang) * 130; g.beginPath(); g.moveTo(ex, ey); g.lineTo(b.x, b.y); g.stroke(); g.setLineDash([]); g.globalAlpha = 1; g.fillStyle = '#4fa3ff'; g.font = '10px sans-serif'; g.textAlign = 'center'; g.fillText(`water from ${s1.name}`, ex, ey - 6); }
+      g.setLineDash([]); g.globalAlpha = 1; g.lineWidth = 1;
+    }
+  }
   g.textAlign = 'center';
   for (const pl of here) {
     const p = G.pos[pl.id], { color, size } = lookOf(pl), st = c.studied.find(s => s.pl.id === pl.id);
@@ -883,6 +925,8 @@ function drawMap(c) {
     if (pl.id === selPlace || pl.id === hoverPlace) { g.strokeStyle = pl.id === selPlace ? '#fff' : 'rgba(255,255,255,.5)'; g.lineWidth = 1.5; g.beginPath(); g.arc(p.x, p.y, size + 10, 0, 7); g.stroke(); }
     g.lineWidth = 1;
     if (st && st.power > 0) { g.fillStyle = '#5fe3d0'; g.beginPath(); g.arc(p.x + size + 6, p.y - size - 4, 4, 0, 7); g.fill(); }       // someone is studying it
+    const pcw = !pl.colony ? null : c.colonies.find(x => x.pl.id === pl.id);                                                              // a dry colony: a drop, red when its farms want more water
+    if (pcw && !pcw.water) { const short = pcw.waterIn < pcw.waterNeed - 0.5 || (pcw.waterReach <= 0); g.font = '13px sans-serif'; g.textAlign = 'right'; g.fillText('💧', p.x - size - 6, p.y - size); if (short) { g.fillStyle = '#ff7979'; g.font = 'bold 13px sans-serif'; g.textAlign = 'left'; g.fillText('!', p.x - size - 5, p.y - size); } g.textAlign = 'center'; }
     g.fillStyle = owner ? owner.col : pl.colony ? '#e8f0ff' : '#9eb3d8'; g.font = (pl.colony || owner ? 'bold ' : '') + '12px sans-serif';
     g.fillText(owner ? `${pl.name} · ${owner.E.name}` : pl.name, p.x, p.y - (pl.kind === 'star' ? size * 1.9 : size) - 12);
     const parked = S.ships.filter(u => !u.dest && u.at === pl.id);
@@ -1031,7 +1075,7 @@ function renderColPop() {
   $('cpMeta').textContent = `${home ? 'HOMEWORLD' : 'COLONY'}   TYPE: ${WORLD_KIND[worldOf(pl)].toUpperCase()}   SIZE: ${size.name.toUpperCase()} ${size.w} × ${size.h}`;
   $('cpMeta').title = habWord(habitabilityOf(pl));
   drawSurface($('cpMap'), G, { next: pc.next, hover: cpHover, frameColor: cpFrame() });
-  drawDevRect($('cpRect'), G, { noFood: !pc.water }); $('cpRect').title = FACTORS.map(k => filletWhy(G, k, cpWhy(pc))).join('\n');
+  drawDevRect($('cpRect'), G, { noFood: pc.noFood }); $('cpRect').title = FACTORS.map(k => filletWhy(G, k, cpWhy(pc))).join('\n');
   drawEffortTri($('cpTri'), { industry: P.split[0], research: P.split[1], development: P.split[2] });
   $('cpTri').title = `industry: ${fmt(pc.people.industry)} M hands for ${fmt(pc.cap.industry)} M of works · research: ${fmt(pc.people.research)} M for ${fmt(pc.cap.science)} M of labs · development: ${fmt(pc.people.development)} M builders → ${pc.dev.toFixed(1)} points an eon`;
   $('cpOut').innerHTML = cpOutHtml(pc);
@@ -1051,7 +1095,7 @@ function cpOutHtml(pc) {
   return `
     ${cpBar('people', P.people, pc.housing, FACTOR_COLOR.housing, `${peopleWord(P.people)} / ${peopleWord(pc.housing)} <span class="tiny">homes · ${pc.dPeople >= 0 ? '+' : '−'}${peopleWord(Math.abs(pc.dPeople))}</span>`)}
     ${pc.water ? cpBar('food', Math.min(fedM, eatM), eatM, FACTOR_COLOR.food, `${fmt(fedM)} / ${fmt(eatM)} M <span class="tiny">fed / eat</span>`) + `<div class="icons" title="a plate = 20 M people eating (dim: unfed); a sheaf = 20 M more fed than live here — a surplus for the colonies round it (logistics, later)">${reps('🍽', fedPlates)}<span class="dim">${reps('🍽', plates - fedPlates)}</span> ${reps('🌾', grain, 30)}${pc.fed < 1 ? ` <b class="up" style="font-size:12px">hungry — works at ${Math.round(pc.hungry * 100)} %</b>` : ''}</div>`
-      : `<div class="cpbar"><span style="color:${FACTOR_COLOR.food}">food</span><span class="tiny" style="grid-column:2 / 4">no water: the settlers live on their stores — no farms, no growth</span></div>`}
+      : cpWaterHtml(pc) + (pc.waterNeed > 0 ? cpBar('food', Math.min(fedM, eatM), eatM, FACTOR_COLOR.food, `${fmt(fedM)} / ${fmt(eatM)} M <span class="tiny">fed / eat</span>`) + `<div class="icons">${reps('🍽', fedPlates)}<span class="dim">${reps('🍽', plates - fedPlates)}</span> ${reps('🌾', grain, 30)}</div>` : '')}
     ${cpBar('industry', Math.min(pc.people.industry, pc.cap.industry), pc.cap.industry, FACTOR_COLOR.industry, `${fmt(pc.industry)} <span class="tiny">${fmt(pc.people.industry)} M hands / ${fmt(pc.cap.industry)} M works</span>`)}
     <div class="icons" title="a gear = 10 industry; a wrench = 10 of it into the production line; money = 10 into the reserves (credits)">${reps('⚙', pc.industry / 10)} <span class="tiny">→</span> ${reps('🔧', toLine / 10)}${reps('💰', pc.toReserves / 10)}<span class="tiny"> ${Math.round(toLine)} to the line${pc.newFactories ? ` · ${pc.newFactories} factor${pc.newFactories === 1 ? 'y' : 'ies'} built` : ''} · ${Math.round(pc.toReserves)} to the reserves</span></div>
     ${cpBar('science', Math.min(pc.people.research, pc.cap.science), pc.cap.science, FACTOR_COLOR.science, `${fmt(pc.research)} <span class="tiny">${fmt(pc.people.research)} M / ${fmt(pc.cap.science)} M labs</span>`)}
@@ -1060,6 +1104,15 @@ function cpOutHtml(pc) {
     <div class="icons" title="a hammer = one builder point an eon (a slot costs ${DEV.cost}, tearing one down ${DEV.demolish})">${reps('🔨', pc.dev)}</div>
     <div class="tiny" style="margin:0 0 6px 92px">${nextLine}${pc.cap.pure ? ` · <span class="up">${plural(pc.cap.pure, 'pure cell')}</span>` : ''}</div>
     <div class="tiny">happiness ${Math.round(P.happiness)} · ${pc.factories} factor${pc.factories === 1 ? 'y' : 'ies'}${pc.needI > 0 ? ` · sustain ${fmt(pc.needI)} industry / ${fmt(pc.needR)} research${pc.short > 0.005 ? ` <b class="up">${Math.round(pc.short * 100)} % short — unrest</b>` : ' ✓'}` : ''}${pol}${pc.blockaded ? ` · <b class="up">blockaded ${pc.blockaded} of ${WORLD.siege} eons</b>` : ''}</div>`;
+}
+// THE WATER of a dry world (his design, 2026-10-18): what its farms could use, what arrives and from where, what the haul costs —
+// and, short of it, that it needs more water to grow
+function cpWaterHtml(pc) {
+  const short = pc.waterIn < pc.waterNeed - 0.5, none = pc.waterReach <= 0;
+  const from = pc.waterRoutes.map(r => `💧 ${r.kind === 'harvest' ? `harvested by ${esc(r.name)}` : `from ${esc(r.name)}`}${r.ly ? ` · ${r.ly.toFixed(1)} ly${r.chance < 0.999 ? `, ${Math.round(r.chance * 100)} % arrives` : ''}` : ' · in the system'} · ${fmt(r.amount)} M`).join('<br>');
+  return cpBar('water', pc.waterIn, Math.max(pc.waterNeed, 1e-9), '#4fa3ff', pc.waterNeed > 0 ? `${fmt(pc.waterIn)} / ${fmt(pc.waterNeed)} M <span class="tiny">for the farms</span>` : '<span class="tiny">no farms yet</span>')
+    + `<div class="tiny" style="margin:0 0 6px 92px">${none ? '<b class="up">no water within reach</b> — the settlers live on their stores, no farms, no growth: settle near a world of yours with water, or park a ship or platform with fabricators at any world with water to harvest it'
+      : `${from || 'water can reach it — the builders will lay farms'}${pc.waterCost > 0.005 ? `<br>the haul costs ${pc.waterCost.toFixed(2)} an eon from the reserves` : ''}${short ? '<br><b class="up">needs more water to grow</b> — the farms run dry: a nearer source, or more fabricators harvesting' : ''}`}</div>`;
 }
 // what the line can build: ships, platforms and docks (a district with a gantry) — the surface builds itself from development
 const cpBuildable = (d, caps) => { const t = designStats(S, d, caps).t; return t.klass !== 'structure' || t.gantries.length > 0; };
@@ -1461,7 +1514,7 @@ function refresh() {
   if (tab === 'design') renderDesign(c);
   renderShipPop();                                   // the spec pop-up follows the state (an eon ended, a ship moved)
   renderColPop();                                    // the colony pop-up too
-  renderFleetPop(true); renderSendBadge();           // the fleet pop-up and the send-here badge on the maps
+  renderFleetPop(true); renderSendBadge(); renderSysPop();   // the fleet pop-up, the send-here badge and the system pop-up on the maps
 }
 function go(next) {
   tab = next;

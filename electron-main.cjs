@@ -19,8 +19,25 @@ function createWindow() {
   });
   // FORGE_PAGE picks the entry page: colony.html = the old map game (the default, as before), eon.html = the
   // eon-loop prototype, lab.html / fleet.html / paint.html the tools; index.html is the launcher page and the site's front door
+  wireZoom(win);
   win.loadURL('app://game/' + (process.env.FORGE_PAGE || 'colony.html'));
   if (SMOKE) smokeTest(win);
+}
+
+// ZOOM (his report, 2026-10-18: "Ctrl − shrinks everything, Ctrl + does not bring it back, and after a restart it stays that small"):
+// the default menu's zoom-in wants Ctrl+Shift+= on most keyboards, and Chromium keeps a site's zoom across runs. Here Ctrl + (or =,
+// or the keypad +) zooms in, Ctrl − zooms out, Ctrl 0 resets — and every start opens at 100 %.
+const ZOOM = { min: 0.5, max: 2, step: 0.1 };
+function wireZoom(win) {
+  const wc = win.webContents; let first = true;
+  wc.on('did-finish-load', () => { if (first) { first = false; wc.setZoomFactor(1); } });
+  wc.on('before-input-event', (e, input) => {
+    if (input.type !== 'keyDown' || !(input.control || input.meta) || input.alt) return;
+    const k = input.key, z = wc.getZoomFactor(), to = v => wc.setZoomFactor(Math.min(ZOOM.max, Math.max(ZOOM.min, Math.round(v * 10) / 10)));
+    if (k === '=' || k === '+' || input.code === 'NumpadAdd') { e.preventDefault(); to(z + ZOOM.step); }
+    else if (k === '-' || k === '_' || input.code === 'NumpadSubtract') { e.preventDefault(); to(z - ZOOM.step); }
+    else if (k === '0' || input.code === 'Numpad0') { e.preventDefault(); to(1); }
+  });
 }
 
 function smokeTest(win) {

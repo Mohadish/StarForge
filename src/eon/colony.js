@@ -49,11 +49,12 @@ export function neighbours(G, i, n = 8) {
   return out;
 }
 // a surface for a world: the landing in the middle; a homeworld's old city is the landing and its three nearest neighbours, each a
-// mixed cell (one slot of every kind); a new colony's landing holds a home and a farm (a dry world: a home and a works — no farms there)
+// mixed cell (one slot of every kind); a new colony's landing holds a home and a farm — on a dry world too: the farm grows once water
+// is brought in (model.js waterSupply), and that first harvest is what lets a handful of settlers grow (a works left them stuck)
 export function newSurface({ w, h, seed, home = false, water = true, landing = null }) {
   const G = { w, h, cells: newCells(w, h, mulberry(hashSeed(seed))), landing: landing == null ? Math.floor(h / 2) * w + Math.floor((w - 1) / 2) : landing, dot: { x: 0.5, y: 0.5 }, sup: { industry: 1, food: 1, housing: 1, science: 1 }, progress: 0 };
   const seedCells = home ? [G.landing, ...neighbours(G, G.landing, 4)].slice(0, 4) : [G.landing];
-  for (const i of seedCells) G.cells[i].slots = home ? ['housing', 'food', 'industry', 'science'] : water ? ['housing', 'food'] : ['housing', 'industry'];
+  for (const i of seedCells) G.cells[i].slots = home ? ['housing', 'food', 'industry', 'science'] : ['housing', 'food'];
   return G;
 }
 export const counts = G => { const n = { industry: 0, food: 0, housing: 0, science: 0, total: 0 }; for (const c of G.cells) for (const k of c.slots) { n[k]++; n.total++; } return n; };

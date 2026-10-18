@@ -195,7 +195,7 @@ function migrateColony(S, pl) {
     FACTORS.forEach((f, k) => { for (let m = 0; m < n[k]; m++) G.cells[i].slots.push(f); });
     if (first < 0) first = i;
   });
-  if (first >= 0) G.landing = first; else G.cells[G.landing].slots = waterOf(pl) ? ['housing', 'food'] : ['housing', 'industry'];
+  if (first >= 0) G.landing = first; else G.cells[G.landing].slots = ['housing', 'food'];   // a home and a farm (on a dry world the farm waits for water)
   delete P.cells; delete P.develop; P.surface = G; return G;
 }
 const surfaceOf = (S, pl) => migrateColony(S, pl);    // a world snapshot from before the slots meets the engine here (upgrade() does it for a save)
@@ -303,6 +303,8 @@ export function compute(S) {
   // the focus this eon: how far cohesion lets it move, how far it has, what that costs, and the shock to the people
   const reach = clamp(S.cohesion / 100, 0, 1), moveDist = focusDistance(S.focusStart, S.focus), moveCost = Math.min(S.cohesion, moveDist * 100);
   const moved = moveDist > 0.005, shock = moved && reach > 1e-6 ? clamp(moveDist / reach, 0, 1) : 0;
+  // THE WATER (his design, 2026-10-18 — waterSupply below): what reaches every colony on a dry world this eon, and from where
+  const WS = waterSupply(S, ships, caps, shock);
   // colonies
   const colonies = S.places.filter(pl => pl.colony).map(pl => {
     const P = pl.colony, [si, sr, sd] = P.split, mp = P.people, factor = clamp(0.5 + P.happiness / 120, 0.5, 1.25);
@@ -325,7 +327,10 @@ export function compute(S) {
     const { cap, perCell } = G ? capsOf(G, { levels: S.slotLevels || LEVEL1, shock }) : { cap: { industry: 0, food: 0, housing: 0, science: 0, cells: 0, scienceShare: 0, pure: 0, slots: 0 }, perCell: [] };
     // FOOD from the farms (the M people they feed; a landed ship's social systems add theirs) — only where there is water (his spec,
     // 2026-10-16): without it the settlers live on their stores — no food, no growth, no famine — until supply lines exist (later)
-    const eat = mp * T.foodPerHead, food = water ? cap.food * T.foodPerHead + flat.social * T.foodPerSocial : 0, surplus = water ? food - eat : 0;
+    // …and on a DRY world (his rule, 2026-10-18) the farms grow on the water brought in (waterSupply): as much of them as it reaches;
+    // short of it the colony still lives on its stores — no famine — but does not grow past what the water feeds
+    const ws = water ? null : WS.get(pl.id), waterNeed = ws ? ws.need : 0, waterIn = ws ? ws.in : 0;
+    const eat = mp * T.foodPerHead, food = water ? cap.food * T.foodPerHead + flat.social * T.foodPerSocial : Math.min(cap.food, waterIn) * T.foodPerHead, surplus = water ? food - eat : Math.max(0, food - eat);
     const fed = water ? clamp(food / Math.max(1e-9, eat), 0, 1) : 1, hungry = 1 - DISTRICT.hunger * (1 - fed);   // a hungry planet works worse (his strain)
     const industry = Math.max(0, employed(people.industry, cap.industry) * factor * docile * hungry + flat.industry + (P.factories || 0) * T.factoryOut - flat.upkeep);   // the factories: a flat trickle each
     const research = employed(people.research, cap.science) * factor * docile * hungry + flat.research;
@@ -377,11 +382,13 @@ export function compute(S) {
     const polNext = { industry: clamp(pol.industry + (si - 0.5) * T.pol.rate, 0, 100), research: clamp(pol.research + (sr - 0.5) * T.pol.rate, 0, 100), social: clamp(pol.social + (sd - 0.5) * T.pol.rate, 0, 100) };
     // THE FILLET's targets and what the colony is SHORT of (colony.js): idle works and labs, hunger and empty homes, a surplus nobody eats
     const staffed = { industry: cap.industry > 0 ? Math.min(1, people.industry / cap.industry) : 1, science: cap.science > 0 ? Math.min(1, people.research / cap.science) : 1 };
-    const want = { industry: staffed.industry, science: staffed.science, housing: fed * Math.min(1, mp * FILLET.empty / Math.max(1, housing)), food: water && food > 0 ? Math.min(1, eat / food) : 1 };
+    const want = { industry: staffed.industry, science: staffed.science, housing: fed * Math.min(1, mp * FILLET.empty / Math.max(1, housing)),
+      food: (food > 0 ? Math.min(1, eat / food) : 1) * (water || waterNeed <= 0 ? 1 : Math.min(1, waterIn / waterNeed)) };   // a dry world's farms short of water round the food corner too
     const lack = { food: water && food < eat, housing: housing < mp, industry: people.industry > cap.industry, science: people.research > cap.science };
-    const next = G && !blockaded ? building(G, { noFood: !water, lack }) : null;
+    const noFood = !water && !(ws && ws.reach > 0);   // a dry world builds farms once water can reach it
+    const next = G && !blockaded ? building(G, { noFood, lack }) : null;
     return { pl, P, people, factor, flat, industry, research, food, gantries, housing, full, queue, done, spare, eat, surplus, fed, hungry, dPeople, happiness, happyTarget,
-      water, roomCap, houses, factories: P.factories || 0, newFactories, toReserves, needI, needR, short, pol, polNext, blockaded, cap, perCell, grid, cellsAll, G, dev, staffed, want, lack, next };
+      water, noFood, waterNeed, waterIn, waterRoutes: ws ? ws.routes : [], waterCost: ws ? ws.cost : 0, waterReach: ws ? ws.reach : 0, roomCap, houses, factories: P.factories || 0, newFactories, toReserves, needI, needR, short, pol, polNext, blockaded, cap, perCell, grid, cellsAll, G, dev, staffed, want, lack, next };
   });
   // who is studying what: research power on the ground and in orbit, place by place
   const ground = {}, orbit = {}, sysResearch = {}, sysOfPlace = Object.fromEntries(S.places.map(p => [p.id, p.sys]));
@@ -392,8 +399,8 @@ export function compute(S) {
   const research = (colonies.reduce((a, c) => a + c.research, 0) + ships.reduce((a, s) => a + (s.u.dest ? 0 : s.t.research), 0)) * (1 - T.upkeep.slow * unpaid);
   // the UPKEEP of the eon against the excess that flows to the reserves, and what is left after the reserves have covered the rest
   const fleetWorth = ships.reduce((a, s) => a + s.t.cost, 0), pops0 = colonies.reduce((a, p) => a + p.P.people, 0);
-  const upkeep = { military: fleetWorth * T.upkeep.military, social: pops0 * T.upkeep.social, research: research * T.upkeep.research };
-  upkeep.total = upkeep.military + upkeep.social + upkeep.research;
+  const upkeep = { military: fleetWorth * T.upkeep.military, social: pops0 * T.upkeep.social, research: research * T.upkeep.research, water: [...WS.values()].reduce((a, w) => a + w.cost, 0) };
+  upkeep.total = upkeep.military + upkeep.social + upkeep.research + upkeep.water;   // the water haul is paid like the rest (his ask: "start seeing the reserves go")
   const income = colonies.reduce((a, p) => a + p.toReserves, 0), net = income - upkeep.total, after = (S.reserves || 0) + net;
   const shortNext = after < 0 && upkeep.total > 0 ? clamp(-after / upkeep.total, 0, 1) : 0;
   // a star is also studied, from afar, by every other lab in its own system
@@ -420,6 +427,40 @@ export function compute(S) {
   for (const s of ships) s.range = shipRange(s.t, fleetWarp(passive));               // STAR TRAVEL: each ship's reach between stars, light years
   return { colonies, ships, studied, research, sysResearch, fields, points, warp: fleetWarp(passive), free: T.attention - points, cohesionGain, reach, moveDist, moveCost, moved, shock, steadyNext, setback, speed, upkeep, income, net, shortNext, unpaid,
     people: colonies.reduce((a, c) => a + c.P.people, 0) + S.ships.reduce((a, u) => a + (u.people || 0), 0), passive, caps };
+}
+
+// ---------------- the water ----------------
+// THE WATER (his design, 2026-10-18): a colony on a dry world grows farms only on water brought to it — from a colony of yours on a
+// world with water (its seas are plenty), or HARVESTED by a ship or platform with fabricators resting at any place with water (so
+// much an eon for each point of their industry, shared out among the colonies it serves — it runs short). The game picks the
+// cheapest sources that can carry it: in the colony's own system a short, sure haul; across the stars dearer by the light year, and
+// only the share the crossing's chance lets through arrives (a route through the red loses water, the same odds as a ship's). The
+// haul is paid from the reserves (upkeep: water). The need is what the colony's farms could grow (M people they feed).
+export const WATER = { perIndustry: 2.5, inSystem: 0.01, perLy: 0.05, minChance: 0.1 };
+function waterSupply(S, ships, caps, shock) {
+  const out = new Map(), cols = S.places.filter(pl => pl.colony), dry = cols.filter(pl => !waterOf(pl) && gridOf(pl)); if (!dry.length) return out;
+  const warp = fleetWarp(passiveOf(caps)), src = [];
+  for (const pl of cols) if (waterOf(pl)) src.push({ id: pl.id, name: pl.name, at: pl.id, sys: pl.sys, kind: 'colony', left: Infinity });
+  for (const { u, t } of ships) {                    // HARVESTERS: a ship or a platform with fabricators, resting at a place with water
+    if (u.dest || !(t.industry > 0)) continue; const pl = S.places.find(p => p.id === u.at); if (!pl || !waterOf(pl)) continue;
+    src.push({ id: u.id, name: u.name, at: pl.id, sys: pl.sys, kind: 'harvest', left: t.industry * WATER.perIndustry });
+  }
+  for (const pl of dry) {
+    const G = surfaceOf(S, pl), need = G ? capsOf(G, { levels: S.slotLevels || LEVEL1, shock }).cap.food : 0;
+    const options = src.filter(s => s.left > 1e-9).map(s => {
+      const ly = s.sys === pl.sys ? 0 : lyBetween(S, s.sys, pl.sys), chance = ly ? clamp(chanceAt(effectiveLy(S, s.sys, pl.sys), VOY.range * warp), 0, 1) : 1, per = ly ? WATER.perLy * ly : WATER.inSystem;
+      return { s, ly, chance, per, unit: per / Math.max(chance, 1e-6) };
+    }).filter(o => o.chance >= WATER.minChance).sort((a, b) => a.unit - b.unit || (a.s.kind === 'colony' ? 0 : 1) - (b.s.kind === 'colony' ? 0 : 1) || (a.s.id < b.s.id ? -1 : a.s.id > b.s.id ? 1 : 0));
+    const reach = options.reduce((a, o) => a + o.s.left * o.chance, 0);
+    let left = need, got = 0, cost = 0; const routes = [];
+    for (const o of options) {
+      if (left <= 1e-9) break;
+      const send = Math.min(left / o.chance, o.s.left), arrive = send * o.chance; o.s.left -= send; left -= arrive; got += arrive; cost += send * o.per;
+      routes.push({ kind: o.s.kind, from: o.s.at, name: o.s.name, sys: o.s.sys, amount: arrive, sent: send, chance: o.chance, ly: o.ly });
+    }
+    out.set(pl.id, { need, in: got, cost, routes, reach });
+  }
+  return out;
 }
 
 // ---------------- orders ----------------
@@ -605,7 +646,7 @@ export function endEon(S) {
     // THE SURFACE (colony.js): the builders' points buy slots toward the development focus (a full world tears one down and builds
     // the new kind the next eon); the fillet creeps toward what each corner can support. A district completed is reported.
     if (pc.G) {
-      const wasFull = isFull(pc.G), log = developStep(pc.G, pc.dev, { noFood: !pc.water, lack: pc.lack });
+      const wasFull = isFull(pc.G), log = developStep(pc.G, pc.dev, { noFood: pc.noFood, lack: pc.lack });
       for (const e of log) if (e.kind === 'slot' && e.done) { const n = {}; for (const k of pc.G.cells[e.cell].slots) n[k] = (n[k] || 0) + 1; rep.push({ kind: 'build', text: `${name}: a district completed — ${Object.entries(n).map(([k, v]) => `${v} ${KIND_WORD[k]}`).join(', ')}`, place: pc.pl.id, colony: true }); }
       if (!wasFull && isFull(pc.G)) rep.push({ kind: 'build', text: `${name}: the whole world is developed — from now on the builders re-make it toward the focus, one slot at a time`, place: pc.pl.id, colony: true });
       creepFillet(pc.G, pc.want);

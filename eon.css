@@ -236,3 +236,13 @@
 #notes .n-battle .ni{color:#ffd26a}
 #notes .nmore{width:100%;margin-top:4px}
 #colPop .cphead .go{padding:4px 10px;font-size:12px}
+/* the system pop-up on the galaxy (his ask, 2026-10-18): the star's worlds in a row — hover for details, click your colony to open it */
+.syspop{width:auto;max-width:520px}
+.syspop .fphead .tiny{flex:1}
+.syspop .sprow{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+.syspop .sp{display:grid;justify-items:center;gap:3px;padding:6px 8px;min-width:58px;background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:8px;cursor:pointer}
+.syspop .sp:hover{border-color:var(--good)}
+.syspop .sp.mine{background:rgba(126,243,176,.08)}
+.syspop .sp i{display:block;border-radius:50%}
+.syspop .sp small{font-size:10px;color:var(--muted);max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.syspop .sp em{font-style:normal;font-size:10px;color:#7ef3b0}
