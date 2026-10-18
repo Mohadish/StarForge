@@ -297,9 +297,10 @@ export function compute(S) {
     // DISTRICTS (his design, 2026-10-18): the developed cells are the planet's CAPACITY — pops within it work whole, the rest at idle;
     // the triangle above stays the effort. A pure district is hit by the focus shock (districts.js cellEffect)
     const cap = capacities(P, S.districts || [], shock), grid = gridOf(pl), cellsAll = grid ? grid.w * grid.h : 0;
-    const industry = Math.max(0, employed(people.industry, cap.industry) * factor * docile + flat.industry + (P.factories || 0) * T.factoryOut - flat.upkeep);   // the factories: a flat trickle each
-    const research = employed(people.research, cap.science) * factor * docile + flat.research;
     const social = employed(people.social, cap.food) * aloof + flat.social;   // the social share's farms: the food districts
+    const waterHere = waterOf(pl), fed = waterHere ? clamp((social * T.foodPerSocial) / Math.max(1e-9, mp * T.foodPerHead), 0, 1) : 1, hungry = 1 - DISTRICT.hunger * (1 - fed);   // a hungry planet works worse (his strain)
+    const industry = Math.max(0, employed(people.industry, cap.industry) * factor * docile * hungry + flat.industry + (P.factories || 0) * T.factoryOut - flat.upkeep);   // the factories: a flat trickle each
+    const research = employed(people.research, cap.science) * factor * docile * hungry + flat.research;
     const housing = P.baseHousing + flat.housing + cap.housing;
     const blockaded = P.blockaded || 0;              // BLOCKADED by another empire's fleet (world.js): nothing gets built, nothing reaches the reserves, nobody grows, the mood sours
     // the DEVELOPMENT queue first (up to DISTRICT.devShare of the industry), then the build queue
@@ -340,7 +341,7 @@ export function compute(S) {
     // SUSTAIN: a big society needs industry and research at work for its own sake; short of it, unrest — people leave, the mood sours
     const ramp = Math.pow(clamp((mp - T.sustain.from) / (T.sustain.to - T.sustain.from), 0, 1), 2), needI = ramp * T.sustain.industry * mp, needR = ramp * T.sustain.research * mp;
     const short = Math.max(0, needI > 0 ? 1 - industry / needI : 0, needR > 0 ? 1 - research / needR : 0);
-    let dPeople = surplus >= 0 ? surplus * T.growthPerFood : surplus * T.starvePerFood;
+    let dPeople = surplus >= 0 ? surplus * T.growthPerFood * (1 + DISTRICT.health * cap.scienceShare) : surplus * T.starvePerFood;   // science across the districts = food and health: faster growth
     const full = mp >= housing - 1e-6;
     if (dPeople > 0) dPeople = Math.max(0, Math.min(dPeople, housing - mp));        // nowhere to live = no growth
     if (mp > housing + 0.5) dPeople = Math.min(dPeople, -1);                        // overcrowded

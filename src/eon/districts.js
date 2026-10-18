@@ -6,17 +6,23 @@
 // A pure district yields the most and is hit hardest by a focus shock (purity × shock). No DOM.
 export const FACTORS = ['industry', 'food', 'housing', 'science'];
 export const FACTOR_COLOR = { industry: '#ffb347', food: '#7ef3b0', housing: '#4fa3ff', science: '#5fe3d0' };
-export const SIZES = { vs: { name: 'very small', w: 2, h: 2 }, s: { name: 'small', w: 2, h: 3 }, m: { name: 'medium', w: 2, h: 4 }, l: { name: 'large', w: 3, h: 5 }, xl: { name: 'huge', w: 3, h: 6 } };
+export const SIZES = { vs: { name: 'very small', w: 2, h: 2 }, s: { name: 'small', w: 3, h: 2 }, m: { name: 'medium', w: 4, h: 2 }, l: { name: 'large', w: 5, h: 3 }, xl: { name: 'huge', w: 6, h: 3 } };   // always wider than tall (his call)
 const SIZE_WEIGHTS = [['vs', 20], ['s', 30], ['m', 25], ['l', 15], ['xl', 10]], MOON_WEIGHTS = [['vs', 60], ['s', 40]];
 export const DISTRICT = {
   pops: 60,            // M people a full-housing cell houses · pops a full industry / science cell employs · social pops a full food cell gives farms to
   idle: 0.5,           // what a pop past its factor's capacity still does
   cost: 60, upgrade: 30, devShare: 0.5,   // industry to develop a cell, to re-make one; the share of an eon's industry development may take before the build queue
   shock: 0.6,          // a pure district loses this much of its output at a full focus shock (× purity)
-  // the SQUARE: output `a` is cut by (1 − c × share of `b`). Neighbours: industry→food (smoke kills yields), food→housing (fields take the
-  // land), housing→science (crowds push the labs out — the weak one), science→industry (researchers are not factory hands);
-  // diagonals: industry→housing (smoke sickens); food↔science left open (0)
-  couple: { industry: { science: 0.5 }, food: { industry: 0.5 }, housing: { food: 0.5, industry: 0.25 }, science: { housing: 0.5, food: 0 } },
+  // the SQUARE (his pairings, 2026-10-18): output `a` × (1 + k × share of `b`) — a negative k cuts, a positive one helps. The four
+  // neighbours fight: industry→food (smoke kills yields), food→housing (fields take the land), housing→science (education spreads
+  // thin over a crowd), science→industry (the learned will not work the works). The two diagonals are GOOD pairings: housing→industry
+  // (hands), science→food (better yields) — so housing + industry and science + food districts work well together
+  couple: { industry: { science: -0.5, housing: 0.3 }, food: { industry: -0.5, science: 0.3 }, housing: { food: -0.5 }, science: { housing: -0.5 } },
+  // nobody, nothing: a district with no housing of its own is poorly staffed — its industry, food and science run at `floor` until
+  // its housing share reaches `need` (people do everything)
+  staff: { need: 0.25, floor: 0.4 },
+  hunger: 0.4,         // a hungry planet (food short of what it eats) loses up to this much of its industry and research
+  health: 0.3,         // growth gains up to this much from science across the districts (food and health)
 };
 // the STARTING district designs: mixed, and one leaning to each factor
 export const STARTER_DISTRICTS = [
@@ -55,19 +61,20 @@ export function habitabilityOf(pl) {
 export const habWord = h => `${h.atmosphere === 'none' ? 'no atmosphere' : h.atmosphere + ' atmosphere'} · ${h.water === 'none' ? 'no water' : h.water === 'ice' ? 'water as ice' : 'liquid water'} · ${h.organics ? 'organics' : 'no organics'} · ${h.temp}`;
 // a cell's effective shares after the square's trade-offs and the focus shock (0–1 of a full cell each)
 export function cellEffect(mix, shock = 0) {
-  const c = DISTRICT.couple, m = mix, out = {};
-  for (const f of FACTORS) { let v = m[f] || 0; for (const [g, k] of Object.entries(c[f] || {})) v *= Math.max(0, 1 - k * (m[g] || 0)); out[f] = v; }
+  const c = DISTRICT.couple, m = mix, out = {}, staffed = DISTRICT.staff.floor + (1 - DISTRICT.staff.floor) * Math.min(1, (m.housing || 0) / DISTRICT.staff.need);
+  for (const f of FACTORS) { let v = m[f] || 0; for (const [g, k] of Object.entries(c[f] || {})) v *= Math.max(0, 1 + k * (m[g] || 0)); if (f !== 'housing') v *= staffed; out[f] = v; }
   const purity = Math.max(0, (Math.max(...FACTORS.map(f => m[f] || 0)) - 0.25) / 0.75), cut = 1 - DISTRICT.shock * purity * Math.max(0, Math.min(1, shock));
   for (const f of FACTORS) out[f] *= cut;
-  out.purity = purity; return out;
+  out.purity = purity; out.staffed = staffed; return out;
 }
 // the planet's CAPACITIES from its developed cells (pops per factor)
 export function capacities(P, designs, shock = 0) {
-  const cap = { industry: 0, food: 0, housing: 0, science: 0, cells: 0 };
+  const cap = { industry: 0, food: 0, housing: 0, science: 0, cells: 0, scienceShare: 0 };
   for (const cell of P.cells || []) {
     if (!cell || !cell.design) continue; const d = designs.find(x => x.id === cell.design); if (!d) continue;
-    const e = cellEffect(d.mix, shock); cap.cells++; for (const f of FACTORS) cap[f] += e[f] * DISTRICT.pops;
+    const e = cellEffect(d.mix, shock); cap.cells++; for (const f of FACTORS) cap[f] += e[f] * DISTRICT.pops; cap.scienceShare += d.mix.science || 0;
   }
+  cap.scienceShare = cap.cells ? cap.scienceShare / cap.cells : 0;   // science across the districts: health, growth (DISTRICT.health)
   return cap;
 }
 // pops at work against a capacity: the ones within it count whole, the rest at IDLE
