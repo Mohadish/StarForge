@@ -246,3 +246,18 @@
 .syspop .sp i{display:block;border-radius:50%}
 .syspop .sp small{font-size:10px;color:var(--muted);max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .syspop .sp em{font-style:normal;font-size:10px;color:#7ef3b0}
+/* the spec card (his ask, 2026-10-20): the picture and what kind of ship it is, the CHIPS as designed, the build beside them */
+#shipPop{width:640px}
+#shipPop .sec.head{display:flex;gap:12px;align-items:center;border-top:0;padding-top:0}
+#shipPop .sec.head canvas{width:180px;height:105px;border-radius:8px;background:#04070f;flex:none}
+#shipPop .spec2{display:grid;grid-template-columns:230px 1fr;gap:10px;align-items:start;margin-top:8px;padding-top:6px;border-top:1px dashed var(--line)}
+#shipPop .spec2 .sec{border-top:0;padding-top:0;margin-top:0}
+#shipPop .spec2 .nums .sec:first-child{border-top:0;padding-top:0;margin-top:0}
+#shipPop .spec2 .nums .sum{grid-template-columns:1fr 1fr}
+.cstrip{display:flex;flex-wrap:wrap;gap:4px}
+.cstrip .stack.mini{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid var(--c);border-radius:999px;background:rgba(255,255,255,.04);font-size:11px;line-height:1.3;color:var(--c);cursor:default;margin:0}
+.cstrip .stack.mini b{color:inherit;font-weight:700;flex:none}
+.cstrip .stack.mini small{color:var(--muted);font-size:10px;flex:none;order:0;margin:0}
+.cstrip .stack.mini .hh{font-style:normal;color:#fff;font-weight:700}
+.cstrip .stack.mini .tuned{font-size:10px;color:#ffd26a}
+.cstrip .stack.mini.auto{opacity:.75;border-style:dashed}
