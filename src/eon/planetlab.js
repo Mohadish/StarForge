@@ -77,7 +77,7 @@ function renderOut() {
   const cellName = i => xy(C, i).map(v => v + 1).join(',');
   const nextLine = !next ? (full ? `the planet is full and in balance — ${n0(r.hands.development)} M builders stand idle, move the triangle` : 'nothing to build') : next.demolish
     ? `tearing down a <b style="color:${FACTOR_COLOR[next.demolish]}">${KIND_WORD[next.demolish]}</b> slot in cell ${cellName(next.cell)} (${DEV.demolish} pts, ${r.dev > 0 ? Math.max(1, Math.ceil((DEV.demolish - C.progress) / r.dev)) + ' eon(s)' : 'nobody works'}), then <b style="color:${FACTOR_COLOR[next.kind]}">${KIND_WORD[next.kind]}</b> goes up in its place (${DEV.cost} pts)`
-    : `next: <b style="color:${FACTOR_COLOR[next.kind]}">${KIND_WORD[next.kind]}</b> in cell ${cellName(next.cell)}${C.cells[next.cell].plan ? ' — planned' : TRAITS[C.cells[next.cell].trait] === next.kind ? ` — ${C.cells[next.cell].trait} ground` : ''} · ${DEV.cost} pts a slot, ${r.dev > 0 ? Math.max(1, Math.ceil((DEV.cost - C.progress) / r.dev)) + ' eon(s)' : 'nobody builds'}`;
+    : `${next.partial ? 'going up' : 'next'}: <b style="color:${FACTOR_COLOR[next.kind]}">${KIND_WORD[next.kind]}</b> in cell ${cellName(next.cell)}${next.partial ? ` — ${next.b < 0.1 ? (next.b * 100).toFixed(1) : Math.round(next.b * 100)} % built` : ''}${C.cells[next.cell].plan ? ' — planned' : TRAITS[C.cells[next.cell].trait] === next.kind ? ` — ${C.cells[next.cell].trait} ground` : ''} · ${r.dev > 0 ? Math.max(1, Math.ceil((1 - (next.b || 0)) * DEV.cost / r.dev)) + ' eon(s) to finish' : 'nobody builds'}`;
   $('out').innerHTML = `
     ${bar('people', C.people, r.housing, FACTOR_COLOR.housing, `${n0(C.people)} / ${n0(r.housing)} M <span class="tiny">homes · ${r.growth >= 0 ? '+' : ''}${(r.growth * 100).toFixed(1)} %</span>`)}
     ${bar('food', Math.min(r.food, r.eat), r.eat, FACTOR_COLOR.food, `${n0(r.food)} / ${n0(r.eat)} M <span class="tiny">fed / eat</span>`)}
@@ -86,7 +86,7 @@ function renderOut() {
     <div class="icons" title="a gear = 10 M at the works; a wrench = 10 of it into the production line; money = what no project takes — it turns into credits">${rep('⚙', gears)} <span style="color:var(--muted)">→</span> ${rep('🔧', Math.round(lastQ.spent / 10))}${rep('💰', Math.round(lastQ.left / 10))}<span class="tiny"> ${Q.length ? `${Math.round(lastQ.spent)} to the line · ${Math.round(lastQ.left)} credits` : 'credits (nothing in the line)'}</span></div>
     ${bar('science', r.science, r.cap.science, FACTOR_COLOR.science, `${n0(r.science)} <span class="tiny">${n0(r.hands.research)} M / ${n0(r.cap.science)} M labs</span>`)}
     <div class="icons" title="a microscope or a tube = 10 M at the labs">${Array.from({ length: Math.min(40, sci) }, (_, i) => i % 2 ? '🧪' : '🔬').join('')}</div>
-    ${bar('building', C.progress, next && next.demolish ? DEV.demolish : DEV.cost, '#f5a3c7', `${(r.dev).toFixed(1)} <span class="tiny">pts/eon · ${n0(r.hands.development)} M builders</span>`)}
+    ${bar('building', next ? next.b || 0 : 0, 1, '#f5a3c7', `${(r.dev).toFixed(1)} <span class="tiny">pts/eon · ${n0(r.hands.development)} M builders</span>`)}
     <div class="icons" title="a hammer = one builder point an eon (a slot costs ${DEV.cost}, tearing one down ${DEV.demolish})">${rep('🔨', hammers)}</div>
     <div class="tiny" style="margin:0 0 2px 92px">${nextLine}${r.cap.pure ? ` · <span style="color:var(--bad)">${r.cap.pure} pure cell${r.cap.pure > 1 ? 's' : ''}</span>` : ''}</div>`;
   $('eon').textContent = `eon ${C.eon} · ${n0(C.people)} M people`;

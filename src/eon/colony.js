@@ -51,12 +51,26 @@ export function neighbours(G, i, n = 8) {
 // a surface for a world: the landing in the middle; a homeworld's old city is the landing and its three nearest neighbours, each a
 // mixed cell (one slot of every kind); a new colony's landing holds a home and a farm — on a dry world too: the farm grows once water
 // is brought in (model.js waterSupply), and that first harvest is what lets a handful of settlers grow (a works left them stuck)
-export function newSurface({ w, h, seed, home = false, water = true, landing = null }) {
+// THE LANDING (his rule, 2026-10-20: "you come in with 47,000 people, you get room for like 50,000 — what the ship brought — then you
+// build"): its home and its farm are only as far built as the ship's homes and stores — SHELTER times the settlers; the rest of
+// those two slots is still to build, a point at a time
+export const SHELTER = 2;
+export function newSurface({ w, h, seed, home = false, water = true, landing = null, arrivals = null }) {
   const G = { w, h, cells: newCells(w, h, mulberry(hashSeed(seed))), landing: landing == null ? Math.floor(h / 2) * w + Math.floor((w - 1) / 2) : landing, dot: { x: 0.5, y: 0.5 }, sup: { industry: 1, food: 1, housing: 1, science: 1 }, progress: 0 };
   const seedCells = home ? [G.landing, ...neighbours(G, G.landing, 4)].slice(0, 4) : [G.landing];
   for (const i of seedCells) G.cells[i].slots = home ? ['housing', 'food', 'industry', 'science'] : ['housing', 'food'];
+  if (!home && arrivals != null) { const full = capsOf(G).cap; G.cells[G.landing].b = [Math.max(0.0005, Math.min(1, arrivals * SHELTER / Math.max(1e-6, full.housing))), Math.max(0.0005, Math.min(1, arrivals * SHELTER / Math.max(1e-6, full.food)))]; }
   return G;
 }
+// A SLOT GOING UP (his rule, 2026-10-20: growth must follow building): every slot is built a point at a time — b, 0 to 1, is how far
+// (none means built); it gives b of what it will (a home houses that much, a farm feeds that much). Builders finish the least-built first
+export const bOf = (cell, i) => cell.b && cell.b[i] != null ? cell.b[i] : 1;
+export function partialSlot(G) {
+  let best = null;
+  G.cells.forEach((cell, c) => { if (!cell.b) return; cell.slots.forEach((kind, i) => { const b = bOf(cell, i); if (b < 1 && (!best || b < best.b)) best = { cell: c, slot: i, kind, b }; }); });
+  return best;
+}
+const firstNeed = (G, noFood) => { const n = counts(G); return !n.housing ? 'housing' : !noFood && !n.food ? 'food' : null; };   // the first home and the first farm before anything else
 export const counts = G => { const n = { industry: 0, food: 0, housing: 0, science: 0, total: 0 }; for (const c of G.cells) for (const k of c.slots) { n[k]++; n.total++; } return n; };
 export const cellMix = cell => { const m = { industry: 0, food: 0, housing: 0, science: 0 }; for (const k of cell.slots) m[k] += 1 / SLOT.per; return m; };
 export const traitMul = (cell, kind) => TRAITS[cell.trait] === kind ? TRAIT.boost : 1;
@@ -70,7 +84,8 @@ export function capsOf(G, { levels = LEVEL1, shock = 0 } = {}) {
   for (const cell of G.cells) {
     if (!cell.slots.length) { perCell.push(null); continue; }
     const mix = cellMix(cell), e = cellEffect(mix, shock), out = {}; cap.cells++; cap.slots += cell.slots.length; cap.scienceShare += mix.science; if (isPure(cell)) cap.pure++;
-    for (const f of FACTORS) { out[f] = e[f] * SLOT.per * SLOT.cap[f] * traitMul(cell, f) * (1 + SLOT.levelGain * ((levels[f] || 1) - 1)); cap[f] += out[f]; }
+    const built = {}; for (const f of FACTORS) built[f] = [0, 0]; cell.slots.forEach((k, i) => { built[k][0]++; built[k][1] += bOf(cell, i); });   // a kind's slots going up give their share
+    for (const f of FACTORS) { out[f] = e[f] * SLOT.per * SLOT.cap[f] * traitMul(cell, f) * (1 + SLOT.levelGain * ((levels[f] || 1) - 1)) * (built[f][0] ? built[f][1] / built[f][0] : 1); cap[f] += out[f]; }
     out.purity = e.purity; out.staffed = e.staffed; perCell.push(out);
   }
   cap.scienceShare = cap.cells ? cap.scienceShare / cap.cells : 0;
@@ -135,30 +150,43 @@ export function demolishPick(G, weights, lack = {}) {
   G.cells.forEach((c, i) => { const has = c.slots.filter(k => k === over).length; if (!has) return; if (c.plan && !c.plan.includes(to)) return; const s = (c.plan && c.plan.includes(to) ? 10 : 0) + (TRAITS[c.trait] === to ? 3 : 0) + has; if (s > cs) { cs = s; cell = i; } });
   return cell < 0 ? null : { cell, from: over, to };
 }
-// what the builders do next: { cell, kind } (a new slot) or { cell, kind, demolish, slot } (tearing one down first) — or null
+// what the builders do next: { cell, kind, slot, b } — a slot going up (b how far), a new one to lay (b 0), or one to tear down first
+// (demolish, b = how far the demolition) — or null
 export function building(G, { noFood = false, lack = {} } = {}) {
-  const w = weightsFor(G, { noFood }), k = nextKind(G, w); if (!k) return null;
-  if (isFull(G)) { const p = demolishPick(G, w, lack); return p ? { cell: p.cell, kind: p.to, demolish: p.from, slot: G.cells[p.cell].slots.indexOf(p.from) } : null; }
-  const i = nextCell(G, k); return i < 0 ? null : { cell: i, kind: k };
+  const part = partialSlot(G); if (part) return { ...part, partial: true };
+  const w = weightsFor(G, { noFood }), k = firstNeed(G, noFood) || nextKind(G, w); if (!k) return null;
+  if (isFull(G)) { const p = demolishPick(G, w, lack); return p ? { cell: p.cell, kind: p.to, demolish: p.from, slot: G.cells[p.cell].slots.indexOf(p.from), b: Math.min(1, (G.progress || 0) / DEV.demolish) } : null; }
+  const i = nextCell(G, k); return i < 0 ? null : { cell: i, kind: k, slot: G.cells[i].slots.length, b: 0 };
 }
-// ONE EON OF BUILDING: the points join the progress and buy slots (or, on a full planet, tear one down — the new one goes up next eon)
+// ONE EON OF BUILDING: the points go into the slot going up (the least built first) — a slot gives what it is built to, a point at
+// a time; one finished, a new one is laid where it fits and grows on. A full world tears one down (DEV.demolish, banked across eons)
+// and the new kind goes up the next eon
 export function developStep(G, points, { noFood = false, lack = {} } = {}) {
-  const log = []; G.progress = (G.progress || 0) + Math.max(0, points);
-  let built = 0, full = isFull(G);
-  while (built < DEV.maxPerEon) {
-    const w = weightsFor(G, { noFood });
-    if (!full) {
-      if (G.progress < DEV.cost) break;
-      const kind = nextKind(G, w); if (!kind) break;
-      const i = nextCell(G, kind); if (i < 0) break;
-      G.cells[i].slots.push(kind); G.progress -= DEV.cost; built++; log.push({ kind: 'slot', cell: i, slot: kind, done: G.cells[i].slots.length === SLOT.per });
-      full = isFull(G);
-    } else {
-      if (G.progress < DEV.demolish) break;
-      const p = demolishPick(G, w, lack); if (!p) { G.progress = Math.min(G.progress, DEV.cost); break; }   // nothing to re-make: the points are not hoarded past one slot's worth
-      const s = G.cells[p.cell].slots; s.splice(s.indexOf(p.from), 1); G.progress -= DEV.demolish; log.push({ kind: 'demolish', cell: p.cell, slot: p.from, to: p.to });
-      break;                                                                     // the rubble lies an eon: the new slot goes up next eon at the earliest
+  const log = []; let pts = Math.max(0, points);
+  if (!isFull(G) || partialSlot(G)) { pts += G.progress || 0; G.progress = 0; }   // an older save's banked points join (a full world banks them for its demolition)
+  let done = 0;
+  while (pts > 1e-12 && done < DEV.maxPerEon) {
+    const part = partialSlot(G);
+    if (part) {
+      const cell = G.cells[part.cell], put = Math.min(pts, (1 - part.b) * DEV.cost); pts -= put;
+      if (!cell.b) cell.b = cell.slots.map(() => 1);
+      cell.b[part.slot] = Math.min(1, part.b + put / DEV.cost);
+      if (cell.b[part.slot] >= 1 - 1e-9) { cell.b[part.slot] = 1; if (cell.b.every(x => x >= 1)) delete cell.b; done++; log.push({ kind: 'slot', cell: part.cell, slot: part.kind, done: cell.slots.length === SLOT.per && !cell.b }); }
+      continue;
     }
+    const w = weightsFor(G, { noFood });
+    if (!isFull(G)) {                                                            // lay a new slot: it starts at nothing and grows
+      const kind = firstNeed(G, noFood) || nextKind(G, w); if (!kind) break;
+      const i = nextCell(G, kind); if (i < 0) break;
+      const cell = G.cells[i]; if (!cell.b) cell.b = cell.slots.map(() => 1); cell.slots.push(kind); cell.b.push(0);
+      continue;
+    }
+    G.progress = (G.progress || 0) + pts; pts = 0;                               // a full world: bank toward tearing one down
+    if (G.progress < DEV.demolish) break;
+    const p = demolishPick(G, w, lack); if (!p) { G.progress = Math.min(G.progress, DEV.cost); break; }   // nothing to re-make: the points are not hoarded past one slot's worth
+    const cell = G.cells[p.cell], si = cell.slots.indexOf(p.from); cell.slots.splice(si, 1); if (cell.b) { cell.b.splice(si, 1); if (cell.b.every(x => x >= 1)) delete cell.b; }
+    G.progress -= DEV.demolish; log.push({ kind: 'demolish', cell: p.cell, slot: p.from, to: p.to });
+    break;                                                                       // the rubble lies an eon: the new slot goes up next eon at the earliest
   }
   return log;
 }
@@ -200,7 +228,7 @@ export function endEon(C) {
   let people = C.people * (1 + r.growth);
   if (people > r.housing) people -= (people - r.housing) * GROW.crowd;
   if (r.fed < 1) people -= people * GROW.starve * (1 - r.fed);
-  C.people = Math.max(1, people);
+  C.people = Math.max(0.001, people);
   creepFillet(C, r.want);
   C.eon++; C.last = compute(C); return r;
 }

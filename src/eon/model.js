@@ -177,8 +177,8 @@ function rand(S) {
 const perField = v => Object.fromEntries(FIELD_IDS.map(f => [f, typeof v === 'function' ? v(f) : v]));
 // a colony: its people, the room it was born with, the planet's triangle (industry / research / DEVELOPMENT), the production line —
 // and its SURFACE (colony.js): the world's cells of four slots, the development focus, the fillet (`home`: the homeworld's old city)
-export const newColony = (people, baseHousing = 0, pl = null, home = false) => ({ people, baseHousing, split: [1 / 3, 1 / 3, 1 / 3], happiness: 60, queue: [], structures: [], factories: 0, surface: pl ? surfaceFor(pl, home) : null });
-export function surfaceFor(pl, home = false) { const g = gridOf(pl); return g ? newSurface({ w: g.w, h: g.h, seed: pl.id + '|ground', home, water: waterOf(pl) }) : null; }
+export const newColony = (people, baseHousing = 0, pl = null, home = false) => ({ people, baseHousing, split: [1 / 3, 1 / 3, 1 / 3], happiness: 60, queue: [], structures: [], factories: 0, surface: pl ? surfaceFor(pl, home, home ? null : people) : null });   // a landing: what the ship brought (colony.js SHELTER)
+export function surfaceFor(pl, home = false, arrivals = null) { const g = gridOf(pl); return g ? newSurface({ w: g.w, h: g.h, seed: pl.id + '|ground', home, water: waterOf(pl), arrivals }) : null; }
 // an OLDER colony gets a surface (2026-10-18 morning: cells developed to district designs — each becomes four slots by its design's
 // mix, largest remainders first; before that: no cells — a fresh surface); the development queue of the old designs is dropped
 const LEGACY_MIX = { 'dist-mixed': [0.25, 0.25, 0.25, 0.25], 'dist-housing': [0, 0.3, 0.7, 0], 'dist-farms': [0, 0.7, 0.3, 0], 'dist-foundry': [0.7, 0, 0.3, 0], 'dist-campus': [0, 0, 0.3, 0.7] };   // industry, food, housing, science
@@ -370,7 +370,11 @@ export function compute(S) {
     // SUSTAIN: a big society needs industry and research at work for its own sake; short of it, unrest — people leave, the mood sours
     const ramp = Math.pow(clamp((mp - T.sustain.from) / (T.sustain.to - T.sustain.from), 0, 1), 2), needI = ramp * T.sustain.industry * mp, needR = ramp * T.sustain.research * mp;
     const short = Math.max(0, needI > 0 ? 1 - industry / needI : 0, needR > 0 ? 1 - research / needR : 0);
-    let dPeople = surplus >= 0 ? surplus * T.growthPerFood * (1 + DISTRICT.health * cap.scienceShare) : surplus * T.starvePerFood;   // science across the cells = health: faster growth
+    // GROWTH IN PERCENT (his rule, 2026-10-20: "a very healthy growth rate is like 5 %… 7–8 % at most, a living world, fully developed"):
+    // GROWTH.base an eon, × the world (living best, harsh worlds slower), × health (science across the cells), slowing as the homes
+    // fill — and never more people than the spare food can feed. Hungry, a share of the people dies
+    const rate = GROWTH.base * (GROWTH.world[worldOf(pl)] ?? 1) * (1 + DISTRICT.health * cap.scienceShare), roomLeft = Math.max(0, Math.min(1, (1 - mp / Math.max(1e-6, housing)) / GROWTH.crowd));   // full speed until the homes are crowded, then it tapers
+    let dPeople = fed >= 1 - 1e-9 ? Math.min(mp * rate * roomLeft, Math.max(0, food - eat) / T.foodPerHead) : -mp * GROWTH.starve * (1 - fed);
     const full = mp >= housing - 1e-6;
     if (dPeople > 0) dPeople = Math.max(0, Math.min(dPeople, housing - mp));        // nowhere to live = no growth
     if (mp > housing + 0.5) dPeople = Math.min(dPeople, -1);                        // overcrowded
@@ -436,7 +440,8 @@ export function compute(S) {
 // cheapest sources that can carry it: in the colony's own system a short, sure haul; across the stars dearer by the light year, and
 // only the share the crossing's chance lets through arrives (a route through the red loses water, the same odds as a ship's). The
 // haul is paid from the reserves (upkeep: water). The need is what the colony's farms could grow (M people they feed).
-export const WATER = { perIndustry: 2.5, inSystem: 0.01, perLy: 0.05, minChance: 0.1 };
+export const GROWTH = { base: 0.05, world: { living: 1.5, ocean: 1.2, ice: 0.8, other: 0.8 }, starve: 0.1, crowd: 0.3 };   // crowd: the growth tapers over the last 30 % of the homes   // a living world, fully developed: 5 % × 1.5 × health ≈ 8 % an eon
+export const WATER = { perIndustry: 2.5, inSystem: 0.01, perLy: 0.05, minChance: 0.1, margin: 1.1 };   // margin: the water asked for is the mouths' (+ a tenth to grow on), never more than the farms take
 function waterSupply(S, ships, caps, shock) {
   const out = new Map(), cols = S.places.filter(pl => pl.colony), dry = cols.filter(pl => !waterOf(pl) && gridOf(pl)); if (!dry.length) return out;
   const warp = fleetWarp(passiveOf(caps)), src = [];
@@ -446,7 +451,7 @@ function waterSupply(S, ships, caps, shock) {
     src.push({ id: u.id, name: u.name, at: pl.id, sys: pl.sys, kind: 'harvest', left: t.industry * WATER.perIndustry });
   }
   for (const pl of dry) {
-    const G = surfaceOf(S, pl), need = G ? capsOf(G, { levels: S.slotLevels || LEVEL1, shock }).cap.food : 0;
+    const G = surfaceOf(S, pl), need = G ? Math.min(capsOf(G, { levels: S.slotLevels || LEVEL1, shock }).cap.food, pl.colony.people * WATER.margin) : 0;   // by the MOUTHS (his rule, 2026-10-20), not by the farms' size
     const options = src.filter(s => s.left > 1e-9).map(s => {
       const ly = s.sys === pl.sys ? 0 : lyBetween(S, s.sys, pl.sys), chance = ly ? clamp(chanceAt(effectiveLy(S, s.sys, pl.sys), VOY.range * warp), 0, 1) : 1, per = ly ? WATER.perLy * ly : WATER.inSystem;
       return { s, ly, chance, per, unit: per / Math.max(chance, 1e-6) };
@@ -551,7 +556,7 @@ export function settle(S, shipId) {
   if (!pl.landable) return `Nothing can land on ${pl.name}`;
   if (pl.colony) return `${pl.name} is already settled`;
   if (!(u.people > 0)) return 'There are no people on board';
-  pl.colony = newColony(u.people, T.room[worldOf(pl)] ?? T.room.other, pl);   // the landing site: a home and a farm (a dry world: a home and a works)
+  pl.colony = newColony(u.people, 0, pl);           // the landing: homes and stores for what the ship brought, no free room (his rule, 2026-10-20) — the rest is built
   pl.colony.structures.push({ id: uid('u'), name: 'Landed ' + u.name, klass: 'structure', design: u.design, eon: S.eon, landed: true, grade: Math.max(0.05, (u.st ?? 100) / 100) });
   S.ships = S.ships.filter(x => x !== u);
   return null;
@@ -650,7 +655,7 @@ export function endEon(S) {
     P.queue = P.queue.filter(q => (q.count ?? 1) > 0 && S.designs.some(d => d.id === q.designId));
     for (const q of pc.queue) if (q.noDock && !q.item.warned) { q.item.warned = true; rep.push({ kind: 'bad', text: `${name}: ${q.d.name} cannot be built — there is no space dock here` }); }
     const before = P.people;
-    P.people = Math.max(1, P.people + pc.dPeople);
+    P.people = Math.max(0.001, P.people + pc.dPeople);   // never under a thousand (was a million: a landing of 86 k became 1 M in one eon — his report, 2026-10-20)
     if (pc.surplus < 0) rep.push({ kind: 'bad', text: `${name}: not enough food — ${(before - P.people).toFixed(1)} people lost` });
     if (pc.short > 0.05) rep.push({ kind: 'bad', text: `${name}: unrest — a society of ${peopleWord(before)} needs ${Math.round(pc.needI)} industry and ${Math.round(pc.needR)} research at work and is ${Math.round(pc.short * 100)} % short` });
     P.happiness = pc.happiness;

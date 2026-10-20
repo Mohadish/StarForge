@@ -95,7 +95,7 @@ export function invade(W, S, placeId) {
     const live = living(W); if (live.length === 1 && W.n > 1 && W.winner == null) { W.winner = live[0].empire; const t = `${live[0].name} holds the galaxy — the last empire standing`; W.events.push({ eon: W.eon, kind: 'win', text: t, empire: live[0].empire }); live[0].report.push({ kind: 'battle', text: t }); }
     return null;
   }
-  pl.colony.people = Math.max(1, pl.colony.people - power);                       // REPELLED: the troops are lost, and the militia they matched
+  pl.colony.people = Math.max(0.001, pl.colony.people - power);                     // REPELLED: the troops are lost, and the militia they matched
   const text = `Invasion of ${where}: ${S.name}'s ${peopleWord(troops)} troops against ${O.name}'s militia of ${peopleWord(militia)} — thrown back; the ${ships.length} ship${ships.length === 1 ? '' : 's'} lost, ${peopleWord(power)} of ${O.name}'s people with them`;
   S.report.push({ kind: 'bad', text }); O.report.push({ kind: 'battle', text }); W.events.push({ eon: W.eon, kind: 'repelled', text, sys: pl.sys, from: O.empire, to: S.empire });
   return null;

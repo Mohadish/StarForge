@@ -1,7 +1,7 @@
 // THE COLONY'S PICTURES (his pop-up, 2026-10-18): the planet's surface as cells of four slots, the development rectangle with its live
 // fillet, the effort triangle — drawn on canvases, shared by the game (app.js, the colony pop-up) and the sandbox (planetlab.js).
 // The canvases are drawn at full size and SHOWN to fit: toCanvas() turns a mouse position back into drawing pixels.
-import { SLOT, DEV, TRAITS, TRAIT_GLYPH, TRI, FACTORS, FACTOR_COLOR, KIND_WORD, xy, filletR, effectiveDot, isPure, normTri } from './colony.js';
+import { SLOT, DEV, TRAITS, TRAIT_GLYPH, TRI, FACTORS, FACTOR_COLOR, KIND_WORD, xy, filletR, effectiveDot, isPure, normTri, bOf } from './colony.js';
 import { LARGEST } from './districts.js';
 
 export const CELL = 100, GAP = 4, RM = 30, FRAME = LARGEST;            // a cell, the gap between cells, the rectangle's margin, the frame every planet is drawn in (the huge world's)
@@ -37,16 +37,21 @@ export function drawSurface(cv, G, { next = null, hover = -1, frameColor = 'rgba
     g.fillStyle = started ? '#0f1726' : '#090d18'; g.fillRect(px, py, CELL, CELL);
     for (let s = 0; s < SLOT.per; s++) {
       const [sx, sy] = spots[s], kind = cell.slots[s];
-      if (kind) {
+      if (kind && bOf(cell, s) < 1) {                   // GOING UP: faint, filling from the bottom as far as it is built; the crane on the one being built
+        const b = bOf(cell, s); g.fillStyle = FACTOR_COLOR[kind]; g.globalAlpha = 0.1; g.fillRect(px + sx + 2, py + sy + 2, half - 4, half - 4);
+        g.globalAlpha = 0.5; g.fillRect(px + sx + 2, py + sy + 2 + (half - 4) * (1 - b), half - 4, (half - 4) * b); g.globalAlpha = 1;
+        g.strokeStyle = FACTOR_COLOR[kind]; g.setLineDash([3, 3]); g.strokeRect(px + sx + 3.5, py + sy + 3.5, half - 7, half - 7); g.setLineDash([]);
+        if (next && next.cell === i && next.slot === s) { g.fillStyle = FACTOR_COLOR[kind]; g.font = '18px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('⚒', px + sx + half / 2, py + sy + half / 2 + 1); }
+      } else if (kind) {
         g.fillStyle = FACTOR_COLOR[kind]; g.globalAlpha = 0.28; g.fillRect(px + sx + 2, py + sy + 2, half - 4, half - 4); g.globalAlpha = 1; glyph(g, kind, px + sx + 2, py + sy + 2, half - 4);
         if (next && next.demolish && next.cell === i && s === next.slot) {
           const p = Math.min(1, (G.progress || 0) / DEV.demolish); g.fillStyle = 'rgba(255,121,121,.35)'; g.fillRect(px + sx + 2, py + sy + 2, (half - 4) * p, half - 4);
           g.strokeStyle = '#ff7979'; g.setLineDash([3, 3]); g.strokeRect(px + sx + 3.5, py + sy + 3.5, half - 7, half - 7); g.setLineDash([]);
           g.fillStyle = '#ff7979'; g.font = 'bold 20px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('✕', px + sx + half / 2, py + sy + half / 2 + 1);
         }
-      } else if (next && !next.demolish && next.cell === i && s === cell.slots.length) {
+      } else if (next && !next.demolish && !next.partial && next.cell === i && s === cell.slots.length) {
         g.strokeStyle = FACTOR_COLOR[next.kind]; g.setLineDash([3, 3]); g.strokeRect(px + sx + 3.5, py + sy + 3.5, half - 7, half - 7); g.setLineDash([]);
-        const p = Math.min(1, (G.progress || 0) / DEV.cost); g.fillStyle = FACTOR_COLOR[next.kind]; g.globalAlpha = 0.35; g.fillRect(px + sx + 4, py + sy + half - 4 - (half - 8) * p, half - 8, (half - 8) * p); g.globalAlpha = 1;
+        const p = Math.min(1, next.b || 0); g.fillStyle = FACTOR_COLOR[next.kind]; g.globalAlpha = 0.35; g.fillRect(px + sx + 4, py + sy + half - 4 - (half - 8) * p, half - 8, (half - 8) * p); g.globalAlpha = 1;
         g.fillStyle = FACTOR_COLOR[next.kind]; g.font = '18px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('⚒', px + sx + half / 2, py + sy + half / 2 + 1);
       } else if (started) { g.strokeStyle = 'rgba(255,255,255,.08)'; g.strokeRect(px + sx + 3.5, py + sy + 3.5, half - 7, half - 7); }
     }
