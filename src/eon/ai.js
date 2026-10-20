@@ -150,10 +150,9 @@ export function makeBrain(W, S, opts = {}) {
       const G = col.G; if (!G || col.blockaded) continue;
       // HYSTERESIS: a lean holds until the colony is clearly past it (the farm built one eon was torn down the next — 900 orders a game)
       const was = leans.get(col.pl.id) || {}, crowded = col.P.people > (was.crowded ? 0.75 : 0.85) * col.housing, hungry = col.water && col.surplus < (was.hungry ? 0.1 * col.eat : 0.5); const overI = col.people.industry > col.cap.industry * (was.overI ? 0.95 : 1.05), overR = col.people.research > col.cap.science * (was.overR ? 0.95 : 1.05); leans.set(col.pl.id, { crowded, hungry, overI, overR });
-      let x = 0.5, y = 0.5;
-      if (crowded) { x -= 0.3; y += 0.3; } if (hungry) { x += 0.3; y -= 0.3; } if (overI) { x -= 0.3; y -= 0.3; } if (overR) { x += 0.3; y += 0.3; }
-      x = Math.round(Math.max(0, Math.min(1, x)) * 20) / 20; y = Math.round(Math.max(0, Math.min(1, y)) * 20) / 20;
-      if (Math.abs(x - G.dot.x) > 0.01 || Math.abs(y - G.dot.y) > 0.01) act({ type: 'devfocus', place: col.pl.id, x, y });
+      const raw = [0.25 + (overI ? 0.3 : 0), 0.25 + (hungry ? 0.3 : 0), 0.25 + (crowded ? 0.3 : 0), 0.25 + (overR ? 0.3 : 0)], tw = raw.reduce((a, b) => a + b, 0);   // industry, food, housing, science
+      const w = raw.map(v => Math.round(v / tw * 100) / 100), now = G.wf || [0.25, 0.25, 0.25, 0.25];
+      if (w.some((v, i) => Math.abs(v - now[i]) > 0.01)) act({ type: 'devfocus', place: col.pl.id, w });
     }
     // the focus leans to its corner (opts.focus; Extermination by default), one step every ten eons once cohesion can pay for it, up to FOCUS_TOP; 'mid' never moves
     if (bias != null && bias >= 0 && S.cohesion >= 40 && W.eon - lastFocusEon >= 10 && S.focus[bias] < FOCUS_TOP) { const w = S.focus.slice(), step = 0.1; w[bias] += step; for (const i of [0, 1, 2, 3]) if (i !== bias) w[i] = Math.max(0, w[i] - step / 3); const t = w.reduce((a, v) => a + v, 0); act({ type: 'focus', w: w.map(v => v / t) }); lastFocusEon = W.eon; }

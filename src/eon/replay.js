@@ -8,8 +8,8 @@ export const REPLAY_VERSION = 1;
 // { type: 'split', place, split: [i, r, s] } · { type: 'design', design } (a whole design: replaces one with the same id) ·
 // { type: 'build', place, design } · { type: 'buynow', place, index } (the queue's n-th item paid from the reserves) ·
 // { type: 'send', design, n, from: sysId, to: sysId } (n resting ships of that design in `from` to the star of `to`) ·
-// { type: 'focus', w } · { type: 'attention', field, d } · THE COLONY (2026-10-18, colony.js): { type: 'devfocus', place, x, y } (the
-// development focus) · { type: 'plan', place, cell, plan: [kinds] | null } · { type: 'build', place, design, n? } · { type: 'count',
+// { type: 'focus', w } · { type: 'attention', field, d } · THE COLONY (2026-10-18, colony.js): { type: 'devfocus', place, w: [i, f, h, s] } (the
+// development focus; an older log's x, y read as the rectangle) · { type: 'plan', place, cell, plan: [kinds] | null } · { type: 'build', place, design, n? } · { type: 'count',
 // place, item, n } · { type: 'qmove', place, item, to } · { type: 'unq', place, item } (items by their index in the line, as `buynow`)
 export function applyAction(S, a) {
   const place = id => S.places.find(p => p.id === id), starOf = sid => (S.systems.find(s => s.id === sid) || {}).star;
@@ -18,7 +18,7 @@ export function applyAction(S, a) {
     case 'split': return setSplit(S, a.place, a.split);
     case 'design': { const d = JSON.parse(JSON.stringify(a.design)); const i = S.designs.findIndex(x => x.id === d.id); if (i >= 0) S.designs[i] = d; else S.designs.push(d); return null; }
     case 'build': return queueAdd(S, a.place, a.design, a.n || 1);
-    case 'devfocus': return setDevFocus(S, a.place, a.x, a.y);
+    case 'devfocus': return setDevFocus(S, a.place, a.w || a.x, a.y);   // four weights (the tetrahedron) — or an older log's x, y
     case 'plan': return planCell(S, a.place, a.cell, a.plan);
     case 'count': return queueCount(S, a.place, itemAt(a.place, a.item), a.n);
     case 'qmove': return queueMove(S, a.place, itemAt(a.place, a.item), a.to);

@@ -3,14 +3,14 @@
 // world sits centred in it); the eon's output under it as bars and icon rows. The fillet's reasons live on the widgets' hover.
 import { newColony, endEon, compute, weightsOf, filletWhy, building, counts, normTri, xy, SLOT, DEV, FILLET, TRAITS, TRAIT, FACTORS, FACTOR_COLOR, KIND_WORD } from './colony.js';
 import { SIZES, LARGEST } from './districts.js';
-import { drawSurface, drawRect as drawRectV, drawTri as drawTriV, triFromPoint, dotFromPoint, toCanvas, cellAt as cellAtV, mapSize, nextPlan } from './colonyview.js';
+import { drawSurface, focusTetra, drawTri as drawTriV, triFromPoint, toCanvas, cellAt as cellAtV, mapSize, nextPlan } from './colonyview.js';
 
 const $ = id => document.getElementById(id);
 let C = null, timer = null, hoverCell = -1;
 
 function reset(landing = null) {
   const g = SIZES[$('size').value], home = $('kind').value === 'home';
-  C = newColony({ w: g.w, h: g.h, seed: $('seed').value || 'home', home, people: home ? 100 : 12, landing, dot: C ? C.dot : { x: 0.5, y: 0.5 }, tri: C ? C.tri : undefined });
+  C = newColony({ w: g.w, h: g.h, seed: $('seed').value || 'home', home, people: home ? 100 : 12, landing, focus: C ? C.wf : undefined, tri: C ? C.tri : undefined });
   const name = ($('seed').value || 'home').trim(); $('cname').textContent = name.charAt(0).toUpperCase() + name.slice(1);
   $('cmeta').textContent = `${home ? 'HOMEWORLD' : 'COLONY'}   SIZE: ${g.name.toUpperCase()} ${g.w} × ${g.h}`;
   const cv = $('map'); [cv.width, cv.height] = mapSize();   // the frame never changes: the huge world's
@@ -62,7 +62,8 @@ function renderQueue() {
 }
 function run(on) { if (timer) { clearInterval(timer); timer = null; } if (on) timer = setInterval(step, 1000 / +$('speed').value); $('run').textContent = timer ? 'Pause ▮▮' : 'Run ▸▸'; $('run').classList.toggle('on', !!timer); }
 function drawMap() { drawSurface($('map'), C, { next: building(C), hover: hoverCell }); }
-function drawRect() { const cv = $('rect'); drawRectV(cv, C); cv.title = FACTORS.map(k => filletWhy(C, k, C.last)).join('\n'); }   // why a corner is rounded: on the hover, not on the page (his call)
+let tetra = null;
+function drawRect() { const cv = $('rect'); if (!tetra) tetra = focusTetra(cv, { getG: () => C, onChange: w => { C.wf = w; render(); } }); tetra.draw(); cv.title = FACTORS.map(k => filletWhy(C, k, C.last)).join('\n'); }   // why a corner is rounded: on the hover, not on the page (his call)
 function drawTri() { const cv = $('tri'); drawTriV(cv, C.tri); const r = C.last; cv.title = `industry ${Math.round(r.hands.industry)} M hands for ${Math.round(r.cap.industry)} M of works · research ${Math.round(r.hands.research)} M for ${Math.round(r.cap.science)} M of labs · ${Math.round(r.hands.development)} M builders → ${r.dev.toFixed(1)} points an eon`; }
 // ---- the output of the eon: bars and ICON ROWS (his ask): plates = people eating (dim: unfed), sheaves = food past the mouths here
 // (a surplus for the colonies round it — logistics, later); gears = industry, money = what no build queue takes (here all of it: the
@@ -136,7 +137,6 @@ $('map').addEventListener('mousemove', e => {
 $('map').addEventListener('mouseleave', () => { hoverCell = -1; $('tip').style.display = 'none'; drawMap(); });
 window.addEventListener('scroll', () => { $('tip').style.display = 'none'; }, { passive: true });
 const drag = (cv, fn) => { let on = false; const at = e => toCanvas(cv, e); cv.addEventListener('pointerdown', e => { on = true; cv.setPointerCapture(e.pointerId); fn(...at(e)); render(); }); cv.addEventListener('pointermove', e => { if (on) { fn(...at(e)); render(); } }); cv.addEventListener('pointerup', () => { on = false; }); };
-drag($('rect'), (px, py) => { C.dot = dotFromPoint($('rect'), px, py); });
 drag($('tri'), (px, py) => { C.tri = triFromPoint(px, py); });
 $('reset').addEventListener('click', () => { run(false); LOG.length = 0; Q = []; reset(); });
 $('step').addEventListener('click', step);

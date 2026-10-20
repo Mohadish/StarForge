@@ -1,10 +1,11 @@
 // THE COLONY'S PICTURES (his pop-up, 2026-10-18): the planet's surface as cells of four slots, the development rectangle with its live
 // fillet, the effort triangle — drawn on canvases, shared by the game (app.js, the colony pop-up) and the sandbox (planetlab.js).
 // The canvases are drawn at full size and SHOWN to fit: toCanvas() turns a mouse position back into drawing pixels.
-import { SLOT, DEV, TRAITS, TRAIT_GLYPH, TRI, FACTORS, FACTOR_COLOR, KIND_WORD, xy, filletR, effectiveDot, isPure, normTri, bOf } from './colony.js';
+import { SLOT, DEV, TRAITS, TRAIT_GLYPH, TRI, FACTORS, FACTOR_COLOR, KIND_WORD, xy, isPure, normTri, bOf, focusOf, effectiveFocus, capsAll } from './colony.js';
+import { createTetra } from './tetra.js';
 import { LARGEST } from './districts.js';
 
-export const CELL = 100, GAP = 4, RM = 30, FRAME = LARGEST;            // a cell, the gap between cells, the rectangle's margin, the frame every planet is drawn in (the huge world's)
+export const CELL = 100, GAP = 4, FRAME = LARGEST;                    // a cell, the gap between cells, the frame every planet is drawn in (the huge world's)
 export const TRI_COLOR = { industry: '#ffb347', research: '#4fa3ff', development: '#f5a3c7' };   // his palette: research blue as science, development pink as housing
 export const TRI_PTS = { industry: [28, 222], research: [222, 222], development: [125, 34] };   // on a 250 × 250 canvas
 export const mapSize = () => [FRAME.w * (CELL + GAP) + GAP, FRAME.h * (CELL + GAP) + GAP];
@@ -63,28 +64,13 @@ export function drawSurface(cv, G, { next = null, hover = -1, frameColor = 'rgba
     if (i === hover) { g.strokeStyle = '#fff'; g.strokeRect(px + 1.5, py + 1.5, CELL - 3, CELL - 3); }
   });
 }
-// the rectangle: the four corners, the rounded shape the fillet leaves, the wish (hollow) and the effective dot (solid)
-export function drawRect(cv, G, { noFood = false } = {}) {
-  const g = cv.getContext('2d'), M = RM, S = cv.width - 2 * M, X = v => M + v * S, Y = v => M + v * S;
-  g.clearRect(0, 0, cv.width, cv.height);
-  const r = Object.fromEntries(FACTORS.map(k => [k, filletR(G, k)]));
-  g.beginPath();
-  g.moveTo(X(r.industry), Y(0)); g.lineTo(X(1 - r.food), Y(0)); if (r.food) g.arc(X(1 - r.food), Y(r.food), r.food * S, -Math.PI / 2, 0);
-  g.lineTo(X(1), Y(1 - r.science)); if (r.science) g.arc(X(1 - r.science), Y(1 - r.science), r.science * S, 0, Math.PI / 2);
-  g.lineTo(X(r.housing), Y(1)); if (r.housing) g.arc(X(r.housing), Y(1 - r.housing), r.housing * S, Math.PI / 2, Math.PI);
-  g.lineTo(X(0), Y(r.industry)); if (r.industry) g.arc(X(r.industry), Y(r.industry), r.industry * S, Math.PI, Math.PI * 1.5);
-  g.closePath();
-  const grad = g.createLinearGradient(X(0), Y(0), X(1), Y(1)); grad.addColorStop(0, 'rgba(255,179,71,.18)'); grad.addColorStop(1, 'rgba(79,163,255,.18)');
-  g.fillStyle = grad; g.fill(); g.strokeStyle = 'rgba(255,255,255,.35)'; g.lineWidth = 1.5; g.stroke(); g.lineWidth = 1;
-  g.font = 'bold 12px system-ui'; g.textBaseline = 'middle';
-  const lab = (k, x, y, align) => { g.fillStyle = FACTOR_COLOR[k]; g.globalAlpha = k === 'food' && noFood ? 0.4 : 1; g.textAlign = align; g.fillText(KIND_WORD[k] + (k === 'food' && noFood ? ' (no water)' : G.sup[k] < 0.97 ? ' ' + Math.round(G.sup[k] * 100) + '%' : ''), x, y); g.globalAlpha = 1; };
-  lab('industry', X(0), Y(0) - 14, 'left'); lab('food', X(1), Y(0) - 14, 'right'); lab('housing', X(0), Y(1) + 14, 'left'); lab('science', X(1), Y(1) + 14, 'right');
-  const w = G.dot, e = effectiveDot(G);
-  if (Math.hypot(w.x - e.x, w.y - e.y) > 0.002) { g.strokeStyle = 'rgba(255,255,255,.4)'; g.setLineDash([2, 3]); g.beginPath(); g.moveTo(X(w.x), Y(w.y)); g.lineTo(X(e.x), Y(e.y)); g.stroke(); g.setLineDash([]); }
-  g.strokeStyle = '#fff'; g.beginPath(); g.arc(X(w.x), Y(w.y), 6, 0, 6.283); g.stroke();
-  g.fillStyle = '#fff'; g.beginPath(); g.arc(X(e.x), Y(e.y), 5, 0, 6.283); g.fill();
+// THE FOCUS TETRAHEDRON (2026-10-20): the empire's pyramid widget, here with the colony's four kinds — the wish (a ring when the
+// fillet holds it back), the effective focus (the ball), each corner's cut; drag the ball, click a corner's name to pull toward it,
+// drag empty space to turn it. getG() → the surface; noFood() → a dry world's food corner is out of reach
+export function focusTetra(canvas, { getG, noFood = () => false, onChange, onRelease = null }) {
+  return createTetra(canvas, { labels: FACTORS.map(k => KIND_WORD[k]), colors: FACTORS.map(k => FACTOR_COLOR[k]), onChange, onRelease,
+    getState: () => { const G = getG(); if (!G) return { w: [0.25, 0.25, 0.25, 0.25], w0: [0.25, 0.25, 0.25, 0.25], reach: 9 }; const w = focusOf(G).slice(), dry = noFood(); return { w, w0: w, reach: 9, eff: effectiveFocus(G), caps: capsAll(G), off: dry ? [false, 'no water', false, false] : null }; } });
 }
-export const dotFromPoint = (cv, px, py) => { const S = cv.width - 2 * RM; return { x: Math.max(0, Math.min(1, (px - RM) / S)), y: Math.max(0, Math.min(1, (py - RM) / S)) }; };
 // the triangle: industry left, research right, development top; tri = { industry, research, development }
 export function drawTri(cv, tri) {
   const g = cv.getContext('2d'); g.clearRect(0, 0, cv.width, cv.height);

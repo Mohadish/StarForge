@@ -29,7 +29,6 @@ export const TRAIT = { boost: 1.5, chance: 0.45 };    // a trait's slot kind yie
 export const DEV = { perM: 0.12, cost: 10, demolish: 4, maxPerEon: 6 };   // builder points per M builders an eon; points a slot costs; points to tear one down; at most this many slots an eon
 export const FILLET = { step: 0.1, maxR: 0.7, empty: 1.5 };   // the fillet creeps this much an eon; a corner's full radius (0.5: four full fillets make a circle, a full corner capped near 73 %; 0.7 → 63 %); homes past empty × people fillet housing
 export const GROW = { rate: 0.03, health: 0.3, starve: 0.02, crowd: 0.1 };
-export const CORNER = { industry: [0, 0], food: [1, 0], housing: [0, 1], science: [1, 1] };   // the rectangle's corners, as the tiles' quarters
 export const TRI = ['industry', 'research', 'development'];
 
 export const mulberry = seed => { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
@@ -56,7 +55,7 @@ export function neighbours(G, i, n = 8) {
 // those two slots is still to build, a point at a time
 export const SHELTER = 2;
 export function newSurface({ w, h, seed, home = false, water = true, landing = null, arrivals = null }) {
-  const G = { w, h, cells: newCells(w, h, mulberry(hashSeed(seed))), landing: landing == null ? Math.floor(h / 2) * w + Math.floor((w - 1) / 2) : landing, dot: { x: 0.5, y: 0.5 }, sup: { industry: 1, food: 1, housing: 1, science: 1 }, progress: 0 };
+  const G = { w, h, cells: newCells(w, h, mulberry(hashSeed(seed))), landing: landing == null ? Math.floor(h / 2) * w + Math.floor((w - 1) / 2) : landing, wf: FOCUS0.slice(), sup: { industry: 1, food: 1, housing: 1, science: 1 }, progress: 0 };
   const seedCells = home ? [G.landing, ...neighbours(G, G.landing, 4)].slice(0, 4) : [G.landing];
   for (const i of seedCells) G.cells[i].slots = home ? ['housing', 'food', 'industry', 'science'] : ['housing', 'food'];
   if (!home && arrivals != null) { const full = capsOf(G).cap; G.cells[G.landing].b = [Math.max(0.0005, Math.min(1, arrivals * SHELTER / Math.max(1e-6, full.housing))), Math.max(0.0005, Math.min(1, arrivals * SHELTER / Math.max(1e-6, full.food)))]; }
@@ -91,29 +90,31 @@ export function capsOf(G, { levels = LEVEL1, shock = 0 } = {}) {
   cap.scienceShare = cap.cells ? cap.scienceShare / cap.cells : 0;
   return { cap, perCell };
 }
-// THE RECTANGLE: a dot (x, y in 0–1) → the four corners' bilinear weights
-export function weightsOf(dot) {
-  const x = Math.max(0, Math.min(1, dot.x)), y = Math.max(0, Math.min(1, dot.y));
-  return { industry: (1 - x) * (1 - y), food: x * (1 - y), housing: (1 - x) * y, science: x * y };
-}
-export const filletR = (G, kind) => (1 - Math.max(0, Math.min(1, G.sup[kind]))) * FILLET.maxR;
-// the dot held off the rounded corners: each corner's arc centre sits r in from the corner; beyond it, the dot is pulled onto the arc
-export function clampDot(G, dot) {
-  let x = Math.max(0, Math.min(1, dot.x)), y = Math.max(0, Math.min(1, dot.y));
-  for (const k of FACTORS) {
-    const r = filletR(G, k); if (r <= 0) continue;
-    const [cx, cy] = CORNER[k], ox = cx ? 1 - r : r, oy = cy ? 1 - r : r;
-    const beyondX = cx ? x > ox : x < ox, beyondY = cy ? y > oy : y < oy;
-    if (!beyondX || !beyondY) continue;
-    const dx = x - ox, dy = y - oy, d = Math.hypot(dx, dy); if (d <= r) continue;
-    x = ox + dx / d * r; y = oy + dy / d * r;
+// THE FOCUS — A TETRAHEDRON (his call, 2026-10-20: "on a rectangle food and housing are opposite corners — I can't ask for 50 % of each"):
+// the four corners, industry / food / housing / science (FACTORS' order), each pair joined by an edge, so any mix is a point in it —
+// 50 % food and 50 % housing is the middle of their edge. G.wf is the WISH (four weights). THE FILLET CUTS each corner the colony
+// cannot support: a corner may have at most 1 − (1 − support) × the cut (a full cut leaves ≈ 63 % at the slider's 0.7), and what is
+// over a cap goes to the other corners in proportion. An older surface's rectangle dot is read as the rectangle read it.
+export const FOCUS0 = [0.25, 0.25, 0.25, 0.25];
+export const rectWeights = (x, y) => { x = Math.max(0, Math.min(1, x)); y = Math.max(0, Math.min(1, y)); return [(1 - x) * (1 - y), x * (1 - y), (1 - x) * y, x * y]; };
+export function focusOf(G) { if (!G.wf) { G.wf = G.dot ? rectWeights(G.dot.x, G.dot.y) : FOCUS0.slice(); delete G.dot; } return G.wf; }
+export const capOf = (G, kind) => 1 - (1 - Math.max(0, Math.min(1, G.sup[kind]))) * FILLET.maxR * 0.53;
+export const capsAll = G => FACTORS.map(k => capOf(G, k));
+export function effectiveFocus(G) {
+  const w = focusOf(G).map(v => Math.max(0, +v || 0)), t = w.reduce((a, b) => a + b, 0) || 1; for (let i = 0; i < 4; i++) w[i] /= t;
+  const caps = capsAll(G);
+  for (let pass = 0; pass < 8; pass++) {
+    let excess = 0; for (let i = 0; i < 4; i++) if (w[i] > caps[i]) { excess += w[i] - caps[i]; w[i] = caps[i]; }
+    if (excess < 1e-12) break;
+    const take = w.map((v, i) => w[i] < caps[i] - 1e-12 ? v + 1e-6 : 0), tt = take.reduce((a, b) => a + b, 0); if (tt <= 0) break;
+    for (let i = 0; i < 4; i++) w[i] += excess * take[i] / tt;         // spread; what lands over a cap is cut again next pass
   }
-  return { x, y };
+  return w;
 }
-export const effectiveDot = G => clampDot(G, G.dot);
-// the target shares: the effective dot's weights — on a dry world no farms (food out, the rest share its weight)
+export const asKinds = w => ({ industry: w[0], food: w[1], housing: w[2], science: w[3] });
+// the target shares: the effective focus — on a dry world no farms (food out, the rest share its weight)
 export function weightsFor(G, { noFood = false } = {}) {
-  const w = weightsOf(effectiveDot(G)); if (!noFood) return w;
+  const w = asKinds(effectiveFocus(G)); if (!noFood) return w;
   const t = w.industry + w.housing + w.science || 1; return { industry: w.industry / t, food: 0, housing: w.housing / t, science: w.science / t };
 }
 // the next slot's kind: the corner furthest under its target share (a corner at zero never builds)
@@ -205,9 +206,9 @@ export const normTri = tri => { const s = TRI.reduce((a, k) => a + Math.max(0, t
 
 // ---------------- the SANDBOX economy (planet.html) ----------------
 // C = a surface plus { seed, eon, people, tri, levels, log, last }
-export function newColony({ w = 6, h = 3, seed = 'home', people = 100, home = true, landing = null, dot = { x: 0.5, y: 0.5 }, tri = { industry: 0.4, research: 0.3, development: 0.3 } } = {}) {
+export function newColony({ w = 6, h = 3, seed = 'home', people = 100, home = true, landing = null, focus = [0.25, 0.25, 0.25, 0.25], tri = { industry: 0.4, research: 0.3, development: 0.3 } } = {}) {
   const C = { ...newSurface({ w, h, seed, home, landing }), seed, eon: 0, people, tri: { ...tri }, levels: { ...LEVEL1 }, log: [], last: null };
-  C.dot = { ...dot }; C.last = compute(C); return C;
+  C.wf = focus.slice(); C.last = compute(C); return C;
 }
 export function compute(C) {
   const { cap, perCell } = capsOf(C, { levels: C.levels });

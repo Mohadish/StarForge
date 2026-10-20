@@ -19,7 +19,7 @@ import { PROPERTIES, DOMAINS, CHANNEL_X, RARITY } from '../data/properties.js';
 import { designStats, allCapsules, passiveOf, dockFit, fleetWarp } from './modules.js';
 import { generateGalaxy } from './galaxy.js';
 import { DISTRICT, FACTORS, gridOf, employed } from './districts.js';
-import { newSurface, capsOf, building, developStep, creepFillet, isFull, SLOT, DEV, FILLET, LEVEL1, KIND_WORD } from './colony.js';
+import { newSurface, capsOf, building, developStep, creepFillet, isFull, rectWeights, SLOT, DEV, FILLET, LEVEL1, KIND_WORD } from './colony.js';
 import { sizeFatigue, createBattle, shipFromDesign, rng32 } from './battle.js';
 import { composePlan, buildPlan, naturalShips, planStrip, TACTIC_IDS, TACTICS } from './fleetplan.js';
 
@@ -149,22 +149,9 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 let seq = 0;
 export const uid = p => `${p}${Date.now().toString(36)}${(seq++).toString(36)}`;
 
-// ---------------- the pyramid ----------------
-export const CORNERS = [[1, 1, 1], [1, -1, -1], [-1, 1, -1], [-1, -1, 1]];
-export const CENTER = [0.25, 0.25, 0.25, 0.25];
-export const posOf = w => [0, 1, 2].map(k => w[0] * CORNERS[0][k] + w[1] * CORNERS[1][k] + w[2] * CORNERS[2][k] + w[3] * CORNERS[3][k]);
-export function weightsOf(p) {
-  const w = CORNERS.map(v => Math.max(0, (1 + p[0] * v[0] + p[1] * v[1] + p[2] * v[2]) / 4));
-  const s = w.reduce((a, b) => a + b, 0) || 1;
-  return w.map(x => x / s);
-}
-export function focusDistance(a, b) { const pa = posOf(a), pb = posOf(b); return Math.hypot(pa[0] - pb[0], pa[1] - pb[1], pa[2] - pb[2]) / Math.sqrt(3); }
-export function limitMove(w, w0, reach) {
-  const d = focusDistance(w0, w);
-  if (d <= reach || d === 0) return w;
-  const p0 = posOf(w0), p = posOf(w), k = Math.max(0, reach) / d;
-  return weightsOf(p0.map((v, i) => v + (p[i] - v) * k));
-}
+// ---------------- the pyramid ---------------- (tetramath.js: shared with a colony's development focus)
+import { CORNERS, CENTER, posOf, weightsOf, focusDistance, limitMove } from './tetramath.js';
+export { CORNERS, CENTER, posOf, weightsOf, focusDistance, limitMove };
 
 // ---------------- state ----------------
 // a shuffle that draws exactly n−1 dice whatever the engine (never `sort(() => r() - 0.5)`: the comparator-call count is the sort's business)
@@ -760,9 +747,13 @@ export function setSplit(S, placeId, split) {
   const v = (split || []).slice(0, 3).map(x => Math.max(0, +x || 0)), t = v.reduce((a, x) => a + x, 0); if (v.length !== 3 || !(t > 0)) return 'A split is three shares';
   P.split = v.map(x => x / t); return null;
 }
-export function setDevFocus(S, placeId, x, y) {
+// the development focus: four weights (industry, food, housing, science — the tetrahedron, 2026-10-20); an older order's x, y (the
+// rectangle it was) is read as the rectangle read it
+export function setDevFocus(S, placeId, w, y) {
   const P = colonyAt(S, placeId); if (!P || !P.surface) return 'No colony there';
-  P.surface.dot = { x: clamp(+x || 0, 0, 1), y: clamp(+y || 0, 0, 1) }; return null;
+  const v = Array.isArray(w) ? w.slice(0, 4).map(x => Math.max(0, +x || 0)) : rectWeights(+w || 0, +y || 0), t = v.reduce((a, b) => a + b, 0);
+  if (v.length !== 4 || !(t > 0)) return 'A focus is four shares';
+  P.surface.wf = v.map(x => x / t); delete P.surface.dot; return null;
 }
 export function planCell(S, placeId, cell, plan) {
   const P = colonyAt(S, placeId), G = P && P.surface; if (!G) return 'No colony there';

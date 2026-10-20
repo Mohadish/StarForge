@@ -27,7 +27,7 @@ import { makeBrain } from './ai.js';
 import { designSpecHtml, modulesLine } from './spec.js';
 import { FACTORS, FACTOR_COLOR, SIZES, sizeClassOf, gridOf, habitabilityOf, habWord } from './districts.js';
 import { SLOT, DEV, TRAITS, TRAIT, KIND_WORD as SLOT_WORD, xy, filletWhy, isFull, counts } from './colony.js';
-import { drawSurface, drawRect as drawDevRect, drawTri as drawEffortTri, triFromPoint, dotFromPoint, toCanvas, cellAt as surfaceCellAt, mapSize, nextPlan } from './colonyview.js';
+import { drawSurface, focusTetra, drawTri as drawEffortTri, triFromPoint, toCanvas, cellAt as surfaceCellAt, mapSize, nextPlan } from './colonyview.js';
 mountNav('eon', { into: document.getElementById('topbar') });
 
 const KEY = 'forge.eon.v8';
@@ -1105,16 +1105,16 @@ function renderSystem(c) {
 // design's own picture, its name and numbers, a progress bar; the top card is being built; drag to re-order, − n ＋ for how many of
 // it, ✕ to drop it, ⚡ to buy the rest from the reserves; '＋ Add construction project' lists your ships, platforms and docks.
 // The rules and the pictures are colony.js and colonyview.js — the same ones the sandbox (planet.html) runs.
-let colPop = null, colPopK = null, cpHover = -1, cpAdd = false, cpDrag = null, cpDragEnd = 0;   // colPopK: whose colony (null = yours; in God mode any empire's, read-only)
+let cpTetra = null, colPop = null, colPopK = null, cpHover = -1, cpAdd = false, cpDrag = null, cpDragEnd = 0;   // colPopK: whose colony (null = yours; in God mode any empire's, read-only)
 const cpE = () => colPopK == null ? S : W && W.empires[colPopK], cpC = () => colPopK == null ? LAST : GODC && GODC[colPopK], cpRO = () => colPopK != null;
 const WORLD_KIND = { living: 'living', ocean: 'ocean', ice: 'ice', other: 'barren' };
 const cpColony = () => { const c = cpC(); return colPop && c ? c.colonies.find(x => x.pl.id === colPop) || null : null; };
 const cpWhy = pc => ({ staffed: pc.staffed, fed: pc.fed, housing: pc.housing, people: pc.P.people, food: pc.food / T.foodPerHead, eat: pc.P.people });
 const cpSkeleton = () => `<div class="cpbox"><div class="cphead"><b id="cpName"></b><span id="cpMeta"></span><button class="go" data-cpend title="end the eon — the colony stays open">End eon ▸</button><button class="x" data-cpclose title="close (Esc, or click outside)">✕</button></div>
   <div class="cpgrid"><div class="cpmain">
-    <div class="cprow2"><div class="cpcard cpwidget"><h3>Colony development focus</h3><canvas id="cpRect" width="250" height="250"></canvas></div>
+    <div class="cprow2"><div class="cpcard cpwidget"><h3>Colony development focus</h3><canvas id="cpRect" width="250" height="250" style="cursor:grab;touch-action:none"></canvas></div>
       <div class="cpcard cpwidget"><h3>Effort — the people</h3><canvas id="cpTri" width="250" height="250"></canvas></div></div>
-    <div class="cpcard"><canvas id="cpMap"></canvas><div class="tiny" style="margin-top:4px">Drag the dot in the rectangle: the builders build toward it — a corner the colony cannot use rounds off and holds the dot back (hover the rectangle: why). Click a cell to plan it (industry → food → housing → science → pairs → any): that kind goes there first. ⛏ deposits · 🌾 fertile · ☼ calm · ✦ anomaly: that kind yields ×${TRAIT.boost} there. ⚒ the next slot, ✕ a slot being torn down.</div></div>
+    <div class="cpcard"><canvas id="cpMap"></canvas><div class="tiny" style="margin-top:4px">Drag the ball in the tetrahedron: the builders build toward it — click an edge for half and half of its two corners (the food–housing edge: 50 % food, 50 % housing), a corner's name to pull toward it, empty space to turn it; a corner the colony cannot use is cut off and holds the ball back (hover it: why). Click a cell to plan it (industry → food → housing → science → pairs → any): that kind goes there first. ⛏ deposits · 🌾 fertile · ☼ calm · ✦ anomaly: that kind yields ×${TRAIT.boost} there. ⚒ the next slot, ✕ a slot being torn down.</div></div>
     <div class="cpcard" id="cpOut"></div></div>
   <div class="cpcard cpqueue" id="cpQueue"></div></div></div>`;
 function openColPop(placeId, k = null) {
@@ -1127,7 +1127,7 @@ function openColPop(placeId, k = null) {
     cv.addEventListener('pointermove', e => { if (cpDrag === cv.id) { fn(...toCanvas(cv, e)); light(); } });
     cv.addEventListener('pointerup', () => { if (cpDrag) { cpDrag = null; cpDragEnd = performance.now(); save(); refresh(); } });
   };
-  dragOn($('cpRect'), (x, y) => { const d = dotFromPoint($('cpRect'), x, y); setDevFocus(S, colPop, d.x, d.y); });
+  cpTetra = focusTetra($('cpRect'), { getG: () => cpColony()?.G, noFood: () => !!cpColony()?.noFood, onChange: w => { if (cpRO()) return; setDevFocus(S, colPop, w); LAST = compute(S); renderColPop(true); }, onRelease: () => { if (cpRO()) return; cpDragEnd = performance.now(); save(); refresh(); } });   // the focus TETRAHEDRON (2026-10-20)
   dragOn($('cpTri'), (x, y) => { const t = triFromPoint(x, y); setSplit(S, colPop, [t.industry, t.research, t.development]); });
   const map = $('cpMap');
   map.addEventListener('click', e => { const pc = cpColony(); if (!pc || cpRO()) return; const i = surfaceCellAt(map, pc.G, e); if (i < 0) return; toastErr(planCell(S, colPop, i, nextPlan(pc.G.cells[i].plan))); save(); refresh(); });
@@ -1144,7 +1144,7 @@ function openColPop(placeId, k = null) {
 }
 function closeColPop() { colPop = null; colPopK = null; cpDrag = null; $('colPop').hidden = true; $('cpTip').style.display = 'none'; }
 const cpFrame = () => { const E = cpE(); return E && E.look && E.look.colA ? E.look.colA + '99' : 'rgba(126,243,176,.45)'; };   // the developed cells framed in the empire's colour
-function renderColPop() {
+function renderColPop(fromTetra = false) {
   if (!colPop) return; const pc = cpColony(); if (!pc || !pc.G) return closeColPop();
   const bar = $('replayBar'), top = Math.max($('topbar').getBoundingClientRect().bottom, bar && !bar.hidden ? bar.getBoundingClientRect().bottom : 0);
   $('colPop').style.top = Math.round(top) + 'px';    // under the top bar: End eon stays in reach (his ask, 2026-10-18)
@@ -1153,7 +1153,7 @@ function renderColPop() {
   $('cpMeta').textContent = `${cpRO() ? '👁 GOD MODE · ' : ''}${home ? 'HOMEWORLD' : 'COLONY'}   TYPE: ${WORLD_KIND[worldOf(pl)].toUpperCase()}   SIZE: ${size.name.toUpperCase()} ${size.w} × ${size.h}`;
   $('cpMeta').title = habWord(habitabilityOf(pl));
   drawSurface($('cpMap'), G, { next: pc.next, hover: cpHover, frameColor: cpFrame() });
-  drawDevRect($('cpRect'), G, { noFood: pc.noFood }); $('cpRect').title = FACTORS.map(k => filletWhy(G, k, cpWhy(pc))).join('\n');
+  if (cpTetra && !fromTetra) cpTetra.draw(); $('cpRect').title = FACTORS.map(k => filletWhy(G, k, cpWhy(pc))).join('\n') + '\n(drag the ball · click a corner to pull toward it · drag empty space to turn it)';
   drawEffortTri($('cpTri'), { industry: P.split[0], research: P.split[1], development: P.split[2] });
   $('cpTri').title = `industry: ${fmt(pc.people.industry)} M hands for ${fmt(pc.cap.industry)} M of works · research: ${fmt(pc.people.research)} M for ${fmt(pc.cap.science)} M of labs · development: ${fmt(pc.people.development)} M builders → ${pc.dev.toFixed(1)} points an eon`;
   $('cpOut').innerHTML = cpOutHtml(pc);
