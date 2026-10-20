@@ -1,15 +1,16 @@
 // The four-cornered pyramid control: a ball inside a tetrahedron, drawn in 3D on a canvas.
 //   drag the ball        move the focus (within what cohesion can pay for)
 //   click a corner name  pull the ball one step toward that corner
+//   double-click the ball   back to the centre — a quarter each (his ask, 2026-10-20)
 //   click an edge        the middle of it: half and half of its two corners (his ask, 2026-10-20: "50 % food, 50 % housing")
 //   drag empty space     rotate the pyramid to look at it from another side
-import { CORNERS, posOf, weightsOf, limitMove } from './tetramath.js';
+import { CORNERS, CENTER, posOf, weightsOf, limitMove } from './tetramath.js';
 // optional state (a colony's development focus, 2026-10-20): eff = where the wish lands once the fillet has cut the corners (a solid
 // ball; the wish is then a hollow ring), caps = each corner's most it may have (the cut face drawn), off = corners out of reach
 
 export function createTetra(canvas, { labels, colors, getState, onChange, onRelease = null }) {
   const g = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height, cx = W / 2, cy = H / 2 + 6, small = W < 400, scale = Math.min(W, H) * (small ? 0.25 : 0.27), F = small ? 11 : 13;   // a small canvas (a colony's): smaller letters
+  const W = canvas.width, H = canvas.height, cx = W / 2, cy = H / 2 + 6, small = W < 400, scale = Math.min(W, H) * (small ? 0.22 : 0.27), F = small ? 11 : 13;   // a small canvas (a colony's): smaller letters
   // start almost along the axis through two opposite edges: all four corners sit apart, like the
   // corners of a square, with just enough tilt to read it as a solid
   let yaw = 0.3, pitch = 0.2, mode = null, last = null;
@@ -65,9 +66,16 @@ export function createTetra(canvas, { labels, colors, getState, onChange, onRele
     g.textAlign = 'center';
     for (let i = 0; i < 4; i++) {
       g.globalAlpha = off && off[i] ? 0.35 : 1; g.fillStyle = colors[i]; g.beginPath(); g.arc(C[i].x, C[i].y, 7, 0, 7); g.fill();
-      const out = { x: C[i].x + (C[i].x - cx) * 0.16, y: C[i].y + (C[i].y - cy) * 0.16 };
-      g.font = `bold ${F}px sans-serif`; const lw = g.measureText(labels[i].toUpperCase()).width; out.x = Math.max(lw / 2 + 3, Math.min(W - lw / 2 - 3, out.x)); out.y = Math.max(F + 2, Math.min(H - 18, out.y)); g.fillText(labels[i].toUpperCase(), out.x, out.y - 4);   // kept inside the canvas
-      g.font = `${F - 1}px sans-serif`; g.fillStyle = '#e8f0ff'; g.fillText(off && off[i] ? (typeof off[i] === 'string' ? off[i] : 'out') : Math.round(shown[i] * 100) + '%' + (caps && caps[i] < 0.995 ? ` · max ${Math.round(caps[i] * 100)}%` : ''), out.x, out.y + 12); g.globalAlpha = 1;
+      // THE LABEL (his note, 2026-10-20: "the percentage sits right over the dot"): a two-line block wholly ABOVE the corner's dot when
+      // the corner is in the upper half, wholly BELOW it in the lower half (flipped when it would leave the canvas), centred on the dot,
+      // kept inside the canvas, the letters outlined dark so they read over the lines
+      const name = labels[i].toUpperCase(), val = off && off[i] ? (typeof off[i] === 'string' ? off[i] : 'out') : Math.round(shown[i] * 100) + '%' + (caps && caps[i] < 0.995 ? ` · max ${Math.round(caps[i] * 100)}%` : '');
+      g.font = `bold ${F}px sans-serif`; const w1 = g.measureText(name).width; g.font = `${F - 1}px sans-serif`; const w2 = g.measureText(val).width, bw = Math.max(w1, w2), bh = 2 * F + 2, gap = 10;
+      let below = C[i].y > cy; if (below && C[i].y + gap + bh > H - 2) below = false; if (!below && C[i].y - gap - bh < 2) below = true;
+      const top = below ? C[i].y + gap : C[i].y - gap - bh, tx = Math.max(bw / 2 + 3, Math.min(W - bw / 2 - 3, C[i].x));
+      g.lineJoin = 'round'; g.lineWidth = 3; g.strokeStyle = 'rgba(6,10,20,.9)';
+      g.font = `bold ${F}px sans-serif`; g.strokeText(name, tx, top + F - 1); g.fillStyle = colors[i]; g.fillText(name, tx, top + F - 1);
+      g.font = `${F - 1}px sans-serif`; g.strokeText(val, tx, top + 2 * F + 1); g.fillStyle = '#e8f0ff'; g.fillText(val, tx, top + 2 * F + 1); g.lineWidth = 1; g.globalAlpha = 1;
     }
     // the ball, tinted by the mix
     let r = 0, gr = 0, b = 0;
@@ -109,6 +117,10 @@ export function createTetra(canvas, { labels, colors, getState, onChange, onRele
     move(weightsOf([P[0] + d[0], P[1] + d[1], P[2] + d[2]]));
   });
   const end = () => { if (mode === 'ball' && onRelease) onRelease(); mode = null; };
+  canvas.addEventListener('dblclick', e => {           // DOUBLE-CLICK THE BALL: back to the centre (as far as a reach allows)
+    const p = at(e), hit = canvas._hit; if (!hit) return;
+    if (Math.hypot(p.x - hit.ball.x, p.y - hit.ball.y) < 20 || Math.hypot(p.x - hit.eff.x, p.y - hit.eff.y) < 16) { move(CENTER.slice()); if (onRelease) onRelease(); }
+  });
   canvas.addEventListener('pointerup', end); canvas.addEventListener('pointercancel', end);
 
   return { draw, pull, to: w => move(w) };            // to(w): the page's reset — back to the centre, as far as the reach allows

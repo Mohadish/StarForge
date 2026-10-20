@@ -83,6 +83,8 @@ export function drawTri(cv, tri) {
   g.fillStyle = TRI_COLOR.development; g.textAlign = 'center'; g.fillText(`development ${Math.round(t.development * 100)}%`, 125, 16);
   g.fillStyle = '#fff'; g.beginPath(); g.arc(x, y, 5, 0, 6.283); g.fill();
 }
+// the triangle's ball, where it is drawn (a double-click on it puts it back in the middle)
+export const triBall = tri => { const t = normTri(tri); return { x: TRI.reduce((a, k) => a + t[k] * TRI_PTS[k][0], 0), y: TRI.reduce((a, k) => a + t[k] * TRI_PTS[k][1], 0) }; };
 export function triFromPoint(px, py) {                // barycentric, clamped into the triangle
   const [ax, ay] = TRI_PTS.industry, [bx, by] = TRI_PTS.research, [cx, cy] = TRI_PTS.development, det = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
   let a = ((by - cy) * (px - cx) + (cx - bx) * (py - cy)) / det, b = ((cy - ay) * (px - cx) + (ax - cx) * (py - cy)) / det, c = 1 - a - b;

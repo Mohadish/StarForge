@@ -27,7 +27,7 @@ import { makeBrain } from './ai.js';
 import { designSpecHtml, modulesLine } from './spec.js';
 import { FACTORS, FACTOR_COLOR, SIZES, sizeClassOf, gridOf, habitabilityOf, habWord } from './districts.js';
 import { SLOT, DEV, TRAITS, TRAIT, KIND_WORD as SLOT_WORD, xy, filletWhy, isFull, counts } from './colony.js';
-import { drawSurface, focusTetra, drawTri as drawEffortTri, triFromPoint, toCanvas, cellAt as surfaceCellAt, mapSize, nextPlan } from './colonyview.js';
+import { drawSurface, focusTetra, drawTri as drawEffortTri, triFromPoint, triBall, toCanvas, cellAt as surfaceCellAt, mapSize, nextPlan } from './colonyview.js';
 mountNav('eon', { into: document.getElementById('topbar') });
 
 const KEY = 'forge.eon.v8';
@@ -307,6 +307,7 @@ const tetra = createTetra($('eTetra'), {
   labels: XS.map(x => X_INFO[x].name), colors: XS.map(xColor),
   getState: () => ({ w: S.focus, w0: S.focusStart, reach: reach() }),
   onChange: w => { S.focus = w; const c = compute(S); renderEmpire(c, true); renderTop(c); },
+  onRelease: () => { save(); refresh(); },            // (a double-click on the ball: back to the centre, as far as cohesion lets it this eon)
 });
 
 function renderTop(c) {
@@ -1129,6 +1130,7 @@ function openColPop(placeId, k = null) {
   };
   cpTetra = focusTetra($('cpRect'), { getG: () => cpColony()?.G, noFood: () => !!cpColony()?.noFood, onChange: w => { if (cpRO()) return; setDevFocus(S, colPop, w); LAST = compute(S); renderColPop(true); }, onRelease: () => { if (cpRO()) return; cpDragEnd = performance.now(); save(); refresh(); } });   // the focus TETRAHEDRON (2026-10-20)
   dragOn($('cpTri'), (x, y) => { const t = triFromPoint(x, y); setSplit(S, colPop, [t.industry, t.research, t.development]); });
+  $('cpTri').addEventListener('dblclick', e => { if (cpRO()) return; const pc = cpColony(); if (!pc) return; const b = triBall({ industry: pc.P.split[0], research: pc.P.split[1], development: pc.P.split[2] }), [x, y] = toCanvas($('cpTri'), e); if (Math.hypot(x - b.x, y - b.y) > 22) return; setSplit(S, colPop, [1, 1, 1]); save(); refresh(); });   // double-click the ball: a third each (his ask, 2026-10-20)
   const map = $('cpMap');
   map.addEventListener('click', e => { const pc = cpColony(); if (!pc || cpRO()) return; const i = surfaceCellAt(map, pc.G, e); if (i < 0) return; toastErr(planCell(S, colPop, i, nextPlan(pc.G.cells[i].plan))); save(); refresh(); });
   map.addEventListener('mousemove', e => {

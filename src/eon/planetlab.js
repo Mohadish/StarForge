@@ -3,7 +3,7 @@
 // world sits centred in it); the eon's output under it as bars and icon rows. The fillet's reasons live on the widgets' hover.
 import { newColony, endEon, compute, weightsFor, filletWhy, building, counts, normTri, xy, SLOT, DEV, FILLET, TRAITS, TRAIT, FACTORS, FACTOR_COLOR, KIND_WORD } from './colony.js';
 import { SIZES, LARGEST } from './districts.js';
-import { drawSurface, focusTetra, drawTri as drawTriV, triFromPoint, toCanvas, cellAt as cellAtV, mapSize, nextPlan } from './colonyview.js';
+import { drawSurface, focusTetra, drawTri as drawTriV, triFromPoint, triBall, toCanvas, cellAt as cellAtV, mapSize, nextPlan } from './colonyview.js';
 
 const $ = id => document.getElementById(id);
 let C = null, timer = null, hoverCell = -1;
@@ -138,6 +138,7 @@ $('map').addEventListener('mouseleave', () => { hoverCell = -1; $('tip').style.d
 window.addEventListener('scroll', () => { $('tip').style.display = 'none'; }, { passive: true });
 const drag = (cv, fn) => { let on = false; const at = e => toCanvas(cv, e); cv.addEventListener('pointerdown', e => { on = true; cv.setPointerCapture(e.pointerId); fn(...at(e)); render(); }); cv.addEventListener('pointermove', e => { if (on) { fn(...at(e)); render(); } }); cv.addEventListener('pointerup', () => { on = false; }); };
 drag($('tri'), (px, py) => { C.tri = triFromPoint(px, py); });
+$('tri').addEventListener('dblclick', e => { const b = triBall(C.tri), [x, y] = toCanvas($('tri'), e); if (Math.hypot(x - b.x, y - b.y) <= 22) { C.tri = { industry: 1 / 3, research: 1 / 3, development: 1 / 3 }; render(); } });
 $('reset').addEventListener('click', () => { run(false); LOG.length = 0; Q = []; reset(); });
 $('step').addEventListener('click', step);
 $('run').addEventListener('click', () => run(!timer));
