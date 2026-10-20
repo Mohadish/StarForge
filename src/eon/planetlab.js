@@ -1,7 +1,7 @@
 // THE PLANET SANDBOX (planet.html): colony.js alone, to play with before it goes into the game — laid out as the planet POP-UP he
 // drew (2026-10-18): the two focus widgets on top, equal; the planet in a frame that is always the HUGE world's outline (a smaller
 // world sits centred in it); the eon's output under it as bars and icon rows. The fillet's reasons live on the widgets' hover.
-import { newColony, endEon, compute, weightsOf, filletWhy, building, counts, normTri, xy, SLOT, DEV, FILLET, TRAITS, TRAIT, FACTORS, FACTOR_COLOR, KIND_WORD } from './colony.js';
+import { newColony, endEon, compute, weightsFor, filletWhy, building, counts, normTri, xy, SLOT, DEV, FILLET, TRAITS, TRAIT, FACTORS, FACTOR_COLOR, KIND_WORD } from './colony.js';
 import { SIZES, LARGEST } from './districts.js';
 import { drawSurface, focusTetra, drawTri as drawTriV, triFromPoint, toCanvas, cellAt as cellAtV, mapSize, nextPlan } from './colonyview.js';
 
@@ -148,4 +148,4 @@ $('depth').addEventListener('input', depth);
 window.addEventListener('keydown', e => { if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return; if (e.key === ' ') { e.preventDefault(); run(!timer); } else if (e.key === 'ArrowRight') step(); });
 $('size').innerHTML = Object.entries(SIZES).map(([k, s]) => `<option value="${k}" ${s === LARGEST ? 'selected' : ''}>${s.w} × ${s.h} · ${s.name} (${s.w * s.h * SLOT.per} slots)</option>`).join('');   // the whole ladder
 depth(); reset();
-window.sbsPlanet = { get C() { return C; }, get Q() { return Q; }, step, reset, compute, weightsOf, counts, qAdd, render };
+window.sbsPlanet = { get C() { return C; }, get Q() { return Q; }, step, reset, compute, weightsFor, counts, qAdd, render };

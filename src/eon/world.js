@@ -39,6 +39,7 @@ function pickHome(S, taken) {
 function moveHome(S, pl) {
   const sol = S.places.find(p => p.id === 'home'), dock = sol.colony.structures[0];
   delete sol.colony; sol.fresh = Object.fromEntries(Object.keys(sol.fresh).map(k => [k, 1]));
+  pl.sizeClass = '6x3';                                // EVERY homeworld is huge (the design; only Sol's 'home' was — Fourth's home had 16 slots to Sol's 72, 2026-10-20)
   pl.colony = newColony(100, 120, pl, true); pl.colony.structures.push({ ...dock, id: uid('u'), design: cloneDesign(dock.design) });   // the old city: four mixed cells on its surface (colony.js)
   pl.fresh = Object.fromEntries(Object.keys(pl.fresh).map(k => [k, 0.9])); pl.note = 'the homeworld — your people have lived here for 2,000 years';
   for (const s of S.systems) s.home = s.id === pl.sys;
