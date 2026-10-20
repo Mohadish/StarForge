@@ -295,7 +295,7 @@ const lookOf = pl => ({ color: pl.color || LOOK[pl.kind][0], size: LOOK[pl.kind]
 function presence(c) {
   const m = new Map(), at = sys => m.get(sys) || m.set(sys, { colonies: 0, ships: 0 }).get(sys);
   for (const col of c.colonies) at(col.pl.sys).colonies++;
-  for (const { u } of c.ships) if (!u.dest) at(placeOf(u.at).sys).ships++;
+  for (const { u } of c.ships) if (!u.dest) { const p = at(placeOf(u.at).sys); if (u.klass === 'platform') p.platforms = (p.platforms || 0) + 1; else p.ships++; }   // platforms apart: they never leave (his ask, 2026-10-20: a rectangle under the star)
   return m;
 }
 
@@ -463,6 +463,11 @@ function drawGalaxy(c) {
         if (on || (s.id === gHover && gHoverFleet)) { g.strokeStyle = on ? '#7ef3b0' : 'rgba(255,255,255,.6)'; g.lineWidth = 1.5; g.beginPath(); g.arc(x, y + 1, 13, 0, 7); g.stroke(); g.lineWidth = 1; }
         g.font = 'bold 11px sans-serif'; g.textAlign = 'left'; g.fillStyle = on ? '#fff' : '#7ef3b0'; g.fillText(String(here.ships), x + 12, y + 5); g.textAlign = 'center';
       }
+      if (here?.platforms) {                           // YOUR PLATFORMS here: orange rectangles in a row under the star (his ask, 2026-10-20)
+        const n = Math.min(here.platforms, 6), w = 9, gap = 4, x0 = p.x - ((n - 1) * (w + gap)) / 2, y = p.y + size + 24;
+        g.fillStyle = '#ffb347'; for (let i = 0; i < n; i++) g.fillRect(x0 + i * (w + gap) - w / 2, y - 3, w, 6);
+        if (here.platforms > n) { g.font = 'bold 9px sans-serif'; g.textAlign = 'left'; g.fillText('+' + (here.platforms - n), x0 + n * (w + gap) - w / 2, y + 3); g.textAlign = 'center'; }
+      }
       for (const o of S.others || []) {                // the OTHER EMPIRES (a world, world.js): their colonies a ring in their colour (solid for a homeworld), their resting fleets a triangle on the left with the count
         const col = o.colonies.filter(x => x.sys === s.id), fl = o.fleets.find(f => f.sys === s.id);
         if (col.length) { const hm = col.some(x => x.home); g.strokeStyle = o.color; g.lineWidth = hm ? 2.5 : 1.5; g.setLineDash(hm ? [] : [4, 3]); g.beginPath(); g.arc(p.x, p.y, size + 6, 0, 7); g.stroke(); g.setLineDash([]); g.lineWidth = 1; if (hm) { label = s.name + ' · ' + o.name; labelCol = o.color; bold = true; } }
@@ -476,23 +481,38 @@ function drawGalaxy(c) {
     g.fillStyle = labelCol; g.font = (bold ? 'bold ' : '') + '10px sans-serif';
     g.fillText(s.home && !GE ? s.name + ' · home' : label, p.x, p.y + size + 13);
   }
-  // OUTGOING FLEETS (his ask, 2026-10-18): what left a star THIS eon waits at its LEFT, where the resting fleet sits on its right — the
-  // same triangle, turned toward where it goes, at a fixed spot whatever the zoom; several fleets line up leftward, each with its own
-  // dotted line to its destination. Click one: its ships, to undo their travel in part or send them elsewhere
-  G.out = {};
+  // OUTGOING FLEETS (his asks, 2026-10-18/20): what left a star THIS eon waits at its LEFT, where the resting fleet sits on its right
+  // — the same triangle, turned toward where it goes, at a fixed spot whatever the zoom, each with its own dotted line. Two fit side
+  // by side; three or more gather into ONE stacked icon (their lines still start there) that spreads into a block when clicked —
+  // as boxy as can be: 2 × 2, then two columns of three, then 3 × 3… — and folds back on a click elsewhere. Click a fleet: its
+  // ships, all of them chosen, to undo their travel in part or send them elsewhere
+  G.out = {}; G.outStack = {};
   if (!GE) {
     const bySys = new Map();
     for (const { u } of c.ships) { const key = outKeyOf(u); if (!key) continue; const sys = u.voy.A; let m = bySys.get(sys); if (!m) bySys.set(sys, m = new Map()); let o = m.get(key); if (!o) m.set(key, o = { key, sys, to: u.voy.B, dest: u.dest, ids: [] }); o.ids.push(u.id); }
+    if (outOpen && !bySys.has(outOpen)) outOpen = null;
+    const line = (x, y, b, strong) => { if (!b) return; g.setLineDash([4, 5]); g.strokeStyle = '#7ef3b0'; g.globalAlpha = strong ? 0.9 : 0.55; g.lineWidth = strong ? 2 : 1.2; g.beginPath(); g.moveTo(x, y); g.lineTo(b.x, b.y); g.stroke(); g.setLineDash([]); g.globalAlpha = 1; g.lineWidth = 1; };
+    const tri = (x, y, ang, col) => { g.save(); g.translate(x, y + 1); g.rotate(ang); g.fillStyle = col; g.beginPath(); g.moveTo(0, -9); g.lineTo(8, 7); g.lineTo(-8, 7); g.closePath(); g.fill(); g.restore(); };
     for (const [sys, m] of bySys) {
       const p = G.pos[sys], st = sysOf(sys) && STARS[sysOf(sys).type]; if (!p || !st) continue;
-      const size = 2.6 + 3.2 * st.size, foreignHere = (S.others || []).some(o => o.fleets.some(f => f.sys === sys)), x0 = p.x - size - 15 - (foreignHere ? 34 : 0), y = p.y - size - 7;
-      [...m.values()].sort((a, b) => a.key < b.key ? -1 : a.key > b.key ? 1 : 0).forEach((o, i) => {
-        const x = x0 - i * 28, b = G.pos[o.to], on = pickScope && pickScope.kind === 'outgoing' && pickScope.key === o.key, hov = gHover === 'out:' + o.key; G.out[o.key] = { ...o, x, y };
-        if (b) { g.setLineDash([4, 5]); g.strokeStyle = '#7ef3b0'; g.globalAlpha = on || hov ? 0.9 : 0.55; g.lineWidth = on ? 2 : 1.2; g.beginPath(); g.moveTo(x, y); g.lineTo(b.x, b.y); g.stroke(); g.setLineDash([]); g.globalAlpha = 1; g.lineWidth = 1; }
-        const ang = b ? Math.atan2(b.y - y, b.x - x) + Math.PI / 2 : 0;
-        g.save(); g.translate(x, y + 1); g.rotate(ang); g.fillStyle = on ? '#fff' : '#7ef3b0'; g.beginPath(); g.moveTo(0, -9); g.lineTo(8, 7); g.lineTo(-8, 7); g.closePath(); g.fill(); g.restore();
+      const size = 2.6 + 3.2 * st.size, foreignHere = (S.others || []).some(o => o.fleets.some(f => f.sys === sys)), x0 = p.x - size - 15 - (foreignHere ? 34 : 0), y0 = p.y - size - 7;
+      const list = [...m.values()].sort((a, b) => a.key < b.key ? -1 : a.key > b.key ? 1 : 0), n = list.length;
+      if (n >= 3 && outOpen !== sys) {                   // the STACK: one icon, a triangle behind a triangle, the fleets' count; every route from it
+        const hov = gHover === 'outs:' + sys; G.outStack[sys] = { x: x0, y: y0, sys, n };
+        for (const o of list) line(x0, y0, G.pos[o.to], hov);
+        tri(x0 - 6, y0 - 5, 0, 'rgba(126,243,176,.45)'); tri(x0 - 3, y0 - 2.5, 0, 'rgba(126,243,176,.7)'); tri(x0, y0, 0, '#7ef3b0');
+        if (hov) { g.strokeStyle = 'rgba(255,255,255,.6)'; g.lineWidth = 1.5; g.beginPath(); g.arc(x0 - 3, y0 - 1, 15, 0, 7); g.stroke(); g.lineWidth = 1; }
+        g.font = 'bold 10px sans-serif'; g.textAlign = 'center'; g.fillStyle = '#7ef3b0'; g.fillText(`${n} fleets`, x0 - 3, y0 + 24);
+        continue;
+      }
+      // one by one: in a row while they are two, else the block (rows = ⌈√n⌉, filled a row at a time, leftward and upward)
+      const rows = n <= 2 ? 1 : Math.ceil(Math.sqrt(n)), cols = Math.ceil(n / rows);
+      list.forEach((o, i) => {
+        const x = x0 - (i % cols) * 28, y = y0 - Math.floor(i / cols) * 30, b = G.pos[o.to], on = pickScope && pickScope.kind === 'outgoing' && pickScope.key === o.key, hov = gHover === 'out:' + o.key; G.out[o.key] = { ...o, x, y };
+        line(x, y, b, on || hov);
+        tri(x, y, b ? Math.atan2(b.y - y, b.x - x) + Math.PI / 2 : 0, on ? '#fff' : '#7ef3b0');
         if (on || hov) { g.strokeStyle = on ? '#7ef3b0' : 'rgba(255,255,255,.6)'; g.lineWidth = 1.5; g.beginPath(); g.arc(x, y + 1, 13, 0, 7); g.stroke(); g.lineWidth = 1; }
-        g.font = 'bold 10px sans-serif'; g.textAlign = 'center'; g.fillStyle = on ? '#fff' : '#7ef3b0'; g.fillText(String(o.ids.length), x, y + 24);
+        g.font = 'bold 10px sans-serif'; g.textAlign = 'center'; g.fillStyle = on ? '#fff' : '#7ef3b0'; g.fillText(String(o.ids.length), x + 11, y - 6);
       });
     }
   }
@@ -523,6 +543,11 @@ function godFleetAt(e) {                             // God mode: an empire's fl
   for (const [key, f] of Object.entries(G.gfleet)) if (Math.hypot(mx - f.x, my - f.y - 1) < 14) return key;
   return null;
 }
+function outStackAt(e) {                              // a STACK of departing fleets (three or more at one star) under the mouse
+  const G = $('gMap')._geo; if (!G || !G.outStack) return null; const [mx, my] = mapXY(e);
+  for (const o of Object.values(G.outStack)) if (Math.hypot(mx - o.x + 3, my - o.y - 1) < 16) return o;
+  return null;
+}
 function outAt(e) {                                   // an OUTGOING fleet's icon (left this eon, at its star's left) under the mouse
   const G = $('gMap')._geo; if (!G || !G.out) return null; const [mx, my] = mapXY(e);
   for (const o of Object.values(G.out)) if (Math.hypot(mx - o.x, my - o.y - 1) < 13) return o;
@@ -541,7 +566,7 @@ function godShipAt(e) {                              // God mode: a ship under w
 function sysBlurb(s) {
   const here = placesIn(s.id), best = here.flatMap(pl => FIELD_IDS.map(f => [pl.mult[f] * pl.fresh[f], f, pl])).sort((a, b) => b[0] - a[0]).slice(0, 3);
   return `<b>${esc(s.name)}</b> — ${STARS[s.type].name} · ${here.length > 1 ? `${plural(here.length - 1, 'place')} around it, ${here.filter(p => p.landable).length} can be settled` : 'nothing circles it'}<br>
-    the most to learn: ${best.map(b => `${DOMAINS[b[1]].name} ${pct(b[0])} at ${esc(b[2].name)}`).join(' · ')}`;
+    the most to learn: ${best.map(b => `${DOMAINS[b[1]].name} ${pct(b[0])} at ${esc(b[2].name)}`).join(' · ')}${LAST && presence(LAST).get(s.id)?.platforms ? `<br>${plural(presence(LAST).get(s.id).platforms, 'platform')} of yours rest here` : ''}`;
 }
 $('gMap').addEventListener('mousemove', e => {
   if (godEmpires()) {                                // God mode: a fleet, a ship under way, or a star
@@ -553,6 +578,7 @@ $('gMap').addEventListener('mousemove', e => {
     else if (id) h = sysBlurb(sysOf(id));
     $('gHover').innerHTML = h; if (LAST) drawGalaxy(LAST); return;
   }
+  const os = outStackAt(e); if (os) { if (gHover !== 'outs:' + os.sys) { gHover = 'outs:' + os.sys; gHoverFleet = false; $('gMap').style.cursor = 'pointer'; $('gHover').innerHTML = `<b>${os.n} fleets leaving ${esc(sysOf(os.sys).name)}</b> this eon — click to spread them out.`; if (LAST) drawGalaxy(LAST); } return; }
   const oa = outAt(e); if (oa) { if (gHover !== 'out:' + oa.key) { const to = placeOf(oa.dest); gHover = 'out:' + oa.key; gHoverFleet = false; $('gMap').style.cursor = 'pointer'; $('gHover').innerHTML = `<b>Your fleet leaving for ${esc(to ? to.name : '?')}</b> — ${plural(oa.ids.length, 'ship')}, it left this eon. Click it: undo the travel for some or all, or send them elsewhere.`; if (LAST) drawGalaxy(LAST); } return; }
   const ms = myShipAt(e); if (ms) { const u = S.ships.find(x => x.id === ms.ids[0]), to = u && placeOf(u.dest); gHover = 'ms'; $('gMap').style.cursor = 'pointer'; $('gHover').innerHTML = u ? `<b>Your ${ms.ids.length > 1 ? `fleet of ${plural(ms.ids.length, 'ship')}` : esc(u.name)}</b> → ${esc(to ? to.name : '?')} · ${plural(u.eta, 'eon')} — click it: ${canUndoSend(S, u) ? 'undo the send (it left this eon)' : 'call it back'}` : ''; return; }
   const f = fleetAt(e), id = f || sysAt(e); if (id === gHover && !!f === gHoverFleet) return;
@@ -569,11 +595,13 @@ $('gMap').addEventListener('click', e => {
     const gs = godShipAt(e); if (gs) { godPick = gs.ids.length > 1 ? { kind: 'transit', k: gs.k, ids: gs.ids, key: gs.key } : { kind: 'ship', k: gs.k, id: gs.id }; gMode = 'god'; return refresh(); }
     const id = sysAt(e); if (!id) return; godPick = null; gSel = id; gMode = 'god'; return refresh();
   }
-  const oa = outAt(e); if (oa) { setScope({ kind: 'outgoing', sys: oa.sys, key: oa.key }); sendTo = null; sysPop = null; gSel = oa.sys; gMode = 'system'; return refresh(); }   // a fleet leaving this eon: its ships, to undo or send elsewhere
+  const os = outStackAt(e); if (os) { outOpen = os.sys; sysPop = null; gSel = os.sys; gMode = 'system'; return refresh(); }   // the stack spreads into its fleets
+  const oa = outAt(e); if (oa) { setScope({ kind: 'outgoing', sys: oa.sys, key: oa.key }); for (const g of scopeGroups(LAST)) picks.set(g.key, g.ships.length); sendTo = null; sysPop = null; gSel = oa.sys; gMode = 'system'; return refresh(); }   // a fleet leaving this eon: all of it chosen — undo, or send elsewhere   // a fleet leaving this eon: its ships, to undo or send elsewhere
   const ms = myShipAt(e); if (ms) { e.stopPropagation(); return openShipPop(null, ms.ids, e.clientX, e.clientY); }   // your fleet under way: its card (undo / call back)
-  const f = fleetAt(e), id = f || sysAt(e); if (!id) { if (sysPop) { sysPop = null; refresh(); } return; }   // empty space: the system pop-up closes
+  const f = fleetAt(e), id = f || sysAt(e); if (!id) { if (sysPop || outOpen) { sysPop = null; outOpen = null; refresh(); } return; }   // empty space: the system pop-up closes, a spread stack folds
   if (!f && pickCount() && (pickScope?.kind === 'galaxy' || pickScope?.kind === 'outgoing') && id !== pickScope.sys) { sendTo = id; sysPop = null; return refresh(); }
   if (pickScope && pickScope.kind === 'outgoing') { pickScope = null; picks = new Map(); sendTo = null; }   // nothing chosen of a leaving fleet: a star click is just a star click
+  outOpen = null;
   gSel = id; gMode = f ? 'fleet' : 'system'; sysPop = f ? null : id; refresh();   // a star: its worlds in a pop-up beside it (his ask, 2026-10-18)
 });
 $('gMap').addEventListener('dblclick', e => { if (fleetAt(e) || godFleetAt(e) || godShipAt(e)) return; const id = sysAt(e); if (id) openSystem(id); });
@@ -720,7 +748,7 @@ $('sMap').addEventListener('contextmenu', e => {         // the ships parked at 
 // parked under a place on the system map → the stacks in two columns, HERE | TO SEND, ‹ › one at a time, « » a batch (a fifth
 // of a small stack, a tenth of a big one), ⇶ all; then click a star (or a place): a dotted route and a SEND HERE badge there.
 // The picks are the same `picks` the side panel reads, so both stay in step.
-const batchOf = n => n < 20 ? Math.max(1, Math.ceil(n * 0.2)) : Math.ceil(n * 0.1);
+const batchOf = n => n <= 5 ? n : n < 10 ? 3 : n < 30 ? 5 : n < 50 ? 10 : Math.ceil(n * 0.2);   // » moves a BUNCH (his steps, 2026-10-20): up to five, all; under ten, three; under thirty, five; under fifty, ten; then a fifth
 function fleetPopWhere() {                           // which pop-up is live now, and the canvas it sits on
   if (!LAST || !pickScope) return null;
   if (tab === 'galaxy' && gMode === 'fleet' && pickScope.kind === 'galaxy') return { el: $('fleetPop'), cv: $('gMap'), kind: 'galaxy' };
@@ -755,7 +783,7 @@ function renderFleetPop(full = true) {
 }
 // THE SYSTEM POP-UP ON THE GALAXY (his ask, 2026-10-18: "click a star system and see its planets; hover one for its details; click a
 // colony of mine and get its panel; click outside and go anywhere else"): the star's worlds in a row beside it, the star first
-let sysPop = null;
+let sysPop = null, outOpen = null;             // outOpen: the star whose stack of departing fleets is spread out
 function placeTip(pl) {                               // a world in words: what it is, its size and nature, who is there, what there is to learn
   const own = pl.colony ? null : ownerOfPlace(pl.id), g = gridOf(pl), size = g ? SIZES[sizeClassOf(pl)] : null, pc = LAST && LAST.colonies.find(x => x.pl.id === pl.id), H = hostileIn(S, pl.sys);
   const here = LAST ? LAST.ships.filter(s => !s.u.dest && s.u.at === pl.id).length : 0, learn = topFields(pl).filter(x => x[2] > 0.06).slice(0, 3);
@@ -775,8 +803,8 @@ function renderSysPop() {
   el.innerHTML = `<div class="fphead"><b>${esc(s.name)}</b><span class="tiny">${STARS[s.type].name}</span><button class="x" data-opensys="${s.id}" title="the star-system screen">open ▸</button><button class="x" data-spclose title="close (or click outside)">✕</button></div><div class="sprow">${row}</div><div class="tiny">Hover a world for its details${places.some(pl => pl.colony) ? ' · click your colony to open it' : ''} · click another to see it in the system.</div>`;
   el.hidden = false; placeOverlay(el, $('gMap'), p, 22);
 }
-document.addEventListener('mouseover', e => { const b = e.target.closest?.('[data-spplace]'), tip = $('cpTip'); if (!b) return; const pl = placeOf(b.dataset.spplace); if (!pl) return; tip.innerHTML = placeTip(pl); tip.style.display = 'block'; const r = b.getBoundingClientRect(); tip.style.left = Math.min(innerWidth - 300, r.left) + 'px'; tip.style.top = (r.bottom + 6) + 'px'; });
-document.addEventListener('mouseout', e => { if (e.target.closest?.('[data-spplace]') && !e.relatedTarget?.closest?.('[data-spplace]')) $('cpTip').style.display = 'none'; });
+document.addEventListener('mouseover', e => { const b = e.target.closest?.('[data-spplace], [data-sendplace]'), tip = $('cpTip'); if (!b) return; const pl = placeOf(b.dataset.spplace || b.dataset.sendplace); if (!pl) return; tip.innerHTML = placeTip(pl); tip.style.display = 'block'; const r = b.getBoundingClientRect(); tip.style.left = Math.min(innerWidth - 300, r.left) + 'px'; tip.style.top = (r.bottom + 6) + 'px'; });
+document.addEventListener('mouseout', e => { if (e.target.closest?.('[data-spplace], [data-sendplace]') && !e.relatedTarget?.closest?.('[data-spplace], [data-sendplace]')) $('cpTip').style.display = 'none'; });
 document.addEventListener('click', e => {
   if (e.target.closest('[data-spclose]')) { sysPop = null; $('cpTip').style.display = 'none'; return refresh(); }
   const b = e.target.closest('[data-spplace]'); if (b) { const pl = placeOf(b.dataset.spplace); $('cpTip').style.display = 'none'; if (!pl) return; if (pl.colony) return openColPop(pl.id); sysPop = null; return openSystem(pl.sys, pl.id); }
@@ -1334,15 +1362,23 @@ function syncOutBar(on) {
   $('dOutWho').textContent = mine ? `Reshaping “${st.name}” (yours)` : `Reshaping “${st.name}” — Done makes it yours`; $('dOutSym').value = st.sym || ''; $('dOutDel').style.display = mine ? '' : 'none';
 }
 // delete a silhouette of yours (the bar's Delete, or ✕ on its thumbnail): designs wearing it fall back to a built-in of their class
+// the ships (and districts) built with an outline keep it: before it is overwritten or deleted, the old shape lives on under a new
+// id, hidden from the picker, and they point at that
+function keepAsBuilt(id) {
+  const old = HULLS.find(x => x.id === id); if (!old) return;
+  const used = [...S.ships, ...S.places.flatMap(p => p.colony ? p.colony.structures : [])].filter(u => u.design && u.design.hull === old.id); if (!used.length) return;
+  const keep = { ...old, id: 'u' + Math.random().toString(36).slice(2, 9), name: old.name + ' (as built)', asBuilt: true }; HULLS.push(keep); for (const u of used) u.design.hull = keep.id;
+}
 async function deleteHull(id) {
   const h = HULLS.find(x => x.id === id); if (!h || !(await hdlg.confirmDelete(h))) return;
   if (outEd.editing) { outDirty = false; outEd.editing = false; }
-  HULLS = HULLS.filter(x => x.id !== id); saveHulls(); say(`Deleted “${h.name}”`);
+  keepAsBuilt(id); HULLS = HULLS.filter(x => x.id !== id); saveHulls(); say(`Deleted “${h.name}”`);
 }
 $('dOutDel').onclick = () => { const st = outEd.state(); if (ownHull(st)) deleteHull(st.id); };
 function commitOutline(name, asNew) {                // the outline becomes this design's silhouette: one of yours overwritten (unless asNew), anything else a new one
   const d = design(), st = outEd.state(), mine = ownHull(st), h = outEd.build(name || st.name);
   if (!mine || asNew) { h.id = 'u' + Math.random().toString(36).slice(2, 9); if (!name) h.name = d.name + ' outline'; } h.klass = DS.t.hullClass;
+  keepAsBuilt(h.id);                                  // what is already BUILT keeps the shape it was built with (his rule, 2026-10-20)
   HULLS = HULLS.filter(x => x.id !== h.id).concat([h]); saveHulls(); d.hull = h.id; st.id = h.id; st.name = h.name; save(); return h;
 }
 $('dOutDone').onclick = () => { outEd.editing = false; };                              // 'end' keeps what was drawn
@@ -1428,7 +1464,7 @@ function renderDesign(c) {
   const best = isShip ? dockFit(c.colonies.flatMap(p => p.gantries), t.hull.area) : null, whole = fits.some(f => f.fit?.sections === 1);
   FIT = best && { area: t.hull.area, cap: best.cap, sections: best.sections, label: best.sections === 1 ? `${best.at} space dock: ${t.squares} of ${best.cap} squares — it fits` : `${best.at} space dock holds ${best.cap} squares: ${t.squares} → cut into ${best.sections} sections` };
   const cur = hullDef(DS.hull.id);
-  $('dHullPick').innerHTML = `<span class="tiny">Silhouette</span>` + hullsFor(t.hullClass).map(h => `<button class="tpl ${DS.hull.id === h.id ? 'on' : ''}" data-hull="${h.id}" title="${esc(h.name)}${h.user ? ' (yours)' : ''}">${tplIcon(h, DS.hull.id === h.id)}</button>${chip && h.user ? `<button class="x" data-hulldel="${h.id}" title="delete “${esc(h.name)}”" style="padding:0 5px;margin-left:-3px">✕</button>` : ''}`).join('')
+  $('dHullPick').innerHTML = `<span class="tiny">Silhouette</span>` + hullsFor(t.hullClass).filter(h => !h.asBuilt).map(h => `<button class="tpl ${DS.hull.id === h.id ? 'on' : ''}" data-hull="${h.id}" title="${esc(h.name)}${h.user ? ' (yours)' : ''}">${tplIcon(h, DS.hull.id === h.id)}</button>${chip && h.user ? `<button class="x" data-hulldel="${h.id}" title="delete “${esc(h.name)}”" style="padding:0 5px;margin-left:-3px">✕</button>` : ''}`).join('')
     + (chip ? '' : `<button class="x" data-hulldraw title="draw a new silhouette">✎ Draw…</button>${cur?.user ? `<button class="x" data-hulledit="${cur.id}" title="edit this silhouette">✎ edit</button>` : ''}`)
     + (chip ? '<span class="tiny">· double-click the ship to reshape it</span>' : `<span class="tiny">· ${plural(t.squares, 'square')} now · shape is looks, size is what the dock counts</span>`);
   let ps = null;
@@ -1638,7 +1674,8 @@ document.addEventListener('change', e => {
   if (e.target.closest?.('[data-preset]')) { const m = design()?.modules.find(x => x.id === selMod); if (!m) return; if (e.target.value === 'custom') m.preset = 'custom'; else applyPreset(m, e.target.value); save(); return refresh(); }
   const t = e.target.closest?.('[data-syspick]'); if (t) { selSys = gSel = t.value; selPlace = (placesIn(selSys).find(p => p.colony) || placeOf(sysOf(selSys).star)).id; refresh(); } });
 document.addEventListener('input', e => { if (e.target.id === 'gSeed') seedDraft = e.target.value; });
-addEventListener('keydown', e => {
+addEventListener('keydown', e => {                   // ENTER sends (his ask, 2026-10-20): the Send-here badge on the map, if one is up
+  if (e.key === 'Enter' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) { const b = document.querySelector('#sendBadge:not([hidden]) [data-psend], #sSendBadge:not([hidden]) [data-psend]'); if (b) { e.preventDefault(); return b.click(); } }
   if (tab !== 'design' || !selMod || ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
   if (e.key === 'Delete') removeModule(selMod);
 });
@@ -1756,7 +1793,7 @@ document.addEventListener('change', e => { if (e.target.matches('[data-rview]'))
   if (e.target.matches('[data-simcap]')) { if (SIM) SIM.cap = Math.max(SIM.W.eon, +e.target.value || SIM.cap); return; } if (e.target.matches('[data-reon]')) return replayGoto(+e.target.value); if (e.target.matches('[data-foes]')) foesDraft = +e.target.value; if (e.target.matches('[data-stars]')) starsDraft = +e.target.value;
   const su = e.target.closest('[data-su]'); if (su) { const [k, i] = su.dataset.su.split('|'); if (k === 'stars' || k === 'n' || k === 'cap') setup[k] = +su.value; else setup[k][+i] = su.value; setup.seed = $('gSeed') ? $('gSeed').value : setup.seed; renderGalaxy(LAST); } });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Enter' && e.target.matches('[data-reon]')) return replayGoto(+e.target.value);
+  if (e.key === 'Enter' && e.target.matches?.('[data-reon]')) return replayGoto(+e.target.value);
   // REPLAY KEYS (his ask, 2026-10-17): ← → an eon back / on, Page Up / Page Down ten eons; not while typing, not with the arena open
   if (!REPLAY || ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) || !$('arenaWrap').hidden) return;
   const step = { ArrowRight: 1, ArrowLeft: -1, PageDown: 10, PageUp: -10 }[e.key]; if (!step) return;
