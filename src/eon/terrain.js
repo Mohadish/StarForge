@@ -48,27 +48,30 @@ function assignTypes(w, h, kind, rnd) {
   if (kind === 'ice') for (let k = 0; k < n; k++) if (type[k] === 'low') type[k] = 'ice';          // (polar caps are a latitude band, painted per pixel)
   return type;
 }
-// ---- the surface ----
+// ---- the surface: ×2 RESOLUTION (his ask 2026-10-21) — every cell is 4 SLOTS, each slot its own jittered Voronoi region with its own
+// nature; a cell is the union of its 4 slots, so its frame is organic too. gross / net are counted in slots. ----
 export function terrain(seed, w, h, kind, { cellW = 140, cellH = 70, jitter = 0.25 } = {}) {
   const W = w * cellW, H = h * cellH, N = W * H, s = hash(seed + '|' + kind), rnd = mulberry(s ^ 0x7f4a7c15), n1 = perlin(s), n2 = perlin(s ^ 0x9e3779b9);
-  const type = assignTypes(w, h, kind, rnd);
-  const seeds = []; for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) seeds.push({ x: (i + 0.5 + (rnd() - 0.5) * 2 * jitter) * cellW, y: (j + 0.5 + (rnd() - 0.5) * 2 * jitter) * cellH });
-  const cls = new Uint8Array(N), owner = new Int16Array(N), slot = new Uint8Array(N), amp = cellH * 1.1, band = cellH * 0.3, beach = cellH * 0.1;
+  const w2 = w * 2, h2 = h * 2, sw = cellW / 2, sh = cellH / 2;                                    // the slot grid
+  const type = assignTypes(w2, h2, kind, rnd);                                                     // a nature per SLOT
+  const seeds = []; for (let j = 0; j < h2; j++) for (let i = 0; i < w2; i++) seeds.push({ x: (i + 0.5 + (rnd() - 0.5) * 2 * jitter) * sw, y: (j + 0.5 + (rnd() - 0.5) * 2 * jitter) * sh });
+  const cellOf = k => (Math.floor(k / w2) >> 1) * w + ((k % w2) >> 1), slotOf = k => ((k % w2) & 1) + 2 * (Math.floor(k / w2) & 1);
+  const cls = new Uint8Array(N), owner = new Int16Array(N), slot = new Uint8Array(N), sub = new Int16Array(N), amp = sh * 1.1, band = sh * 0.45, beach = sh * 0.16;
   const wrapDx = dx => { dx = Math.abs(dx); return Math.min(dx, W - dx); };
   const rank = t => t === 'ocean' ? 0 : t === 'chasm' ? 0 : t === 'low' ? 1 : t === 'ice' ? 1 : t === 'mid' ? 2 : 3;
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    const i = y * W + x, gi = Math.floor(x / cellW), gj = Math.floor(y / cellH);
-    const wob = fbm(n1, x / 150, y / 75) * amp, wob2 = fbm(n2, x / 90, y / 45, 3) * amp * 0.7;   // the border wobble (one field, so borders stay consistent)
-    const hill = fbm(n2, x / 70, y / 35, 3);                                                       // inner relief: patches of higher / lower ground inside a cell
+    const i = y * W + x, gi = Math.floor(x / sw), gj = Math.floor(y / sh);
+    const wob = fbm(n1, x / 110, y / 55) * amp, wob2 = fbm(n2, x / 70, y / 35, 3) * amp * 0.7;    // the border wobble (one field, so borders stay consistent)
+    const hill = fbm(n2, x / 60, y / 30, 3);                                                       // inner relief: patches of higher / lower ground inside a slot
     let best = -1, bd = 1e18, tBest = -1, tbd = 1e18; const dists = [];
     for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
-      const cj = gj + dj; if (cj < 0 || cj >= h) continue; const ci = (gi + di + w) % w, k = cj * w + ci;
+      const cj = gj + dj; if (cj < 0 || cj >= h2) continue; const ci = (gi + di + w2) % w2, k = cj * w2 + ci;
       const dx = wrapDx(x - seeds[k].x), dy = (y - seeds[k].y) * 2, d = Math.sqrt(dx * dx + dy * dy);
       if (d < bd) { bd = d; best = k; }
       const dn = d + (rank(type[k]) === 0 ? wob : wob2) * (rank(type[k]) % 2 ? 1 : -1);            // noisy distance: the terrain's own ownership
       dists.push([dn, k]); if (dn < tbd) { tbd = dn; tBest = k; }
     }
-    owner[i] = best; slot[i] = (wrapDx(x - seeds[best].x) === Math.abs(x - seeds[best].x) ? (x >= seeds[best].x ? 1 : 0) : (x >= seeds[best].x ? 0 : 1)) + (y >= seeds[best].y ? 2 : 0);
+    sub[i] = best; owner[i] = cellOf(best); slot[i] = slotOf(best);
     const t = type[tBest]; let c;
     const water = t === 'ocean', nearest = f => { let m = 1e18; for (const [dn, k] of dists) if (f(type[k])) m = Math.min(m, dn); return m - tbd; };
     if (water) { c = nearest(q => q !== 'ocean') < band || hill > 0.34 ? CLS.shallow : CLS.deep; }
@@ -81,15 +84,16 @@ export function terrain(seed, w, h, kind, { cellW = 140, cellH = 70, jitter = 0.
     if (lat > cap && c !== CLS.chasm && (kind !== 'rock')) c = CLS.ice;
     cls[i] = c;
   }
-  const land = new Float32Array(w * h), area = new Float32Array(w * h);
+  const land = new Float32Array(w * h), area = new Float32Array(w * h);                             // usable share of every CELL's area
   for (let i = 0; i < N; i++) { area[owner[i]]++; if (cls[i] >= CLS.low && cls[i] !== CLS.chasm) land[owner[i]]++; }
   for (let k = 0; k < w * h; k++) land[k] = area[k] ? land[k] / area[k] : 0;
+  const slotType = Array.from({ length: w * h }, () => new Array(4)); for (let k = 0; k < type.length; k++) slotType[cellOf(k)][slotOf(k)] = type[k];
   const net = type.filter(USABLE).length;
-  return { w, h, W, H, cellW, cellH, kind, type, cls, owner, slot, seeds, land, gross: w * h, net };
+  return { w, h, W, H, cellW, cellH, kind, type, slotType, cls, owner, slot, sub, seeds, land, gross: w * h * 4, net };
 }
 // ---- paint into an RGBA buffer: flat classes, a darker coast, cell frames, slot lines ----
 export function paint(T, rgba, { frames = true, slots = true } = {}) {
-  const { W, H, cls, owner, slot } = T, pal = PALETTE[T.kind];
+  const { W, H, cls, owner, sub } = T, pal = PALETTE[T.kind];
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const i = y * W + x, c = cls[i]; let [r, g, b] = pal[c];
     const right = x + 1 < W ? i + 1 : y * W, down = y + 1 < H ? i + W : i;                               // the right edge continues at the left (wrap)
@@ -97,7 +101,7 @@ export function paint(T, rgba, { frames = true, slots = true } = {}) {
     if (water !== wR || water !== wD) { r *= 0.55; g *= 0.6; b *= 0.65; }
     else if (c !== cls[right] || c !== cls[down]) { r *= 0.88; g *= 0.88; b *= 0.88; }
     if (frames && (owner[i] !== owner[right] || owner[i] !== owner[down])) { r = r * 0.35 + 20; g = g * 0.35 + 24; b = b * 0.35 + 30; }
-    else if (slots && (slot[i] !== slot[right] || slot[i] !== slot[down])) { r = r * 0.8 + 30; g = g * 0.8 + 32; b = b * 0.8 + 36; }
+    else if (slots && (sub[i] !== sub[right] || sub[i] !== sub[down])) { r = r * 0.8 + 30; g = g * 0.8 + 32; b = b * 0.8 + 36; }
     rgba[i * 4] = r; rgba[i * 4 + 1] = g; rgba[i * 4 + 2] = b; rgba[i * 4 + 3] = 255;
   }
   return rgba;
