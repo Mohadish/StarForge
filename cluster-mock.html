@@ -10,6 +10,8 @@
 <canvas id="a" width="840" height="210"></canvas>
 <h3>the same at 2×</h3>
 <canvas id="c" width="1680" height="420"></canvas>
+<h3>a close-up at 4× (the landing's corner)</h3>
+<canvas id="z" width="1400" height="400"></canvas>
 <script type="module">
 import { terrain, paint, DISTRICT_KINDS } from './src/eon/terrain.js';
 import { makeChip, drawChip, layout, CHIP } from './src/eon/clusters.js';
@@ -21,8 +23,8 @@ const FACTION = '#9fe8c4';
   KINDS.forEach((k, row) => { g.fillStyle = '#cfd8e6'; g.font = '13px system-ui'; g.fillText(k, 12, 40 + row * 135); [0, 1, 2, 3].forEach(v => drawChip(g, CHIPS[k][v], 200 + v * 300, 80 + row * 135, 6, { tint: k === 'housing' ? FACTION : null })); }); }
 // 2. growth on one patch of ground
 { const g = document.getElementById('grow').getContext('2d'); g.fillStyle = '#6a8a5a'; g.fillRect(0, 0, 1400, 200);
-  const rnd = mulberry(9), spots = []; for (let i = 0; i < 40; i++) spots.push([(rnd() - 0.5) * 50, (rnd() - 0.5) * 25]);
-  [[1, false], [2, false], [3, false], [3, true]].forEach(([L, full], col) => { const cx = 180 + col * 340, cy = 110, chips = layout(spots, [0, 0], L, { full }).map(p => ({ ...p, chip: CHIPS.housing[p.variant] }));
+  const rnd = mulberry(9), spots = []; for (let i = 0; i < 40; i++) spots.push([(rnd() - 0.5) * 30, (rnd() - 0.5) * 15]);
+  [[1, false], [2, false], [3, false], [3, true]].forEach(([L, full], col) => { const cx = 180 + col * 340, cy = 120, chips = layout(spots, [0, 0], L, { full }).map((p, i) => ({ ...p, chip: makeChip('housing', p.variant, 20 + i) }));
     chips.sort((p, q) => p.y - q.y).forEach(p => drawChip(g, p.chip, cx + p.x * 4, cy + p.y * 4, 4, { tint: FACTION }));
     g.fillStyle = '#cfd8e6'; g.font = '12px system-ui'; g.fillText(full ? 'full' : `level ${L}`, cx - 20, 190); }); }
 // 3. the planet
@@ -50,12 +52,13 @@ function render(cv, T, scale, col) {
     const a = Math.min(1, ed[i] / 3.5) * Math.min(1, (holes - keep) / 0.12); if (a <= 0) continue; const tx = Math.floor(x / K) % fc.width, ty = Math.floor(y / K * 2) % fc.height, o = (ty * fc.width + tx) * 4; for (let ch = 0; ch < 3; ch++) img.data[i * 4 + ch] = Math.round(img.data[i * 4 + ch] * (1 - a) + fdat[o + ch] * a); }
   const off = document.createElement('canvas'); off.width = W; off.height = H; off.getContext('2d').putImageData(img, 0, 0); g.imageSmoothingEnabled = true; g.drawImage(off, 0, 0, W * scale, H * scale);
   // the chips: candidate spots per district on an iso lattice (inside, away from the edge), laid out by level, drawn back to front
-  const byD = new Map(), SP = 6; for (let y = 0; y < H; y += SP / 2) for (let x = 0; x < W; x += SP) { const xx = x + ((Math.round(y / (SP / 2)) & 1) ? SP / 2 : 0); if (xx >= W) continue; const i = Math.floor(y) * W + Math.floor(xx), k = det[i]; if (built[k] < 0 || built[k] === foodId || ed[i] < 4) continue; if (!byD.has(k)) byD.set(k, []); byD.get(k).push([xx, y]); }
-  const all = []; for (const [k, spots] of byD) { const f = T.feat[k], dk = DISTRICT_KINDS[built[k]]; for (const p of layout(spots, [f.x, f.y], level[k])) all.push({ ...p, chip: CHIPS[dk][p.variant], dk }); }
-  all.sort((p, q) => p.y - q.y).forEach(p => drawChip(g, p.chip, p.x * scale, p.y * scale, scale * 0.55, { tint: p.dk === 'housing' ? FACTION : null }));
+  const byD = new Map(), SP = 4; for (let y = 0; y < H; y += SP / 2) for (let x = 0; x < W; x += SP) { const xx = x + ((Math.round(y / (SP / 2)) & 1) ? SP / 2 : 0); if (xx >= W) continue; const i = Math.floor(y) * W + Math.floor(xx), k = det[i]; if (built[k] < 0 || built[k] === foodId || ed[i] < 3) continue; if (!byD.has(k)) byD.set(k, []); byD.get(k).push([xx, y]); }
+  const all = []; for (const [k, spots] of byD) { const f = T.feat[k], dk = DISTRICT_KINDS[built[k]]; layout(spots, [f.x, f.y], level[k]).forEach((p, i) => all.push({ ...p, chip: makeChip(dk, p.variant, k * 7 + i), dk })); }
+  all.sort((p, q) => p.y - q.y).forEach(p => drawChip(g, p.chip, p.x * scale, p.y * scale, scale * 0.3, { tint: p.dk === 'housing' ? FACTION : null }));
 }
 FIELDS = await load('./art/icons/tex/tex-fields-z-s1002.png');
 const T = terrain('surf-6x3', 6, 3, 'living'), col = grow(T, 0.55, mulberry(3));
 render(document.getElementById('a'), T, 1, col); render(document.getElementById('c'), T, 2, col);
+{ const big = document.createElement('canvas'); big.width = T.W * 4; big.height = T.H * 4; render(big, T, 4, col); const lf = T.feat[col.landing], zg = document.getElementById('z').getContext('2d'); zg.drawImage(big, Math.max(0, Math.min(big.width - 1400, lf.x * 4 - 700)), Math.max(0, Math.min(big.height - 400, lf.y * 4 - 200)), 1400, 400, 0, 0, 1400, 400); }
 window.mock = { T, col, CHIPS };
 </script></body></html>
