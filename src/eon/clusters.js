@@ -13,6 +13,9 @@ export const PALETTE = {
   housing:  { ground: [185, 178, 162], top: '#e9ecf1', left: '#b9c0cb', right: '#89909d', light: '#ffd9a0', cap: '#f4f6f9' },
   industry: { ground: [150, 146, 140], top: '#a7abb0', left: '#777b80', right: '#54585d', light: '#ff8c2a', smoke: 'rgba(232,236,240,.8)', pipe: '#6c7178' },
   science:  { ground: [195, 199, 209], top: '#f4f7fc', left: '#c5cde0', right: '#97a2bb', light: '#56b5ff', glow: 'rgba(70,165,255,.5)' },
+  // TERRAIN CHIPS (his ask 2026-10-21): mountain ridges and forest patches — the same idea, layered on top of the ground
+  ridge:    { ground: [152, 142, 122], left: '#bcb097', right: '#6b6252', snow: '#f5f7f9' },
+  forest:   { ground: [62, 98, 54], crown: '#3d7638', lit: '#6ba65a', shade: '#27491f' },
 };
 const toScreen = (u, v) => [u * EX[0] + v * EY[0], u * EX[1] + v * EY[1]];
 // ---- one chip ----
@@ -35,6 +38,10 @@ export function makeChip(kind, variant, seed = 1) {
     for (let i = 0; i < Math.max(1, Math.round(n * 0.25)); i++) { const rr = 0.8 + rnd() * 0.7, s = spot(0.78, rr, rr); if (s) put({ ...s, a: rr, b: rr, h: 1.4 + rnd() * 1.6, kind: 'tank' }); }
     for (let i = 0; i < Math.max(1, Math.round(n * 0.2)); i++) { const s = spot(0.6, 0.35, 0.35); if (s) put({ ...s, a: 0.3, b: 0.3, h: hmax * (0.55 + rnd() * 0.45), kind: 'chimney' }); }
     for (let i = 0; i < 1 + variant; i++) { const p = pieces[Math.floor(rnd() * pieces.length)], q = pieces[Math.floor(rnd() * pieces.length)]; if (p && q && p !== q) pieces.push({ x: p.x, y: p.y, x2: q.x, y2: q.y, u: 99, v: 99, a: 0, b: 0, h: 0, kind: 'pipe' }); }
+  } else if (kind === 'ridge') {                         // a mountain ridge: peaks, the tallest at the middle, snow on the high ones
+    for (let i = 0; i < 2 + variant * 2; i++) { const w = 1.2 + rnd() * 1.4, s = spot(0.75, w * 0.6, w * 0.6, 80); if (!s) continue; const c = centreness(s.x, s.y), h = hmax * 0.9 * (0.35 + 0.65 * Math.pow(c, 0.9)) * (0.8 + rnd() * 0.4); put({ ...s, a: w * 0.6, b: w * 0.6, w, h, kind: 'peak', snow: h > hmax * 0.55 }); }
+  } else if (kind === 'forest') {                        // a forest patch: many small crowns
+    for (let i = 0; i < 6 + variant * 5; i++) { const rr = 0.45 + rnd() * 0.55, s = spot(0.9, rr * 0.5, rr * 0.5, 40); if (!s) continue; put({ ...s, a: rr * 0.5, b: rr * 0.5, h: rr, rr, kind: 'tree' }); }
   } else {                                               // science: the big dome, small domes, a dish, masts, a lab block
     const big = 1.6 + variant * 0.4; put({ u: 0, v: 0, x: 0, y: 0.5, a: big, b: big, h: big * 0.9, kind: 'dome', big: true });
     for (let i = 0; i < 1 + (variant >> 1); i++) { const rr = 0.8 + rnd() * 0.6, s = spot(0.78, rr, rr); if (s) put({ ...s, a: rr, b: rr, h: rr * 0.9, kind: 'dome' }); }
@@ -86,6 +93,14 @@ export function drawChip(g, chip, cx, cy, s, { tint = null } = {}) {
   ground(g, chip, cx, cy, s, P);
   if (chip.kind === 'science') { g.fillStyle = P.glow; g.beginPath(); g.ellipse(cx, cy + 0.5 * s, chip.r * 0.55 * s, chip.r * 0.28 * s, 0, 0, 6.283); g.fill(); }
   for (const p of chip.pieces) {
+    if (p.kind === 'peak') { const x = cx + p.x * s, y = cy + p.y * s, w = p.w * s, h = p.h * s, foot = y + w * 0.22;
+      g.fillStyle = P.left; g.beginPath(); g.moveTo(x - w, y); g.lineTo(x, y - h); g.lineTo(x, foot); g.closePath(); g.fill();
+      g.fillStyle = P.right; g.beginPath(); g.moveTo(x, y - h); g.lineTo(x + w, y); g.lineTo(x, foot); g.closePath(); g.fill();
+      if (p.snow) { g.fillStyle = P.snow; g.beginPath(); g.moveTo(x, y - h); g.lineTo(x - w * 0.36, y - h * 0.62); g.lineTo(x - w * 0.12, y - h * 0.7); g.lineTo(x + w * 0.1, y - h * 0.56); g.lineTo(x + w * 0.34, y - h * 0.64); g.closePath(); g.fill(); } continue; }
+    if (p.kind === 'tree') { const x = cx + p.x * s, y = cy + p.y * s, rr = p.rr * s;
+      g.fillStyle = P.shade; g.beginPath(); g.ellipse(x + rr * 0.35, y + rr * 0.15, rr * 1.1, rr * 0.5, 0, 0, 6.283); g.fill();
+      g.fillStyle = P.crown; g.beginPath(); g.arc(x, y - rr * 0.6, rr, 0, 6.283); g.fill();
+      g.fillStyle = P.lit; g.beginPath(); g.arc(x - rr * 0.3, y - rr * 0.85, rr * 0.5, 0, 6.283); g.fill(); continue; }
     if (p.kind === 'pipe') { g.strokeStyle = P.pipe; g.lineWidth = Math.max(1, 0.35 * s); g.beginPath(); g.moveTo(cx + p.x * s, cy + p.y * s - 0.6 * s); g.lineTo(cx + p.x2 * s, cy + p.y2 * s - 0.6 * s); g.stroke(); continue; }
     if (p.kind === 'box') { const f = box(g, cx, cy, s, p, P, chip.kind === 'housing' ? tint : null); if (chip.kind === 'industry' && p.h * s > 4) { g.fillStyle = P.light; g.fillRect(f.Bt[0] + s * 0.3, f.Bt[1] - s * 0.8, s * 0.5, s * 0.35); } continue; }
     if (p.kind === 'spire') { const f = box(g, cx, cy, s, p, P, tint); const x = (f.L[0] + f.R[0]) / 2, y = f.up(f.Bt)[1] - p.b * s * 0.5, rr = (p.a + p.b) * s * 0.5;
@@ -98,6 +113,28 @@ export function drawChip(g, chip, cx, cy, s, { tint = null } = {}) {
     if (p.kind === 'dish') { const x = cx + p.x * s, y = cy + p.y * s; g.strokeStyle = P.right; g.lineWidth = Math.max(1, 0.35 * s); g.beginPath(); g.moveTo(x, y); g.lineTo(x, y - p.h * s); g.stroke();
       g.fillStyle = P.top; g.beginPath(); g.ellipse(x + 0.3 * s, y - p.h * s - 0.2 * s, p.a * 1.3 * s, p.a * 0.75 * s, -0.5, 0, 6.283); g.fill(); g.fillStyle = P.left; g.beginPath(); g.ellipse(x + 0.3 * s, y - p.h * s - 0.2 * s, p.a * 0.8 * s, p.a * 0.45 * s, -0.5, 0, 6.283); g.fill(); continue; }
   }
+}
+// ---- THE FIELDS (his reference picture): a patchwork of small plots along the iso axes, many greens and yellows, a few browns and
+// rare purples and paddies, thin pale tracks between them, a pivot circle here and there — drawn in code into a tile that repeats
+// (periodic in ground space, so the screen tile is 2L × L). Used as a canvas pattern clipped to the food districts. ----
+const PLOTS = [['#6f9a3c', 5], ['#86b14a', 5], ['#5e8a36', 4], ['#9cb84f', 3], ['#c9b64b', 3], ['#d7c35e', 2], ['#a6894a', 2], ['#8b6a3f', 1.5], ['#b7a24e', 2], ['#7fa36c', 2], ['#7b5fa6', 0.4], ['#5a7fb3', 0.6]];
+export function fieldsTile(seed = 1, s = 1, L = 48) {
+  const rnd = mulberry(seed * 977 + 3), leaves = [], split = (u0, v0, u1, v1, depth) => { const du = u1 - u0, dv = v1 - v0; if ((Math.max(du, dv) < 6 + rnd() * 3 && depth > 1) || depth > 9) { leaves.push([u0, v0, u1, v1]); return; }
+    const t = 0.32 + rnd() * 0.36; if (du >= dv) { split(u0, v0, u0 + du * t, v1, depth + 1); split(u0 + du * t, v0, u1, v1, depth + 1); } else { split(u0, v0, u1, v0 + dv * t, depth + 1); split(u0, v0 + dv * t, u1, v1, depth + 1); } };
+  split(0, 0, L, L, 0);
+  const tot = PLOTS.reduce((a, p) => a + p[1], 0), pick = () => { let r = rnd() * tot; for (const [c, w] of PLOTS) { r -= w; if (r <= 0) return c; } return PLOTS[0][0]; };
+  const plots = leaves.map(([u0, v0, u1, v1]) => ({ u0, v0, u1, v1, c: pick(), pivot: Math.min(u1 - u0, v1 - v0) > 5 && rnd() < 0.12, stripes: rnd() < 0.5 }));
+  const cv = typeof document !== 'undefined' ? document.createElement('canvas') : null; if (!cv) return { plots, L };
+  cv.width = Math.round(2 * L * s); cv.height = Math.round(L * s); const g = cv.getContext('2d');
+  for (const [ou, ov] of [[0, 0], [-L, 0], [L, 0], [0, -L], [0, L], [-L, -L], [L, L], [-L, L], [L, -L]]) {
+    g.setTransform(s, 0.5 * s, -s, 0.5 * s, L * s, 0);
+    for (const p of plots) { const u0 = p.u0 + ou, v0 = p.v0 + ov, u1 = p.u1 + ou, v1 = p.v1 + ov;
+      g.fillStyle = p.c; g.fillRect(u0, v0, u1 - u0, v1 - v0);
+      if (p.stripes) { g.strokeStyle = 'rgba(0,0,0,.08)'; g.lineWidth = 0.35; g.beginPath(); for (let t = u0 + 1; t < u1; t += 1.2) { g.moveTo(t, v0); g.lineTo(t, v1); } g.stroke(); }
+      if (p.pivot) { const cu = (u0 + u1) / 2, cv2 = (v0 + v1) / 2, rr = Math.min(u1 - u0, v1 - v0) * 0.42; g.fillStyle = 'rgba(40,80,30,.55)'; g.beginPath(); g.arc(cu, cv2, rr, 0, 6.283); g.fill(); g.strokeStyle = 'rgba(230,220,170,.7)'; g.lineWidth = 0.4; g.beginPath(); g.arc(cu, cv2, rr * 0.55, 0, 6.283); g.stroke(); }
+      g.strokeStyle = 'rgba(226,214,170,.75)'; g.lineWidth = 0.45; g.strokeRect(u0, v0, u1 - u0, v1 - v0); }
+  }
+  g.setTransform(1, 0, 0, 1, 0, 0); return cv;
 }
 // ---- a district FILLS UP (his direction): its chips by how built it is (fill 0..1) — one small chip first, then more and bigger
 // ones packed from the district's heart outward, the biggest at the heart, smaller toward the edge; a full district holds `cap` ----
