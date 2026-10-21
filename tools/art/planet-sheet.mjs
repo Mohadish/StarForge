@@ -13,8 +13,7 @@ for (let k = 0; k < KINDS.length; k++) for (let s = 0; s < SIZES.length; s++) {
   paint(T, px);
   const x0 = GAP + k * colW, y0 = GAP + s * rowH;
   for (let y = 0; y < T.H; y++) px.copy(sheet, ((y0 + y) * W + x0) * 4, y * T.W * 4, (y + 1) * T.W * 4);
-  const land = Array.from(T.land).map(v => Math.round(v * 100));
-  console.log(`${KINDS[k]} ${w}x${h}: land per cell % ${land.join(' ')}`);
+  console.log(`${KINDS[k]} ${w}x${h}: gross ${T.gross} net ${T.net}  cells: ${T.type.join(' ')}`);
 }
 fs.mkdirSync(path.dirname(out), { recursive: true });
 fs.writeFileSync(out, encodePng(W, H, sheet));
