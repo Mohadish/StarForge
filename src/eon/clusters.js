@@ -38,8 +38,10 @@ export function makeChip(kind, variant, seed = 1) {
     for (let i = 0; i < Math.max(1, Math.round(n * 0.25)); i++) { const rr = 0.8 + rnd() * 0.7, s = spot(0.78, rr, rr); if (s) put({ ...s, a: rr, b: rr, h: 1.4 + rnd() * 1.6, kind: 'tank' }); }
     for (let i = 0; i < Math.max(1, Math.round(n * 0.2)); i++) { const s = spot(0.6, 0.35, 0.35); if (s) put({ ...s, a: 0.3, b: 0.3, h: hmax * (0.55 + rnd() * 0.45), kind: 'chimney' }); }
     for (let i = 0; i < 1 + variant; i++) { const p = pieces[Math.floor(rnd() * pieces.length)], q = pieces[Math.floor(rnd() * pieces.length)]; if (p && q && p !== q) pieces.push({ x: p.x, y: p.y, x2: q.x, y2: q.y, u: 99, v: 99, a: 0, b: 0, h: 0, kind: 'pipe' }); }
-  } else if (kind === 'ridge') {                         // a mountain ridge: peaks, the tallest at the middle, snow on the high ones
-    for (let i = 0; i < 2 + variant * 2; i++) { const w = 1.2 + rnd() * 1.4, s = spot(0.75, w * 0.6, w * 0.6, 80); if (!s) continue; const c = centreness(s.x, s.y), h = hmax * 0.9 * (0.35 + 0.65 * Math.pow(c, 0.9)) * (0.8 + rnd() * 0.4); put({ ...s, a: w * 0.6, b: w * 0.6, w, h, kind: 'peak', snow: h > hmax * 0.55 }); }
+  } else if (kind === 'ridge') {                         // a mountain RANGE (his critique: "toothpicks"): wide peaks, ~30° slopes (half-width 1.7 × height), overlapping along a ridge line
+    const n0 = 2 + variant, ang = (rnd() - 0.5) * 0.8;   // the ridge line, roughly along the long axis, a little turned
+    for (let i = 0; i < n0; i++) { const t = (i / Math.max(1, n0 - 1) - 0.5) * 1.5 * r, u = t * Math.cos(ang), v = t * Math.sin(ang) + (rnd() - 0.5) * r * 0.3, [x, y] = toScreen(u, v);
+      const c = Math.max(0, 1 - Math.abs(t) / (0.8 * r)), h = r * (0.28 + 0.34 * c) * (0.85 + rnd() * 0.3), w = h * 1.7; put({ u, v, x, y, a: w, b: w, w, h, kind: 'peak', snow: h > r * 0.44 }); }
   } else if (kind === 'forest') {                        // a forest patch: many small crowns
     for (let i = 0; i < 6 + variant * 5; i++) { const rr = 0.45 + rnd() * 0.55, s = spot(0.9, rr * 0.5, rr * 0.5, 40); if (!s) continue; put({ ...s, a: rr * 0.5, b: rr * 0.5, h: rr, rr, kind: 'tree' }); }
   } else {                                               // science: the big dome, small domes, a dish, masts, a lab block
@@ -93,10 +95,10 @@ export function drawChip(g, chip, cx, cy, s, { tint = null } = {}) {
   ground(g, chip, cx, cy, s, P);
   if (chip.kind === 'science') { g.fillStyle = P.glow; g.beginPath(); g.ellipse(cx, cy + 0.5 * s, chip.r * 0.55 * s, chip.r * 0.28 * s, 0, 0, 6.283); g.fill(); }
   for (const p of chip.pieces) {
-    if (p.kind === 'peak') { const x = cx + p.x * s, y = cy + p.y * s, w = p.w * s, h = p.h * s, foot = y + w * 0.22;
-      g.fillStyle = P.left; g.beginPath(); g.moveTo(x - w, y); g.lineTo(x, y - h); g.lineTo(x, foot); g.closePath(); g.fill();
-      g.fillStyle = P.right; g.beginPath(); g.moveTo(x, y - h); g.lineTo(x + w, y); g.lineTo(x, foot); g.closePath(); g.fill();
-      if (p.snow) { g.fillStyle = P.snow; g.beginPath(); g.moveTo(x, y - h); g.lineTo(x - w * 0.36, y - h * 0.62); g.lineTo(x - w * 0.12, y - h * 0.7); g.lineTo(x + w * 0.1, y - h * 0.56); g.lineTo(x + w * 0.34, y - h * 0.64); g.closePath(); g.fill(); } continue; }
+    if (p.kind === 'peak') { const x = cx + p.x * s, y = cy + p.y * s, w = p.w * s, h = p.h * s, foot = y + w * 0.18, k1 = 0.55 + 0.2 * ((p.u * 7) % 1), k2 = 0.5 + 0.25 * ((p.v * 5) % 1);   // a broad mountain: two faces, a bent skirt, the sunlit face left
+      g.fillStyle = P.left; g.beginPath(); g.moveTo(x - w, y); g.lineTo(x - w * k1, y - h * 0.3); g.lineTo(x, y - h); g.lineTo(x - w * 0.08, foot); g.closePath(); g.fill();
+      g.fillStyle = P.right; g.beginPath(); g.moveTo(x, y - h); g.lineTo(x + w * k2, y - h * 0.28); g.lineTo(x + w, y); g.lineTo(x - w * 0.08, foot); g.closePath(); g.fill();
+      if (p.snow) { g.fillStyle = P.snow; g.beginPath(); g.moveTo(x, y - h); g.lineTo(x - w * 0.3, y - h * 0.58); g.lineTo(x - w * 0.1, y - h * 0.66); g.lineTo(x + w * 0.08, y - h * 0.52); g.lineTo(x + w * 0.3, y - h * 0.6); g.closePath(); g.fill(); } continue; }
     if (p.kind === 'tree') { const x = cx + p.x * s, y = cy + p.y * s, rr = p.rr * s;
       g.fillStyle = P.shade; g.beginPath(); g.ellipse(x + rr * 0.35, y + rr * 0.15, rr * 1.1, rr * 0.5, 0, 0, 6.283); g.fill();
       g.fillStyle = P.crown; g.beginPath(); g.arc(x, y - rr * 0.6, rr, 0, 6.283); g.fill();
@@ -118,12 +120,15 @@ export function drawChip(g, chip, cx, cy, s, { tint = null } = {}) {
 // rare purples and paddies, thin pale tracks between them, a pivot circle here and there — drawn in code into a tile that repeats
 // (periodic in ground space, so the screen tile is 2L × L). Used as a canvas pattern clipped to the food districts. ----
 const PLOTS = [['#6f9a3c', 5], ['#86b14a', 5], ['#5e8a36', 4], ['#9cb84f', 3], ['#c9b64b', 3], ['#d7c35e', 2], ['#a6894a', 2], ['#8b6a3f', 1.5], ['#b7a24e', 2], ['#7fa36c', 2], ['#7b5fa6', 0.4], ['#5a7fb3', 0.6]];
-export function fieldsTile(seed = 1, s = 1, L = 48) {
-  const rnd = mulberry(seed * 977 + 3), leaves = [], split = (u0, v0, u1, v1, depth) => { const du = u1 - u0, dv = v1 - v0; if ((Math.max(du, dv) < 6 + rnd() * 3 && depth > 1) || depth > 9) { leaves.push([u0, v0, u1, v1]); return; }
+// the URBAN grid (his idea: the same patchwork, as a sub-layer under the cities and the industry): concrete greys, dark yards, small blocks
+const URBAN = [['#a9a8a2', 4], ['#bdbbb4', 3], ['#8f9194', 4], ['#777a7e', 3], ['#c9c6bd', 2], ['#636669', 2], ['#9b968c', 2], ['#575a5e', 1]];
+export const urbanTile = (seed = 1, s = 1) => fieldsTile(seed, s, 48, { plots: URBAN, track: 'rgba(52,54,58,.75)', size: 4, stripes: 0, pivots: 0 });
+export function fieldsTile(seed = 1, s = 1, L = 48, { plots: PL = PLOTS, track = 'rgba(226,214,170,.75)', size = 6, stripes = 0.5, pivots = 0.12 } = {}) {
+  const rnd = mulberry(seed * 977 + 3), leaves = [], split = (u0, v0, u1, v1, depth) => { const du = u1 - u0, dv = v1 - v0; if ((Math.max(du, dv) < size + rnd() * 3 && depth > 1) || depth > 10) { leaves.push([u0, v0, u1, v1]); return; }
     const t = 0.32 + rnd() * 0.36; if (du >= dv) { split(u0, v0, u0 + du * t, v1, depth + 1); split(u0 + du * t, v0, u1, v1, depth + 1); } else { split(u0, v0, u1, v0 + dv * t, depth + 1); split(u0, v0 + dv * t, u1, v1, depth + 1); } };
   split(0, 0, L, L, 0);
-  const tot = PLOTS.reduce((a, p) => a + p[1], 0), pick = () => { let r = rnd() * tot; for (const [c, w] of PLOTS) { r -= w; if (r <= 0) return c; } return PLOTS[0][0]; };
-  const plots = leaves.map(([u0, v0, u1, v1]) => ({ u0, v0, u1, v1, c: pick(), pivot: Math.min(u1 - u0, v1 - v0) > 5 && rnd() < 0.12, stripes: rnd() < 0.5 }));
+  const tot = PL.reduce((a, p) => a + p[1], 0), pick = () => { let r = rnd() * tot; for (const [c, w] of PL) { r -= w; if (r <= 0) return c; } return PL[0][0]; };
+  const plots = leaves.map(([u0, v0, u1, v1]) => ({ u0, v0, u1, v1, c: pick(), pivot: Math.min(u1 - u0, v1 - v0) > 5 && rnd() < pivots, stripes: rnd() < stripes }));
   const cv = typeof document !== 'undefined' ? document.createElement('canvas') : null; if (!cv) return { plots, L };
   cv.width = Math.round(2 * L * s); cv.height = Math.round(L * s); const g = cv.getContext('2d');
   for (const [ou, ov] of [[0, 0], [-L, 0], [L, 0], [0, -L], [0, L], [-L, -L], [L, L], [-L, L], [L, -L]]) {
@@ -132,7 +137,7 @@ export function fieldsTile(seed = 1, s = 1, L = 48) {
       g.fillStyle = p.c; g.fillRect(u0, v0, u1 - u0, v1 - v0);
       if (p.stripes) { g.strokeStyle = 'rgba(0,0,0,.08)'; g.lineWidth = 0.35; g.beginPath(); for (let t = u0 + 1; t < u1; t += 1.2) { g.moveTo(t, v0); g.lineTo(t, v1); } g.stroke(); }
       if (p.pivot) { const cu = (u0 + u1) / 2, cv2 = (v0 + v1) / 2, rr = Math.min(u1 - u0, v1 - v0) * 0.42; g.fillStyle = 'rgba(40,80,30,.55)'; g.beginPath(); g.arc(cu, cv2, rr, 0, 6.283); g.fill(); g.strokeStyle = 'rgba(230,220,170,.7)'; g.lineWidth = 0.4; g.beginPath(); g.arc(cu, cv2, rr * 0.55, 0, 6.283); g.stroke(); }
-      g.strokeStyle = 'rgba(226,214,170,.75)'; g.lineWidth = 0.45; g.strokeRect(u0, v0, u1 - u0, v1 - v0); }
+      g.strokeStyle = track; g.lineWidth = 0.45; g.strokeRect(u0, v0, u1 - u0, v1 - v0); }
   }
   g.setTransform(1, 0, 0, 1, 0, 0); return cv;
 }

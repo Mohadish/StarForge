@@ -205,7 +205,7 @@ export function paint(T, rgba, { frames = true, slots = true, relief = true } = 
   const groupOf = c => c <= CLS.shallow ? 0 : c === CLS.ice ? 2 : c === CLS.chasm ? 3 : 1;
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const i = y * W + x, c0 = cls[i], g0 = groupOf(c0); let c = c0;
-    if (relief && fine && g0 === 1) { const sx = (((x + Math.round(fine[i] * 7)) % W) + W) % W, sy = Math.max(0, Math.min(H - 1, y + Math.round(fine[(y * W + (x + 11) % W)] * 4))), cw = cls[sy * W + sx]; if (groupOf(cw) === 1) c = cw; }   // ragged edges: sample the band at a warped spot (land only)
+    if (relief && fine && (g0 === 1 || g0 === 2)) { const sx = (((x + Math.round(fine[i] * 7)) % W) + W) % W, sy = Math.max(0, Math.min(H - 1, y + Math.round(fine[(y * W + (x + 11) % W)] * 4))), cw = cls[sy * W + sx], gw = groupOf(cw); if (gw === 1 || gw === 2) c = cw; }   // ragged edges: sample the band at a warped spot (land and ice)
     let [r, g, b] = pal[c];
     if (relief && hill) { const hv = hill[i];
       if (g0 === 1) { const nb = hv > 0 ? Math.min(CLS.high, c + 1) : Math.max(CLS.low, c - 1), f = Math.min(1, Math.abs(hv) * 1.6) * 0.5, q = pal[nb]; r += (q[0] - r) * f; g += (q[1] - g) * f; b += (q[2] - b) * f; }
@@ -214,8 +214,8 @@ export function paint(T, rgba, { frames = true, slots = true, relief = true } = 
   }
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const i = y * W + x, c = cls[i]; let r = base[i * 3], g = base[i * 3 + 1], b = base[i * 3 + 2];
-    if (relief && grp[i] === 1) { let sr = 0, sg = 0, sb = 0, n = 0;                                 // soften the land's band transitions
-      for (let dy = -2; dy <= 2; dy++) { const yy = y + dy; if (yy < 0 || yy >= H) continue; for (let dx = -2; dx <= 2; dx++) { const j = yy * W + (((x + dx) % W) + W) % W; if (grp[j] !== 1) continue; sr += base[j * 3]; sg += base[j * 3 + 1]; sb += base[j * 3 + 2]; n++; } }
+    if (relief && (grp[i] === 1 || grp[i] === 2)) { let sr = 0, sg = 0, sb = 0, n = 0;              // soften the land's band transitions, the ice cap's edge too
+      for (let dy = -2; dy <= 2; dy++) { const yy = y + dy; if (yy < 0 || yy >= H) continue; for (let dx = -2; dx <= 2; dx++) { const j = yy * W + (((x + dx) % W) + W) % W; if (grp[j] !== 1 && grp[j] !== 2) continue; sr += base[j * 3]; sg += base[j * 3 + 1]; sb += base[j * 3 + 2]; n++; } }
       if (n) { r = sr / n; g = sg / n; b = sb / n; } }
     const right = x + 1 < W ? i + 1 : y * W, down = y + 1 < H ? i + W : i;                               // the right edge continues at the left (wrap)
     const water = c <= CLS.shallow, wR = cls[right] <= CLS.shallow, wD = cls[down] <= CLS.shallow;
