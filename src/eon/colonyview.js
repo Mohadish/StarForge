@@ -1,20 +1,39 @@
 // THE COLONY'S PICTURES (his pop-up, 2026-10-18): the planet's surface as cells of four slots, the development rectangle with its live
 // fillet, the effort triangle — drawn on canvases, shared by the game (app.js, the colony pop-up) and the sandbox (planetlab.js).
 // The canvases are drawn at full size and SHOWN to fit: toCanvas() turns a mouse position back into drawing pixels.
+// 2026-10-21: the surface sits on the PLANET (terrain.js): a straight grid squashed 2:1, every cell drawn as the Voronoi region of its
+// jittered centre on the generated terrain, its 4 slots the sub-regions; the overlays (kinds, cranes, plans…) follow those shapes.
 import { SLOT, DEV, TRAITS, TRAIT_GLYPH, TRI, FACTORS, FACTOR_COLOR, KIND_WORD, xy, isPure, normTri, bOf, focusOf, effectiveFocus, capsAll } from './colony.js';
 import { createTetra } from './tetra.js';
 import { LARGEST } from './districts.js';
+import { terrain, paint, KINDS } from './terrain.js';
 
-export const CELL = 100, GAP = 4, FRAME = LARGEST;                    // a cell, the gap between cells, the frame every planet is drawn in (the huge world's)
+export const CELLW = 140, CELLH = 70, FRAME = LARGEST;                 // a cell on the straight 2:1 grid (his call), the frame every planet is drawn in (the huge world's)
 export const TRI_COLOR = { industry: '#ffb347', research: '#4fa3ff', development: '#f5a3c7' };   // his palette: research blue as science, development pink as housing
 export const TRI_PTS = { industry: [28, 222], research: [222, 222], development: [125, 34] };   // on a 250 × 250 canvas
-export const mapSize = () => [FRAME.w * (CELL + GAP) + GAP, FRAME.h * (CELL + GAP) + GAP];
+export const mapSize = () => [FRAME.w * CELLW, FRAME.h * CELLH];
 export const toCanvas = (cv, e) => { const b = cv.getBoundingClientRect(); return [(e.clientX - b.left) * cv.width / b.width, (e.clientY - b.top) * cv.height / b.height]; };
 // a smaller world sits centred in the frame
-export const originOf = G => [Math.round((FRAME.w - G.w) / 2 * (CELL + GAP)), Math.round((FRAME.h - G.h) / 2 * (CELL + GAP))];
-export function cellAt(cv, G, e) {
-  const [mx, my] = toCanvas(cv, e), [ox, oy] = originOf(G), lx = mx - ox - GAP, ly = my - oy - GAP, x = Math.floor(lx / (CELL + GAP)), y = Math.floor(ly / (CELL + GAP));
-  return lx >= 0 && ly >= 0 && x < G.w && y < G.h && lx % (CELL + GAP) < CELL && ly % (CELL + GAP) < CELL ? y * G.w + x : -1;
+export const originOf = G => [Math.round((FRAME.w - G.w) / 2 * CELLW), Math.round((FRAME.h - G.h) / 2 * CELLH)];
+// THE PLANET UNDER THE CELLS: generated once per planet (its id + kind + size), painted into an offscreen canvas, with every slot's and
+// cell's box and centre (the slots are jittered Voronoi regions, so the overlays need to know where they are)
+const TERRAIN = new Map();
+const subIndex = (T, cell, s) => (2 * Math.floor(cell / T.w) + (s >> 1)) * (2 * T.w) + 2 * (cell % T.w) + (s & 1);
+export function terrainFor(G, planet = {}) {
+  const id = planet.id ?? 'sandbox', kind = KINDS.includes(planet.kind) ? planet.kind : 'rock', key = `${id}|${kind}|${G.w}x${G.h}`;
+  let T = TERRAIN.get(key); if (T) return T;
+  T = terrain(id + '|ground', G.w, G.h, kind, { cellW: CELLW, cellH: CELLH });
+  const c = document.createElement('canvas'); c.width = T.W; c.height = T.H; const g = c.getContext('2d'), img = g.createImageData(T.W, T.H); paint(T, img.data); g.putImageData(img, 0, 0); T.image = c;
+  const box = Array.from({ length: G.w * G.h * 4 }, () => [T.W, T.H, -1, -1, 0, 0, 0]);   // x0 y0 x1 y1 Σx Σy n per slot
+  for (let y = 0; y < T.H; y++) for (let x = 0; x < T.W; x++) { const b = box[T.sub[y * T.W + x]]; if (x < b[0]) b[0] = x; if (y < b[1]) b[1] = y; if (x > b[2]) b[2] = x; if (y > b[3]) b[3] = y; b[4] += x; b[5] += y; b[6]++; }
+  T.slotBox = box.map(b => ({ x0: b[0], y0: b[1], x1: b[2], y1: b[3], cx: b[6] ? b[4] / b[6] : 0, cy: b[6] ? b[5] / b[6] : 0 }));
+  T.cellBox = []; for (let k = 0; k < G.w * G.h; k++) { const bs = [0, 1, 2, 3].map(s => T.slotBox[subIndex(T, k, s)]); T.cellBox.push({ x0: Math.min(...bs.map(b => b.x0)), y0: Math.min(...bs.map(b => b.y0)), x1: Math.max(...bs.map(b => b.x1)), y1: Math.max(...bs.map(b => b.y1)), cx: bs.reduce((a, b) => a + b.cx, 0) / 4, cy: bs.reduce((a, b) => a + b.cy, 0) / 4 }); }
+  if (TERRAIN.size > 40) TERRAIN.delete(TERRAIN.keys().next().value); TERRAIN.set(key, T); return T;
+}
+export function cellAt(cv, G, e) {                    // the cell under the mouse = the pixel's owner on the last terrain drawn here
+  const T = cv._terrain; if (!T) return -1;
+  const [mx, my] = toCanvas(cv, e), [ox, oy] = originOf(G), x = Math.floor(mx - ox), y = Math.floor(my - oy);
+  return x >= 0 && y >= 0 && x < T.W && y < T.H ? T.owner[y * T.W + x] : -1;
 }
 // a kind's little pattern inside a slot (drawn for 34 px, scaled to the slot): chimneys, furrows, blocks, a dome
 export function glyph(g, kind, x, y, s) {
@@ -26,42 +45,46 @@ export function glyph(g, kind, x, y, s) {
   else { g.beginPath(); g.arc(17, 19, 10.6, Math.PI, 0); g.fill(); g.fillRect(6, 19, 22, 2); }
   g.restore();
 }
-// the surface: cells as 2 × 2 slot quarters, each kind its colour and its pattern (a placeholder tapestry until his sprites); the crane
-// ⚒ where the next slot goes (filled by the builders' progress), a red ✕ on a slot being torn down; planned cells framed in their kinds'
-// colours, traits in the corner, the landing a ring, a pure cell marked. opts: { next, hover, frameColor }
-export function drawSurface(cv, G, { next = null, hover = -1, frameColor = 'rgba(126,243,176,.45)' } = {}) {
-  const g = cv.getContext('2d'), [ox, oy] = originOf(G), half = CELL / 2, spots = [[0, 0], [half, 0], [0, half], [half, half]];
-  g.clearRect(0, 0, cv.width, cv.height);
-  if (G.w < FRAME.w || G.h < FRAME.h) { g.strokeStyle = 'rgba(255,255,255,.06)'; g.setLineDash([4, 6]); g.strokeRect(ox + GAP - 2.5, oy + GAP - 2.5, G.w * (CELL + GAP) - GAP + 5, G.h * (CELL + GAP) - GAP + 5); g.setLineDash([]); }
+const mark = (g, ch, col, x, y) => { g.fillStyle = col; g.font = 'bold 16px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.strokeStyle = 'rgba(0,0,0,.6)'; g.lineWidth = 3; g.strokeText(ch, x, y + 1); g.fillText(ch, x, y + 1); g.lineWidth = 1; };
+const rgbOf = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+// the surface: the planet, then a tint per slot region (its kind; a slot going up fills from the bottom; a slot being torn down reddens
+// from the left; a planned cell faintly in its first kind; the hovered cell lighter), then the vector bits: a built slot's pattern,
+// ⚒ where the next slot goes, ✕ on a slot being torn down, the plan's letters, the trait glyph, the landing ring, 'pure'.
+// opts: { next, hover, frameColor, planet: { id, kind } } — the planet's id seeds its terrain, kind = living | ocean | ice | other
+export function drawSurface(cv, G, { next = null, hover = -1, frameColor = 'rgba(126,243,176,.45)', planet = null } = {}) {
+  const g = cv.getContext('2d'), [ox, oy] = originOf(G), T = terrainFor(G, planet || {}); cv._terrain = T;
+  g.fillStyle = '#060a14'; g.fillRect(0, 0, cv.width, cv.height);
+  g.drawImage(T.image, ox, oy);
+  const RGB = Object.fromEntries(FACTORS.map(k => [k, rgbOf(FACTOR_COLOR[k])])), RED = [255, 121, 121];
+  const tints = new Array(G.w * G.h * 4).fill(null);
+  G.cells.forEach((cell, i) => { for (let s = 0; s < SLOT.per; s++) { const kind = cell.slots[s]; let t = null;
+    if (kind && bOf(cell, s) < 1) t = { c: RGB[kind], a: 0.12, fill: bOf(cell, s), fa: 0.5 };
+    else if (kind) { t = { c: RGB[kind], a: 0.32 }; if (next && next.demolish && next.cell === i && s === next.slot) t.dem = Math.min(1, (G.progress || 0) / DEV.demolish); }
+    else if (next && !next.demolish && !next.partial && next.cell === i && s === cell.slots.length) t = { c: RGB[next.kind], a: 0.08, fill: Math.min(1, next.b || 0), fa: 0.35 };
+    else if (cell.plan) t = { c: RGB[cell.plan[0]], a: 0.07 };
+    tints[i * 4 + s] = t; } });
+  const ov = cv._ov && cv._ov.width === T.W && cv._ov.height === T.H ? cv._ov : (cv._ov = Object.assign(document.createElement('canvas'), { width: T.W, height: T.H }));
+  const og = ov.getContext('2d'), img = og.createImageData(T.W, T.H), d = img.data;
+  for (let y = 0; y < T.H; y++) for (let x = 0; x < T.W; x++) {
+    const i = y * T.W + x, cell = T.owner[i], s = T.slot[i], t = tints[cell * 4 + s]; let r = 0, gg = 0, b = 0, a = 0;
+    if (t) { const box = T.slotBox[subIndex(T, cell, s)]; a = t.a; [r, gg, b] = t.c;
+      if (t.fill != null && y >= box.y1 - (box.y1 - box.y0) * t.fill) a = t.fa;
+      if (t.dem != null && x <= box.x0 + (box.x1 - box.x0) * t.dem) { [r, gg, b] = RED; a = 0.4; } }
+    if (cell === hover) { const ha = 0.16, na = a + ha; r = (r * a + 255 * ha) / na; gg = (gg * a + 255 * ha) / na; b = (b * a + 255 * ha) / na; a = na; }
+    const o = i * 4; d[o] = r; d[o + 1] = gg; d[o + 2] = b; d[o + 3] = Math.round(a * 255);
+  }
+  og.putImageData(img, 0, 0); g.drawImage(ov, ox, oy);
   G.cells.forEach((cell, i) => {
-    const [x, y] = xy(G, i), px = ox + GAP + x * (CELL + GAP), py = oy + GAP + y * (CELL + GAP), started = cell.slots.length > 0;
-    g.fillStyle = started ? '#0f1726' : '#090d18'; g.fillRect(px, py, CELL, CELL);
+    const cb = T.cellBox[i];
     for (let s = 0; s < SLOT.per; s++) {
-      const [sx, sy] = spots[s], kind = cell.slots[s];
-      if (kind && bOf(cell, s) < 1) {                   // GOING UP: faint, filling from the bottom as far as it is built; the crane on the one being built
-        const b = bOf(cell, s); g.fillStyle = FACTOR_COLOR[kind]; g.globalAlpha = 0.1; g.fillRect(px + sx + 2, py + sy + 2, half - 4, half - 4);
-        g.globalAlpha = 0.5; g.fillRect(px + sx + 2, py + sy + 2 + (half - 4) * (1 - b), half - 4, (half - 4) * b); g.globalAlpha = 1;
-        g.strokeStyle = FACTOR_COLOR[kind]; g.setLineDash([3, 3]); g.strokeRect(px + sx + 3.5, py + sy + 3.5, half - 7, half - 7); g.setLineDash([]);
-        if (next && next.cell === i && next.slot === s) { g.fillStyle = FACTOR_COLOR[kind]; g.font = '18px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('⚒', px + sx + half / 2, py + sy + half / 2 + 1); }
-      } else if (kind) {
-        g.fillStyle = FACTOR_COLOR[kind]; g.globalAlpha = 0.28; g.fillRect(px + sx + 2, py + sy + 2, half - 4, half - 4); g.globalAlpha = 1; glyph(g, kind, px + sx + 2, py + sy + 2, half - 4);
-        if (next && next.demolish && next.cell === i && s === next.slot) {
-          const p = Math.min(1, (G.progress || 0) / DEV.demolish); g.fillStyle = 'rgba(255,121,121,.35)'; g.fillRect(px + sx + 2, py + sy + 2, (half - 4) * p, half - 4);
-          g.strokeStyle = '#ff7979'; g.setLineDash([3, 3]); g.strokeRect(px + sx + 3.5, py + sy + 3.5, half - 7, half - 7); g.setLineDash([]);
-          g.fillStyle = '#ff7979'; g.font = 'bold 20px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('✕', px + sx + half / 2, py + sy + half / 2 + 1);
-        }
-      } else if (next && !next.demolish && !next.partial && next.cell === i && s === cell.slots.length) {
-        g.strokeStyle = FACTOR_COLOR[next.kind]; g.setLineDash([3, 3]); g.strokeRect(px + sx + 3.5, py + sy + 3.5, half - 7, half - 7); g.setLineDash([]);
-        const p = Math.min(1, next.b || 0); g.fillStyle = FACTOR_COLOR[next.kind]; g.globalAlpha = 0.35; g.fillRect(px + sx + 4, py + sy + half - 4 - (half - 8) * p, half - 8, (half - 8) * p); g.globalAlpha = 1;
-        g.fillStyle = FACTOR_COLOR[next.kind]; g.font = '18px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('⚒', px + sx + half / 2, py + sy + half / 2 + 1);
-      } else if (started) { g.strokeStyle = 'rgba(255,255,255,.08)'; g.strokeRect(px + sx + 3.5, py + sy + 3.5, half - 7, half - 7); }
+      const sb = T.slotBox[subIndex(T, i, s)], kind = cell.slots[s], size = Math.max(10, Math.min(sb.x1 - sb.x0, sb.y1 - sb.y0) * 0.72), x = ox + sb.cx, y = oy + sb.cy;
+      if (kind && bOf(cell, s) >= 1) { glyph(g, kind, x - size / 2, y - size / 2, size); if (next && next.demolish && next.cell === i && s === next.slot) mark(g, '✕', '#ff7979', x, y); }
+      else if (next && next.cell === i && (next.slot === s || (!next.partial && !next.demolish && s === cell.slots.length))) mark(g, '⚒', FACTOR_COLOR[next.kind], x, y);
     }
-    g.lineWidth = cell.plan ? 2 : 1; g.strokeStyle = cell.plan ? FACTOR_COLOR[cell.plan[0]] : started ? frameColor : 'rgba(255,255,255,.1)'; g.strokeRect(px + 0.5, py + 0.5, CELL - 1, CELL - 1); g.lineWidth = 1;
-    if (cell.plan) { g.fillStyle = '#04070f'; g.fillRect(px + 2, py + CELL - 16, 15 + 10 * (cell.plan.length - 1), 14); g.font = 'bold 11px system-ui'; g.textAlign = 'left'; g.textBaseline = 'alphabetic'; cell.plan.forEach((k, j) => { g.fillStyle = FACTOR_COLOR[k]; g.fillText(KIND_WORD[k][0].toUpperCase(), px + 4 + j * 10, py + CELL - 5); }); }
-    if (cell.trait && cell.trait !== 'none') { g.font = '14px system-ui'; g.textAlign = 'right'; g.textBaseline = 'alphabetic'; g.fillStyle = FACTOR_COLOR[TRAITS[cell.trait]]; g.fillText(TRAIT_GLYPH[cell.trait], px + CELL - 4, py + 15); }
-    if (i === G.landing) { g.strokeStyle = '#fff'; g.beginPath(); g.arc(px + CELL / 2, py + CELL / 2, 5, 0, 6.283); g.stroke(); }
-    if (isPure(cell)) { g.fillStyle = 'rgba(255,121,121,.9)'; g.font = '10px system-ui'; g.textAlign = 'left'; g.textBaseline = 'alphabetic'; g.fillText('pure', px + 3, py + 12); }
-    if (i === hover) { g.strokeStyle = '#fff'; g.strokeRect(px + 1.5, py + 1.5, CELL - 3, CELL - 3); }
+    if (cell.plan) { g.fillStyle = '#04070f'; g.fillRect(ox + cb.cx - 8, oy + cb.y1 - 15, 15 + 10 * (cell.plan.length - 1), 14); g.font = 'bold 11px system-ui'; g.textAlign = 'left'; g.textBaseline = 'alphabetic'; cell.plan.forEach((k, j) => { g.fillStyle = FACTOR_COLOR[k]; g.fillText(KIND_WORD[k][0].toUpperCase(), ox + cb.cx - 6 + j * 10, oy + cb.y1 - 4); }); }
+    if (cell.trait && cell.trait !== 'none') { g.font = '14px system-ui'; g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.fillStyle = FACTOR_COLOR[TRAITS[cell.trait]]; g.fillText(TRAIT_GLYPH[cell.trait], ox + cb.cx, oy + cb.y0 + 15); }
+    if (i === G.landing) { g.strokeStyle = '#fff'; g.lineWidth = 1.5; g.beginPath(); g.arc(ox + cb.cx, oy + cb.cy, 5, 0, 6.283); g.stroke(); g.lineWidth = 1; }
+    if (isPure(cell)) { g.fillStyle = 'rgba(255,121,121,.9)'; g.font = '10px system-ui'; g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.fillText('pure', ox + cb.cx, oy + cb.y0 + 27); }
   });
 }
 // THE FOCUS TETRAHEDRON (2026-10-20): the empire's pyramid widget, here with the colony's four kinds — the wish (a ring when the

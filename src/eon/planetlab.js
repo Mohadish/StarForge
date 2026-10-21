@@ -61,7 +61,7 @@ function renderQueue() {
     <label class="tiny" style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="qlanes" ${lanes > 1 ? 'checked' : ''}> work on the top two at once (the industry split)</label>`;
 }
 function run(on) { if (timer) { clearInterval(timer); timer = null; } if (on) timer = setInterval(step, 1000 / +$('speed').value); $('run').textContent = timer ? 'Pause ▮▮' : 'Run ▸▸'; $('run').classList.toggle('on', !!timer); }
-function drawMap() { drawSurface($('map'), C, { next: building(C), hover: hoverCell }); }
+function drawMap() { drawSurface($('map'), C, { next: building(C), hover: hoverCell, planet: { id: $('seed').value || 'home', kind: 'living' } }); }   // the sandbox: a living world seeded by the name
 let tetra = null;
 function drawRect() { const cv = $('rect'); if (!tetra) tetra = focusTetra(cv, { getG: () => C, onChange: w => { C.wf = w; render(); } }); tetra.draw(); cv.title = FACTORS.map(k => filletWhy(C, k, C.last)).join('\n'); }   // why a corner is rounded: on the hover, not on the page (his call)
 function drawTri() { const cv = $('tri'); drawTriV(cv, C.tri); const r = C.last; cv.title = `industry ${Math.round(r.hands.industry)} M hands for ${Math.round(r.cap.industry)} M of works · research ${Math.round(r.hands.research)} M for ${Math.round(r.cap.science)} M of labs · ${Math.round(r.hands.development)} M builders → ${r.dev.toFixed(1)} points an eon`; }

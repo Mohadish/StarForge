@@ -1135,17 +1135,18 @@ function openColPop(placeId, k = null) {
   map.addEventListener('click', e => { const pc = cpColony(); if (!pc || cpRO()) return; const i = surfaceCellAt(map, pc.G, e); if (i < 0) return; toastErr(planCell(S, colPop, i, nextPlan(pc.G.cells[i].plan))); save(); refresh(); });
   map.addEventListener('mousemove', e => {
     const pc = cpColony(); if (!pc) return; const i = surfaceCellAt(map, pc.G, e), tip = $('cpTip');
-    if (i !== cpHover) { cpHover = i; drawSurface(map, pc.G, { next: pc.next, hover: i, frameColor: cpFrame() }); }
+    if (i !== cpHover) { cpHover = i; drawSurface(map, pc.G, { next: pc.next, hover: i, frameColor: cpFrame(), planet: cpPlanet(pc) }); }
     if (i < 0) { tip.style.display = 'none'; return; }
     const cell = pc.G.cells[i], out = pc.perCell[i], [x, y] = xy(pc.G, i);
     tip.innerHTML = `<b>cell ${x + 1},${y + 1}</b> · ${cell.trait === 'none' ? 'plain ground' : `${cell.trait} ground (${SLOT_WORD[TRAITS[cell.trait]]} × ${TRAIT.boost})`}${cell.plan ? ` · planned: ${cell.plan.map(k => SLOT_WORD[k]).join(' + ')}` : ''}<br>${cell.slots.length ? `slots: ${cell.slots.map(k => `<span style="color:${FACTOR_COLOR[k]}">${SLOT_WORD[k]}</span>`).join(', ')}<br>gives: ${FACTORS.filter(k => out[k] > 0.5).map(k => `${SLOT_WORD[k]} ${Math.round(out[k])} M`).join(' · ')}${out.staffed < 0.999 ? `<br><span class="up">short of hands: no home of its own (${Math.round(out.staffed * 100)} %)</span>` : ''}${out.purity > 0.99 ? '<br><span class="up">pure: a focus shock hits it hardest</span>' : ''}` : 'not built yet'}`;
     tip.style.display = 'block'; tip.style.left = Math.min(innerWidth - 300, e.clientX + 14) + 'px'; tip.style.top = (e.clientY + 14) + 'px';
   });
-  map.addEventListener('mouseleave', () => { cpHover = -1; $('cpTip').style.display = 'none'; const pc = cpColony(); if (pc) drawSurface(map, pc.G, { next: pc.next, frameColor: cpFrame() }); });
+  map.addEventListener('mouseleave', () => { cpHover = -1; $('cpTip').style.display = 'none'; const pc = cpColony(); if (pc) drawSurface(map, pc.G, { next: pc.next, frameColor: cpFrame(), planet: cpPlanet(pc) }); });
   renderColPop();
 }
 function closeColPop() { colPop = null; colPopK = null; cpDrag = null; $('colPop').hidden = true; $('cpTip').style.display = 'none'; }
 const cpFrame = () => { const E = cpE(); return E && E.look && E.look.colA ? E.look.colA + '99' : 'rgba(126,243,176,.45)'; };   // the developed cells framed in the empire's colour
+const cpPlanet = pc => ({ id: pc.pl.id, kind: worldOf(pc.pl) });   // the planet under the cells (terrain.js): its id seeds the ground, its kind colours it ('other' = rock)
 function renderColPop(fromTetra = false) {
   if (!colPop) return; const pc = cpColony(); if (!pc || !pc.G) return closeColPop();
   const bar = $('replayBar'), top = Math.max($('topbar').getBoundingClientRect().bottom, bar && !bar.hidden ? bar.getBoundingClientRect().bottom : 0);
@@ -1154,7 +1155,7 @@ function renderColPop(fromTetra = false) {
   $('cpName').textContent = cpRO() ? `${E.name}'s ${pl.name}` : pl.name; $('cpName').style.color = cpRO() ? E.look.colA : '';
   $('cpMeta').textContent = `${cpRO() ? '👁 GOD MODE · ' : ''}${home ? 'HOMEWORLD' : 'COLONY'}   TYPE: ${WORLD_KIND[worldOf(pl)].toUpperCase()}   SIZE: ${size.name.toUpperCase()} ${size.w} × ${size.h}`;
   $('cpMeta').title = habWord(habitabilityOf(pl));
-  drawSurface($('cpMap'), G, { next: pc.next, hover: cpHover, frameColor: cpFrame() });
+  drawSurface($('cpMap'), G, { next: pc.next, hover: cpHover, frameColor: cpFrame(), planet: cpPlanet(pc) });
   if (cpTetra && !fromTetra) cpTetra.draw(); $('cpRect').title = FACTORS.map(k => filletWhy(G, k, cpWhy(pc))).join('\n') + '\n(drag the ball · click a corner to pull toward it · drag empty space to turn it)';
   drawEffortTri($('cpTri'), { industry: P.split[0], research: P.split[1], development: P.split[2] });
   $('cpTri').title = `industry: ${fmt(pc.people.industry)} M hands for ${fmt(pc.cap.industry)} M of works · research: ${fmt(pc.people.research)} M for ${fmt(pc.cap.science)} M of labs · development: ${fmt(pc.people.development)} M builders → ${pc.dev.toFixed(1)} points an eon`;

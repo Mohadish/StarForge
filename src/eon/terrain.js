@@ -72,8 +72,8 @@ export function terrain(seed, w, h, kind, { cellW = 140, cellH = 70, jitter = 0.
   const rank = t => t === 'ocean' ? 0 : t === 'chasm' ? 0 : t === 'low' ? 1 : t === 'ice' ? 1 : t === 'mid' ? 2 : 3;
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const i = y * W + x, gi = Math.floor(x / dw), gj = Math.floor(y / dh);
-    const wob = fbm(n1, x / 80, y / 40) * amp, wob2 = fbm(n2, x / 50, y / 25, 3) * amp * 0.7;     // the border wobble (one field, so borders stay consistent)
-    const hill = fbm(n2, x / 60, y / 30, 3);                                                       // inner relief: patches of higher / lower ground
+    const wob = fbm(n1, x / 120, y / 60) * amp, wob2 = fbm(n2, x / 80, y / 40, 3) * amp * 0.7;    // the border wobble, soft and slow (his "soften the coasts")
+    const hill = fbm(n2, x / 70, y / 35, 3);                                                       // inner relief: patches of higher / lower ground
     let best = -1, bd = 1e18, tBest = -1, tbd = 1e18; const dists = [];
     for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
       const cj = gj + dj; if (cj < 0 || cj >= h4) continue; const ci = (gi + di + w4) % w4, k = cj * w4 + ci;
