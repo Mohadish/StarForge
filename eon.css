@@ -175,11 +175,11 @@
    the huge world's outline; the output under it; the production line on the right, two cells wide, always (the column shrinks instead) */
 #colPop{position:fixed;inset:0;z-index:80;background:rgba(4,7,15,.72);overflow:auto;padding:18px 16px 40px}
 #colPop[hidden]{display:none}
-#colPop .cpbox{max-width:920px;margin:0 auto;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px 14px;box-shadow:0 18px 50px rgba(0,0,0,.7)}
+#colPop .cpbox{max-width:1400px;margin:0 auto;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px 14px;box-shadow:0 18px 50px rgba(0,0,0,.7)}
 #colPop .cphead{display:flex;align-items:baseline;gap:12px;padding:0 4px 10px}
 #colPop .cphead b{font-size:20px;flex:none}
 #colPop .cphead span{flex:1;text-align:right;font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.04em;white-space:pre}
-#colPop .cpgrid{display:grid;grid-template-columns:minmax(0,656px) 232px;gap:12px;align-items:start}
+#colPop .cpgrid{display:grid;grid-template-columns:minmax(0,1114px) 232px;gap:12px;align-items:start}   /* the planet 30 % bigger (his ask 2026-10-21): 6 cells × 182 px + the card's padding */
 #colPop .cpmain{min-width:0;display:grid;gap:12px}
 #colPop .cprow2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 #colPop .cpcard{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:10px}

@@ -9,7 +9,7 @@ import { LARGEST } from './districts.js';
 import { terrain, paint, KINDS } from './terrain.js';
 import { renderColony, stateFromSurface, stateKey } from './surface.js';
 
-export const CELLW = 140, CELLH = 70, FRAME = LARGEST;                 // a cell on the straight 2:1 grid (his call), the frame every planet is drawn in (the huge world's)
+export const CELLW = 182, CELLH = 91, FRAME = LARGEST;                 // a cell on the straight 2:1 grid (his call), 30 % up from 140 × 70 (his ask 2026-10-21: "make the planet bigger"); the frame = the huge world's
 export const TRI_COLOR = { industry: '#ffb347', research: '#4fa3ff', development: '#f5a3c7' };   // his palette: research blue as science, development pink as housing
 export const TRI_PTS = { industry: [28, 222], research: [222, 222], development: [125, 34] };   // on a 250 × 250 canvas
 export const mapSize = () => [FRAME.w * CELLW, FRAME.h * CELLH];

@@ -90,7 +90,8 @@ export function terrain(seed, w, h, kind, { cellW = 140, cellH = 70, jitter = 0.
   const dist = (p, x, y) => { const dx = wrapDx(x - p.x), dy = (y - p.y) * 2; return Math.sqrt(dx * dx + dy * dy); };
   // the noise fields, once per pixel
   const f1 = new Float32Array(N), f2 = new Float32Array(N), hill = new Float32Array(N);
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const i = y * W + x; f1[i] = fbm(n1, x / 150, y / 75); f2[i] = fbm(n2, x / 70, y / 35, 3); hill[i] = fbm(n2, x / 60, y / 30, 3); }
+  const U = cellW / 140;                                                                            // the px-sized noises scale with the cell (140 × 70 was the design size)
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const i = y * W + x; f1[i] = fbm(n1, x / (150 * U), y / (75 * U)); f2[i] = fbm(n2, x / (70 * U), y / (35 * U), 3); hill[i] = fbm(n2, x / (60 * U), y / (30 * U), 3); }
   const AMP = [cellH * 0.55, cellH * 0.3, cellH * 0.16], wob = (p, L, i) => (p.c1 * f1[i] + p.c2 * f2[i]) * AMP[L];
   // k-means: K seeds inside a region (its pixel list), anchored for the wrap; every seed keeps members (an empty one is re-seeded)
   const kmeans = (members, K, anchor) => {
@@ -157,7 +158,7 @@ export function terrain(seed, w, h, kind, { cellW = 140, cellH = 70, jitter = 0.
   // fjords, inlets, skerries — strongest at the line itself, fading over ROUGH.r
   const ROUGH = { r: cellH * 0.22, bite: 0.1 }, nR = perlin(s ^ 0x2545f491); let dc = coastDistance();
   for (let i = 0; i < N; i++) { if (dc[i] >= ROUGH.r || cls[i] === CLS.ice || cls[i] === CLS.chasm) continue; const x = i % W, y = (i / W) | 0;
-    const v = fbm(nR, x / 11, y / 5.5, 3) + 0.5 * fbm(nR, x / 4, y / 2, 2), t = ROUGH.bite + 0.6 * dc[i] / ROUGH.r;
+    const v = fbm(nR, x / (11 * U), y / (5.5 * U), 3) + 0.5 * fbm(nR, x / (4 * U), y / (2 * U), 2), t = ROUGH.bite + 0.6 * dc[i] / ROUGH.r;
     if (water[i] && v > t) { water[i] = 0; cls[i] = CLS.low; } else if (!water[i] && v < -t) { water[i] = 1; cls[i] = CLS.deep; } }
   dc = coastDistance();
   const band = cellH * 0.2, beach = cellH * 0.1;
@@ -171,13 +172,13 @@ export function terrain(seed, w, h, kind, { cellW = 140, cellH = 70, jitter = 0.
   const dArea = new Uint32Array(dtype.length); for (let i = 0; i < N; i++) dArea[det[i]]++;
   const hab = new Uint8Array(dtype.length); for (let k = 0; k < dtype.length; k++) hab[k] = dArea[k] && !polar[k] && habitable(kind, dtype[k]) ? 1 : 0;
   let gross = 0, net = 0; for (let k = 0; k < hab.length; k++) { if (dArea[k]) gross++; net += hab[k]; }
-  const fine = new Float32Array(N); for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) fine[y * W + x] = fbm(n2, x / 9, y / 4.5, 2);   // a fine noise: ragged band edges
+  const fine = new Float32Array(N); for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) fine[y * W + x] = fbm(n2, x / (9 * U), y / (4.5 * U), 2);   // a fine noise: ragged band edges
   // JAGGED DISTRICT OUTLINES for drawing (his ask 2026-10-21: "like the shorelines, more pronounced"): every land pixel takes the
   // district found at a spot displaced by a strong torn noise, so the straight Voronoi borders become ragged edges; water, chasm and
   // ice pixels keep their own district, so the coast and the cap edge stay where they are. The model's `det` is untouched.
   const detJ = new Int16Array(det), nJ = perlin(s ^ 0x3c6ef372);
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const i = y * W + x, c0 = cls[i]; if (c0 <= CLS.shallow || c0 === CLS.chasm) continue;
-    const jx = fbm(nJ, x / 10, y / 5, 3) * 9 + fbm(nJ, x / 3.5 + 50, y / 1.75, 2) * 3, jy = fbm(nJ, x / 10 + 90, y / 5 + 90, 3) * 4.5 + fbm(nJ, x / 3.5 + 140, y / 1.75, 2) * 1.5;
+    const jx = (fbm(nJ, x / (10 * U), y / (5 * U), 3) * 9 + fbm(nJ, x / (3.5 * U) + 50, y / (1.75 * U), 2) * 3) * U, jy = (fbm(nJ, x / (10 * U) + 90, y / (5 * U) + 90, 3) * 4.5 + fbm(nJ, x / (3.5 * U) + 140, y / (1.75 * U), 2) * 1.5) * U;
     const sx = (((x + Math.round(jx)) % W) + W) % W, sy = Math.max(0, Math.min(H - 1, y + Math.round(jy))), j = sy * W + sx, c1 = cls[j];
     if (c1 <= CLS.shallow || c1 === CLS.chasm || (c1 === CLS.ice) !== (c0 === CLS.ice)) continue; detJ[i] = det[j]; }
   const T = { w, h, W, H, cellW, cellH, kind, type, slotType, dtype, polar, habitable: hab, dArea, cls, owner, slot, sub, det, detJ, seeds, subSeeds, detSeeds, land, gross, net, hill, fine, coast };
@@ -221,9 +222,9 @@ export function paint(T, rgba, { frames = true, slots = true, relief = true } = 
     if (relief && hill) { const hv = hill[i];
       if (g0 === 1) { const nb = hv > 0 ? Math.min(CLS.high, c + 1) : Math.max(CLS.low, c - 1), f = Math.min(1, Math.abs(hv) * 1.6) * 0.5, q = pal[nb]; r += (q[0] - r) * f; g += (q[1] - g) * f; b += (q[2] - b) * f; }
       else if (g0 === 0) {                                                                           // THE WATER (his ask): a depth gradient from the shallows into the deep, and a ripple texture
-        const dcv = T.coast ? T.coast[i] : 99, t = Math.min(1, dcv / 34), e = t * t * (3 - 2 * t), S = pal[CLS.shallow], D = pal[CLS.deep];
+        const U = (T.cellW || 140) / 140, dcv = T.coast ? T.coast[i] : 99, t = Math.min(1, dcv / (34 * U)), e = t * t * (3 - 2 * t), S = pal[CLS.shallow], D = pal[CLS.deep];
         r = S[0] + (D[0] - S[0]) * e; g = S[1] + (D[1] - S[1]) * e; b = S[2] + (D[2] - S[2]) * e;
-        if (dcv < 3) { r = r * 0.7 + 190 * 0.3; g = g * 0.7 + 188 * 0.3; b = b * 0.7 + 160 * 0.3; }    // a sandy lip at the shore
+        if (dcv < 3 * U) { r = r * 0.7 + 190 * 0.3; g = g * 0.7 + 188 * 0.3; b = b * 0.7 + 160 * 0.3; }   // a sandy lip at the shore
         const rip = 1 + (fine ? fine[i] : 0) * 0.14 + hv * 0.08 + ((fine && fine[i] > 0.28) ? 0.05 : 0); r *= rip; g *= rip; b *= rip; } }
     base[i * 3] = r; base[i * 3 + 1] = g; base[i * 3 + 2] = b; grp[i] = g0;
   }
