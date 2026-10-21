@@ -92,8 +92,7 @@ function ground(g, chip, cx, cy, s, P) {
 }
 export function drawChip(g, chip, cx, cy, s, { tint = null } = {}) {
   const P = PALETTE[chip.kind];
-  ground(g, chip, cx, cy, s, P);
-  if (chip.kind === 'science') { g.fillStyle = P.glow; g.beginPath(); g.ellipse(cx, cy + 0.5 * s, chip.r * 0.55 * s, chip.r * 0.28 * s, 0, 0, 6.283); g.fill(); }
+  ground(g, chip, cx, cy, s, P);                        // (the science chips lost their blue surround — his call 2026-10-21)
   for (const p of chip.pieces) {
     if (p.kind === 'peak') { const x = cx + p.x * s, y = cy + p.y * s, w = p.w * s, h = p.h * s, foot = y + w * 0.18, k1 = 0.55 + 0.2 * ((p.u * 7) % 1), k2 = 0.5 + 0.25 * ((p.v * 5) % 1);   // a broad mountain: two faces, a bent skirt, the sunlit face left
       g.fillStyle = P.left; g.beginPath(); g.moveTo(x - w, y); g.lineTo(x - w * k1, y - h * 0.3); g.lineTo(x, y - h); g.lineTo(x - w * 0.08, foot); g.closePath(); g.fill();
@@ -122,13 +121,17 @@ export function drawChip(g, chip, cx, cy, s, { tint = null } = {}) {
 const PLOTS = [['#6f9a3c', 5], ['#86b14a', 5], ['#5e8a36', 4], ['#9cb84f', 3], ['#c9b64b', 3], ['#d7c35e', 2], ['#a6894a', 2], ['#8b6a3f', 1.5], ['#b7a24e', 2], ['#7fa36c', 2], ['#7b5fa6', 0.4], ['#5a7fb3', 0.6]];
 // the URBAN grid (his idea: the same patchwork, as a sub-layer under the cities and the industry): concrete greys, dark yards, small blocks
 const URBAN = [['#a9a8a2', 4], ['#bdbbb4', 3], ['#8f9194', 4], ['#777a7e', 3], ['#c9c6bd', 2], ['#636669', 2], ['#9b968c', 2], ['#575a5e', 1]];
-export const urbanTile = (seed = 1, s = 1) => fieldsTile(seed, s, 48, { plots: URBAN, track: 'rgba(52,54,58,.75)', size: 4, stripes: 0, pivots: 0 });
-export function fieldsTile(seed = 1, s = 1, L = 48, { plots: PL = PLOTS, track = 'rgba(226,214,170,.75)', size = 6, stripes = 0.5, pivots = 0.12 } = {}) {
+export const urbanTile = (seed = 1, s = 1) => fieldsTile(seed, s, 48, { plots: URBAN, track: 'rgba(52,54,58,.75)', size: 4, stripes: 0, pivots: 0, gribble: true, parks: 0.14 });
+const GRIB = { top: '#d4d3cd', left: '#a6a6a1', right: '#7e7f7c', park: ['#5f8f4a', '#6e9c52', '#578a44'], tree: '#3b7236' };
+export function fieldsTile(seed = 1, s = 1, L = 48, { plots: PL = PLOTS, track = 'rgba(226,214,170,.75)', size = 6, stripes = 0.5, pivots = 0.12, gribble = false, parks = 0 } = {}) {
   const rnd = mulberry(seed * 977 + 3), leaves = [], split = (u0, v0, u1, v1, depth) => { const du = u1 - u0, dv = v1 - v0; if ((Math.max(du, dv) < size + rnd() * 3 && depth > 1) || depth > 10) { leaves.push([u0, v0, u1, v1]); return; }
     const t = 0.32 + rnd() * 0.36; if (du >= dv) { split(u0, v0, u0 + du * t, v1, depth + 1); split(u0 + du * t, v0, u1, v1, depth + 1); } else { split(u0, v0, u1, v0 + dv * t, depth + 1); split(u0, v0 + dv * t, u1, v1, depth + 1); } };
   split(0, 0, L, L, 0);
   const tot = PL.reduce((a, p) => a + p[1], 0), pick = () => { let r = rnd() * tot; for (const [c, w] of PL) { r -= w; if (r <= 0) return c; } return PL[0][0]; };
-  const plots = leaves.map(([u0, v0, u1, v1]) => ({ u0, v0, u1, v1, c: pick(), pivot: Math.min(u1 - u0, v1 - v0) > 5 && rnd() < pivots, stripes: rnd() < stripes }));
+  const plots = leaves.map(([u0, v0, u1, v1]) => { const park = rnd() < parks; return { u0, v0, u1, v1, c: park ? GRIB.park[Math.floor(rnd() * 3)] : pick(), park, pivot: Math.min(u1 - u0, v1 - v0) > 5 && rnd() < pivots, stripes: rnd() < stripes,
+    // the GRIBBLE (his ask): tiny blocks on a lattice inside the plot, way smaller than the chips; a park gets a few tiny trees instead
+    bits: gribble ? (() => { const out = [], m = 0.7; if (park) { for (let k = 0; k < 1 + Math.floor(rnd() * 3); k++) out.push({ u: u0 + m + rnd() * (u1 - u0 - 2 * m), v: v0 + m + rnd() * (v1 - v0 - 2 * m), tree: 0.35 + rnd() * 0.3 }); return out; }
+      for (let u = u0 + m + 0.4; u < u1 - m; u += 1.25) for (let v = v0 + m + 0.4; v < v1 - m; v += 1.25) if (rnd() < 0.75) out.push({ u: u + (rnd() - 0.5) * 0.3, v: v + (rnd() - 0.5) * 0.3, a: 0.3 + rnd() * 0.25, h: 0.35 + rnd() * 1.1 }); return out; })() : [] }; });
   const cv = typeof document !== 'undefined' ? document.createElement('canvas') : null; if (!cv) return { plots, L };
   cv.width = Math.round(2 * L * s); cv.height = Math.round(L * s); const g = cv.getContext('2d');
   for (const [ou, ov] of [[0, 0], [-L, 0], [L, 0], [0, -L], [0, L], [-L, -L], [L, L], [-L, L], [L, -L]]) {
@@ -139,7 +142,20 @@ export function fieldsTile(seed = 1, s = 1, L = 48, { plots: PL = PLOTS, track =
       if (p.pivot) { const cu = (u0 + u1) / 2, cv2 = (v0 + v1) / 2, rr = Math.min(u1 - u0, v1 - v0) * 0.42; g.fillStyle = 'rgba(40,80,30,.55)'; g.beginPath(); g.arc(cu, cv2, rr, 0, 6.283); g.fill(); g.strokeStyle = 'rgba(230,220,170,.7)'; g.lineWidth = 0.4; g.beginPath(); g.arc(cu, cv2, rr * 0.55, 0, 6.283); g.stroke(); }
       g.strokeStyle = track; g.lineWidth = 0.45; g.strokeRect(u0, v0, u1 - u0, v1 - v0); }
   }
-  g.setTransform(1, 0, 0, 1, 0, 0); return cv;
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  if (gribble) {                                          // the bits in screen space (tiny iso boxes need a vertical), for every offset copy, sorted back to front
+    const M = (u, v) => [s * u - s * v + L * s, 0.5 * s * u + 0.5 * s * v], bits = [];
+    for (const [ou, ov] of [[0, 0], [-L, 0], [L, 0], [0, -L], [0, L], [-L, -L], [L, L], [-L, L], [L, -L]]) for (const p of plots) for (const b of p.bits) { const [x, y] = M(b.u + ou, b.v + ov); if (x < -4 * s || y < -4 * s || x > cv.width + 4 * s || y > cv.height + 4 * s) continue; bits.push({ ...b, x, y }); }
+    bits.sort((p, q) => p.y - q.y);
+    for (const b of bits) {
+      if (b.tree) { g.fillStyle = GRIB.tree; g.beginPath(); g.arc(b.x, b.y - b.tree * s * 0.5, b.tree * s, 0, 6.283); g.fill(); continue; }
+      const A = b.a * s, H = b.h * s, L0 = [b.x - 2 * A, b.y], Bt = [b.x, b.y + A], R = [b.x + 2 * A, b.y], T = [b.x, b.y - A];
+      g.fillStyle = GRIB.left; g.beginPath(); g.moveTo(...L0); g.lineTo(...Bt); g.lineTo(Bt[0], Bt[1] - H); g.lineTo(L0[0], L0[1] - H); g.closePath(); g.fill();
+      g.fillStyle = GRIB.right; g.beginPath(); g.moveTo(...Bt); g.lineTo(...R); g.lineTo(R[0], R[1] - H); g.lineTo(Bt[0], Bt[1] - H); g.closePath(); g.fill();
+      g.fillStyle = GRIB.top; g.beginPath(); g.moveTo(L0[0], L0[1] - H); g.lineTo(Bt[0], Bt[1] - H); g.lineTo(R[0], R[1] - H); g.lineTo(T[0], T[1] - H); g.closePath(); g.fill();
+    }
+  }
+  return cv;
 }
 // ---- a district FILLS UP (his direction): its chips by how built it is (fill 0..1) — one small chip first, then more and bigger
 // ones packed from the district's heart outward, the biggest at the heart, smaller toward the edge; a full district holds `cap` ----

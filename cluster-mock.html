@@ -8,6 +8,8 @@
 <canvas id="grow" width="1400" height="200"></canvas>
 <h3>the fields pattern (code): small plots along the iso axes, tracks, pivots — at 1× (left) and 4× (right)</h3>
 <canvas id="fld" width="1400" height="200"></canvas>
+<h3>the urban grid (code): concrete plots with tiny gribble blocks inside, parks dotted green — at 2× (left) and 6× (right)</h3>
+<canvas id="urb" width="1400" height="220"></canvas>
 <h3>living 6 × 3 at 1:1 — ragged soft bands, fields clipped to the food districts, ridges on the high ground, forests on the empty land, chips in the districts</h3>
 <canvas id="a" width="840" height="210"></canvas>
 <h3>the same at 2×</h3>
@@ -34,7 +36,8 @@ const FACTION = '#9fe8c4';
     chips.sort((p, q) => p.y - q.y).forEach(p => drawChip(g, p.chip, cx + p.x * 4, cy + p.y * 4, 4, { tint: FACTION }));
     g.fillStyle = '#cfd8e6'; g.font = '12px system-ui'; g.fillText(`${Math.round(fill * 100)} % built · ${chips.length} chips`, cx - 40, 190); }); }
 // 3. the fields pattern
-{ const g = document.getElementById('fld').getContext('2d'); g.fillStyle = g.createPattern(fieldsTile(1, 1), 'repeat'); g.fillRect(0, 0, 680, 200); g.fillStyle = g.createPattern(fieldsTile(1, 4), 'repeat'); g.fillRect(700, 0, 700, 200); }
+{ const g = document.getElementById('fld').getContext('2d'); g.fillStyle = g.createPattern(fieldsTile(1, 1), 'repeat'); g.fillRect(0, 0, 680, 200); g.fillStyle = g.createPattern(fieldsTile(1, 4), 'repeat'); g.fillRect(700, 0, 700, 200);
+  const u = document.getElementById('urb').getContext('2d'); u.fillStyle = u.createPattern(urbanTile(2, 2), 'repeat'); u.fillRect(0, 0, 680, 220); u.fillStyle = u.createPattern(urbanTile(2, 6), 'repeat'); u.fillRect(700, 0, 700, 220); }
 // 4. the planet
 function vnoise(seed) { const r = mulberry(seed), g = new Float32Array(64 * 64); for (let i = 0; i < g.length; i++) g[i] = r(); return (x, y) => { const xi = Math.floor(x), yi = Math.floor(y), fx = x - xi, fy = y - yi, s = (a, b) => g[((b & 63) * 64) + (a & 63)], u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy); return (s(xi, yi) * (1 - u) + s(xi + 1, yi) * u) * (1 - v) + (s(xi, yi + 1) * (1 - u) + s(xi + 1, yi + 1) * u) * v; }; }
 function grow(T, share, rnd) {
