@@ -1,21 +1,23 @@
-// THE PLANET'S SURFACE, CELLS FIRST (his idea 2026-10-21): the colony's w × h grid, every cell drawn as the Voronoi region of its jittered
-// centre on a surface that WRAPS left to right (the strip is the sphere's belt), and the CELLS DEFINE THE TOPOGRAPHY: each cell is an
-// ocean / lowland / upland / highland / ice / chasm cell (clustered so oceans and ranges are coherent), and the terrain is elaborated
-// along the cell borders — coastlines wobble, a shallow band and a beach follow them, contours between land bands wobble too.
-// A planet has a GROSS size (w × h cells) and a NET size (the usable cells: land that is not a chasm). Pure functions on arrays:
-// the same code paints a canvas ImageData in the game and a PNG in node.
+// THE PLANET'S SURFACE, CELLS FIRST (his direction 2026-10-21): the colony's w × h grid, every cell drawn as the Voronoi region of its
+// jittered centre on a surface that WRAPS left to right (the strip is the sphere's belt), and the CELLS DEFINE THE TOPOGRAPHY.
+// Three NESTED Voronoi levels: the CELLS (rough, oblique, odd — the grid everything builds on), the SLOTS (4 inside each cell) and
+// the DETAIL (4 inside each slot = the DISTRICTS: the smallest cells, one district each, only on habitable ground). The finer seeds
+// are found by clustering the parent's own pixels (k-means), so every region is split into 4 even, non-empty parts and the finer
+// levels never straighten the cell outline. Each slot has a NATURE (ocean / low / mid / high / ice / chasm, clustered so oceans and
+// ranges are coherent); each detail cell inherits it with a small chance to flip (islands, lakes, bumps, pits); the polar caps are
+// detail cells too (a defined area). The terrain's own ownership is the same walk with a per-seed wobble at every level, so coasts
+// and contours wander across the exact borders; a fine noise then roughens the shoreline; the shallow band and the beach come from
+// a distance pass. A planet has a GROSS size (districts) and a NET size (habitable districts). Pure functions on arrays.
 export const KINDS = ['living', 'ocean', 'ice', 'rock'];
 export const CLS = { deep: 0, shallow: 1, low: 2, mid: 3, high: 4, ice: 5, chasm: 6 };
 export const CELL_TYPES = ['ocean', 'low', 'mid', 'high', 'ice', 'chasm'];
-const SHARE = {                                                              // of the cells: water, highland (of the land), chasm, polar ice chance
-  living: { water: 0.42, high: 0.25, chasm: 0, polar: 0.8 },
-  ocean:  { water: 0.78, high: 0.3, chasm: 0, polar: 0.6 },
-  ice:    { water: 0.3, high: 0.2, chasm: 0, polar: 1 },                     // its seas are frozen hundreds of km deep: buildable (his call)
-  rock:   { water: 0, high: 0.3, chasm: 0, polar: 0 },                       // a dead world is all surface — only tiny pits are lost (his call)
+const SHARE = {                                                              // of the slots: water, highland (of the land), chasm
+  living: { water: 0.42, high: 0.25, chasm: 0 },
+  ocean:  { water: 0.78, high: 0.3, chasm: 0 },
+  ice:    { water: 0.3, high: 0.2, chasm: 0 },                               // its seas are frozen hundreds of km deep: buildable (his call)
+  rock:   { water: 0, high: 0.3, chasm: 0 },                                 // a dead world is all surface — only tiny pits are lost (his call)
 };
-// HABITABLE (his rule 2026-10-21): what a district can stand on. Only water forbids, and only on living and ocean worlds; an ice
-// world's frozen sea is ground; a dead world's few pits are the exception. Later: radiation and more.
-export const habitable = (kind, t) => t !== 'chasm' && (t !== 'ocean' || kind === 'ice');
+const CAP = { living: 0.86, ocean: 0.88, ice: 0.7, rock: 2 };               // |latitude| of a detail seed beyond which it is polar ice (rock: never)
 export const PALETTE = {                                                     // per class, [r,g,b]: deep, shallow, low, mid, high, ice, chasm
   living: [[24, 58, 104], [52, 118, 160], [92, 140, 72], [132, 138, 88], [182, 176, 150], [232, 240, 246], [30, 26, 24]],
   ocean:  [[16, 48, 96], [40, 110, 160], [100, 146, 90], [146, 144, 100], [196, 190, 170], [232, 240, 246], [30, 26, 24]],
@@ -23,6 +25,9 @@ export const PALETTE = {                                                     // 
   rock:   [[52, 44, 40], [70, 60, 54], [120, 98, 72], [152, 130, 96], [192, 172, 138], [222, 208, 184], [26, 22, 20]],
 };
 export const USABLE = t => t !== 'ocean' && t !== 'chasm';
+// HABITABLE (his rule 2026-10-21): what a district can stand on. Only water forbids, and only on living and ocean worlds; an ice
+// world's frozen sea is ground; a dead world's few pits are the exception. Later: radiation and more.
+export const habitable = (kind, t) => t !== 'chasm' && (t !== 'ocean' || kind === 'ice');
 // ---- seeded noise ----
 function hash(s) { let h = 2166136261; for (const ch of String(s)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; }
 function mulberry(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
@@ -34,7 +39,7 @@ function perlin(seed) {
     return lerp(lerp(dot(p[X + p[Y]], x, y), dot(p[X + 1 + p[Y]], x - 1, y), u), lerp(dot(p[X + p[Y + 1]], x, y - 1), dot(p[X + 1 + p[Y + 1]], x - 1, y - 1), u), v); };
 }
 function fbm(n, x, y, oct = 4) { let a = 1, f = 1, s = 0, norm = 0; for (let i = 0; i < oct; i++) { s += a * n(x * f, y * f); norm += a; a *= 0.5; f *= 2.1; } return s / norm; }
-// ---- the cells' natures: clustered by growing from a few seeds through the (wrapping) grid ----
+// ---- the slots' natures: clustered by growing from a few seeds through the (wrapping) slot grid ----
 function assignTypes(w, h, kind, rnd) {
   const n = w * h, type = new Array(n).fill('low'), S = SHARE[kind];
   const nb = k => { const i = k % w, j = Math.floor(k / w), out = [((i + 1) % w) + j * w, ((i - 1 + w) % w) + j * w]; if (j > 0) out.push(k - w); if (j < h - 1) out.push(k + w); return out; };
@@ -48,64 +53,73 @@ function assignTypes(w, h, kind, rnd) {
   grow(Math.round(land * S.high), 'high', t => t === 'low');
   for (let k = 0; k < n; k++) if (type[k] === 'low' && nb(k).some(q => type[q] === 'high')) type[k] = 'mid';   // uplands ring the ranges
   grow(Math.round(n * S.chasm), 'chasm', t => t === 'low' || t === 'mid');
-  if (kind === 'ice') for (let k = 0; k < n; k++) if (type[k] === 'low') type[k] = 'ice';          // (polar caps are a latitude band, painted per pixel)
+  if (kind === 'ice') for (let k = 0; k < n; k++) if (type[k] === 'low') type[k] = 'ice';
   return type;
 }
-// ---- the surface: THREE NESTED VORONOI LEVELS (his complaint 2026-10-21: "the more detail, the more it becomes a grid") ----
-// Level 1, the CELLS: a rough Voronoi of heavily jittered cell seeds — narrow, wide, oblique, odd shapes — this is the grid everything
-// else builds on. Level 2, the SLOTS: 4 sub-seeds around each cell seed, and a pixel picks among its OWN cell's 4 only, so the slots
-// subdivide the odd cell without changing its outline. Level 3, the DETAIL: 4 per slot, the same way (islands, lakes, bumps).
-// The terrain's own ownership is the same walk with a per-seed wobble added to the distances at every level, so coasts and
-// contours wander across the exact borders. The shallow band and the beach come from a distance pass over the coast afterwards.
+// ---- the surface ----
 export function terrain(seed, w, h, kind, { cellW = 140, cellH = 70, jitter = 0.38 } = {}) {
   const W = w * cellW, H = h * cellH, N = W * H, s = hash(seed + '|' + kind), rnd = mulberry(s ^ 0x7f4a7c15), n1 = perlin(s), n2 = perlin(s ^ 0x9e3779b9);
-  const w2 = w * 2, h2 = h * 2;
-  const type = assignTypes(w2, h2, kind, rnd);                                                     // a nature per SLOT (on the 2w × 2h slot grid)
+  const w2 = w * 2, h2 = h * 2, type = assignTypes(w2, h2, kind, rnd);                            // a nature per SLOT (on the 2w × 2h slot grid)
   const subIndex = (cell, sl) => (2 * Math.floor(cell / w) + (sl >> 1)) * w2 + 2 * (cell % w) + (sl & 1);
-  const J = () => (rnd() - 0.5) * 2;
-  const seeds = []; for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) seeds.push({ x: (i + 0.5 + J() * jitter) * cellW, y: (j + 0.5 + J() * jitter * 0.8) * cellH, c1: Math.round(J()), c2: Math.round(J()) });
-  const subSeeds = [], detSeeds = [];                                                              // per cell: 4 slot seeds; per slot: 4 detail seeds
-  for (let k = 0; k < w * h; k++) for (let sl = 0; sl < 4; sl++) { const sx = (sl & 1 ? 1 : -1), sy = (sl & 2 ? 1 : -1);
-    const p = { x: seeds[k].x + (sx * 0.25 + J() * 0.14) * cellW, y: seeds[k].y + (sy * 0.25 + J() * 0.14) * cellH, c1: Math.round(J()), c2: Math.round(J()) }; subSeeds.push(p);
-    for (let d = 0; d < 4; d++) detSeeds.push({ x: p.x + ((d & 1 ? 1 : -1) * 0.12 + J() * 0.07) * cellW, y: p.y + ((d & 2 ? 1 : -1) * 0.12 + J() * 0.07) * cellH, c1: Math.round(J()), c2: Math.round(J()) }); }
+  const J = () => (rnd() - 0.5) * 2, coef = () => Math.round(J());
+  const wrapDx = dx => { dx = Math.abs(dx); return Math.min(dx, W - dx); };
+  const dist = (p, x, y) => { const dx = wrapDx(x - p.x), dy = (y - p.y) * 2; return Math.sqrt(dx * dx + dy * dy); };
+  // the noise fields, once per pixel
+  const f1 = new Float32Array(N), f2 = new Float32Array(N), hill = new Float32Array(N);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const i = y * W + x; f1[i] = fbm(n1, x / 150, y / 75); f2[i] = fbm(n2, x / 70, y / 35, 3); hill[i] = fbm(n2, x / 60, y / 30, 3); }
+  const AMP = [cellH * 0.55, cellH * 0.3, cellH * 0.16], wob = (p, L, i) => (p.c1 * f1[i] + p.c2 * f2[i]) * AMP[L];
+  // k-means: K seeds inside a region (its pixel list), anchored for the wrap; every seed keeps members (an empty one is re-seeded)
+  const kmeans = (members, K, anchor) => {
+    const rel = x => { let d = x - anchor.x; if (d > W / 2) d -= W; if (d < -W / 2) d += W; return d; };
+    let pts = []; for (let q = 0; q < K; q++) { const m = members[Math.floor(rnd() * members.length)]; pts.push({ x: anchor.x + rel(m % W), y: Math.floor(m / W) }); }
+    for (let it = 0; it < 5; it++) {
+      const sx = new Float64Array(K), sy = new Float64Array(K), cnt = new Float64Array(K);
+      for (const m of members) { const x = m % W, y = Math.floor(m / W); let b = 0, bd = 1e18; for (let q = 0; q < K; q++) { const dx = rel(x) - rel(pts[q].x), dy = (y - pts[q].y) * 2, d = dx * dx + dy * dy; if (d < bd) { bd = d; b = q; } } sx[b] += rel(x); sy[b] += y; cnt[b]++; }
+      for (let q = 0; q < K; q++) { if (cnt[q]) { pts[q].x = anchor.x + sx[q] / cnt[q]; pts[q].y = sy[q] / cnt[q]; } else { const m = members[Math.floor(rnd() * members.length)]; pts[q].x = anchor.x + rel(m % W); pts[q].y = Math.floor(m / W); } }
+    }
+    return pts.map(p => ({ x: ((p.x % W) + W) % W, y: p.y, c1: coef(), c2: coef() }));
+  };
+  const membersOf = (ownerArr, count) => { const n = new Int32Array(count + 1); for (let i = 0; i < N; i++) n[ownerArr[i] + 1]++; for (let k = 0; k < count; k++) n[k + 1] += n[k]; const at = n.slice(0, count), list = new Int32Array(N); for (let i = 0; i < N; i++) list[at[ownerArr[i]]++] = i; return k => list.subarray(n[k], n[k + 1]); };
+  // LEVEL 1 — the cells: heavily jittered seeds; exact and noisy owner per pixel (5 × 5 neighbourhood, wrapping)
+  const seeds = []; for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) seeds.push({ x: (i + 0.5 + J() * jitter) * cellW, y: (j + 0.5 + J() * jitter * 0.8) * cellH, c1: coef(), c2: coef() });
+  const owner = new Int16Array(N), ownerN = new Int16Array(N);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const i = y * W + x, gi = Math.floor(x / cellW), gj = Math.floor(y / cellH); let cell = -1, bd = 1e18, cellN = -1, bn = 1e18;
+    for (let dj = -2; dj <= 2; dj++) { const cj = gj + dj; if (cj < 0 || cj >= h) continue; for (let di = -2; di <= 2; di++) { const k = cj * w + ((gi + di + w * 2) % w), d = dist(seeds[k], x, y); if (d < bd) { bd = d; cell = k; } const dn = d + wob(seeds[k], 0, i); if (dn < bn) { bn = dn; cellN = k; } } }
+    owner[i] = cell; ownerN[i] = cellN; }
+  // LEVEL 2 — the slots: 4 seeds clustered inside each cell's own pixels; a pixel picks among its own cell's 4 (exact) / its noisy cell's 4
+  const cellMembers = membersOf(owner, w * h), subSeeds = [];
+  for (let k = 0; k < w * h; k++) subSeeds.push(...kmeans(cellMembers(k), 4, seeds[k]));
+  const slot = new Uint8Array(N), slotN = new Uint8Array(N), sub = new Int16Array(N), subN = new Int16Array(N);
+  for (let i = 0; i < N; i++) { const x = i % W, y = (i / W) | 0; let b = 0, bd = 1e18, bN = 0, bn = 1e18;
+    for (let q = 0; q < 4; q++) { const d = dist(subSeeds[owner[i] * 4 + q], x, y); if (d < bd) { bd = d; b = q; } const p = subSeeds[ownerN[i] * 4 + q], dn = dist(p, x, y) + wob(p, 1, i); if (dn < bn) { bn = dn; bN = q; } }
+    slot[i] = b; sub[i] = subIndex(owner[i], b); slotN[i] = bN; subN[i] = ownerN[i] * 4 + bN; }
+  // LEVEL 3 — the detail = the districts: 4 seeds clustered inside each slot's own pixels
+  const exactSlotKey = new Int32Array(N); for (let i = 0; i < N; i++) exactSlotKey[i] = owner[i] * 4 + slot[i];
+  const slotPixels = membersOf(exactSlotKey, w * h * 4), detSeeds = [];
+  for (let k = 0; k < w * h * 4; k++) { const m = slotPixels(k); if (m.length) detSeeds.push(...kmeans(m, 4, subSeeds[k])); else for (let q = 0; q < 4; q++) detSeeds.push({ x: subSeeds[k].x, y: subSeeds[k].y, c1: 0, c2: 0 }); }
+  const det = new Int16Array(N), detN = new Int16Array(N);
+  for (let i = 0; i < N; i++) { const x = i % W, y = (i / W) | 0, k = exactSlotKey[i], kN = subN[i]; let b = 0, bd = 1e18, bN = 0, bn = 1e18;
+    for (let q = 0; q < 4; q++) { const d = dist(detSeeds[k * 4 + q], x, y); if (d < bd) { bd = d; b = q; } const p = detSeeds[kN * 4 + q], dn = dist(p, x, y) + wob(p, 2, i); if (dn < bn) { bn = dn; bN = q; } }
+    det[i] = k * 4 + b; detN[i] = kN * 4 + bN; }
+  // the natures of the districts: the slot's, with a small seeded chance to flip; the polar caps are districts whose seed lies beyond CAP
   const FLIP = { living: { island: 0.09, lake: 0.06, bump: 0.12 }, ocean: { island: 0.07, lake: 0.04, bump: 0.1 }, ice: { island: 0.05, lake: 0.05, bump: 0.1, pit: 0.02 }, rock: { island: 0, lake: 0, bump: 0.14, pit: 0.03 } }[kind];
   const dtype = []; for (let k = 0; k < w * h * 16; k++) { const cell = k >> 4, sl = (k >> 2) & 3, t = type[subIndex(cell, sl)], r = rnd(); let d = t;
     if (t === 'ocean') { if (r < FLIP.island) d = 'low'; }
     else if (t === 'chasm') { if (r < 0.1) d = 'mid'; }
     else if (r < FLIP.lake && t !== 'ice' && kind !== 'rock') d = 'ocean';
-    else if (r < FLIP.lake + FLIP.bump) d = t === 'low' ? 'mid' : t === 'mid' ? 'high' : t === 'ice' ? 'mid' : 'mid';
+    else if (r < FLIP.lake + FLIP.bump) d = t === 'low' ? 'mid' : t === 'mid' ? 'high' : 'mid';
     else if (FLIP.pit && r < FLIP.lake + FLIP.bump + FLIP.pit) d = 'chasm';               // a dead or ice world's few lost spots
     if (kind === 'ice' && d === 'chasm' && t === 'ocean') d = t;
+    const lat = Math.abs(detSeeds[k].y / H * 2 - 1) + J() * 0.04; if (lat > CAP[kind] && d !== 'chasm') d = 'ice';   // the cap: a defined area of districts
     dtype.push(d); }
-  const cls = new Uint8Array(N), owner = new Int16Array(N), slot = new Uint8Array(N), sub = new Int16Array(N), det = new Int16Array(N), water = new Uint8Array(N);
-  const wrapDx = dx => { dx = Math.abs(dx); return Math.min(dx, W - dx); };
-  const dist = (p, x, y) => { const dx = wrapDx(x - p.x), dy = (y - p.y) * 2; return Math.sqrt(dx * dx + dy * dy); };
-  const AMP = [cellH * 0.55, cellH * 0.3, cellH * 0.16];                                           // the wobble at each level
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    const i = y * W + x, gi = Math.floor(x / cellW), gj = Math.floor(y / cellH);
-    const w1 = fbm(n1, x / 150, y / 75), w2n = fbm(n2, x / 70, y / 35, 3), hill = fbm(n2, x / 60, y / 30, 3);
-    const wob = (p, L) => (p.c1 * w1 + p.c2 * w2n) * AMP[L];
-    // level 1: the cell (exact and noisy), over the 5 × 5 neighbourhood (the jitter is big)
-    let cell = -1, bd = 1e18, cellN = -1, bn = 1e18;
-    for (let dj = -2; dj <= 2; dj++) { const cj = gj + dj; if (cj < 0 || cj >= h) continue; for (let di = -2; di <= 2; di++) { const k = cj * w + ((gi + di + w * 2) % w), d = dist(seeds[k], x, y); if (d < bd) { bd = d; cell = k; } const dn = d + wob(seeds[k], 0); if (dn < bn) { bn = dn; cellN = k; } } }
-    // level 2: the slot, among the cell's own 4
-    let sl = 0, slN = 0; bd = 1e18; bn = 1e18;
-    for (let q = 0; q < 4; q++) { const d = dist(subSeeds[cell * 4 + q], x, y); if (d < bd) { bd = d; sl = q; } }
-    for (let q = 0; q < 4; q++) { const p = subSeeds[cellN * 4 + q], dn = dist(p, x, y) + wob(p, 1); if (dn < bn) { bn = dn; slN = q; } }
-    // level 3: the detail, among the slot's own 4
-    let dt = 0, dtN = 0; bd = 1e18; bn = 1e18;
-    for (let q = 0; q < 4; q++) { const d = dist(detSeeds[(cell * 4 + sl) * 4 + q], x, y); if (d < bd) { bd = d; dt = q; } }
-    for (let q = 0; q < 4; q++) { const p = detSeeds[(cellN * 4 + slN) * 4 + q], dn = dist(p, x, y) + wob(p, 2); if (dn < bn) { bn = dn; dtN = q; } }
-    owner[i] = cell; slot[i] = sl; sub[i] = subIndex(cell, sl); det[i] = (cell * 4 + sl) * 4 + dt;
-    const t = dtype[(cellN * 4 + slN) * 4 + dtN]; let c;
-    if (t === 'ocean') { c = hill > 0.34 ? CLS.shallow : CLS.deep; water[i] = 1; }
+  // the classes per pixel from the noisy district
+  const cls = new Uint8Array(N), water = new Uint8Array(N);
+  for (let i = 0; i < N; i++) { const t = dtype[detN[i]], hv = hill[i]; let c;
+    if (t === 'ocean') { c = hv > 0.34 ? CLS.shallow : CLS.deep; water[i] = 1; }
     else if (t === 'chasm') c = CLS.chasm;
     else if (t === 'ice') c = CLS.ice;
-    else { c = t === 'low' ? CLS.low : t === 'mid' ? CLS.mid : CLS.high; if (hill > 0.2 && c < CLS.high) c++; else if (hill < -0.22 && c > CLS.low) c--; }
-    const lat = Math.abs(y / H * 2 - 1) + w2n * 0.08, cap = kind === 'ice' ? 0.72 : 0.9;           // the polar caps: a wobbly latitude band
-    if (lat > cap && c !== CLS.chasm && kind !== 'rock') { c = CLS.ice; water[i] = 0; }
-    cls[i] = c;
-  }
+    else { c = t === 'low' ? CLS.low : t === 'mid' ? CLS.mid : CLS.high; if (hv > 0.2 && c < CLS.high) c++; else if (hv < -0.22 && c > CLS.low) c--; }
+    cls[i] = c; }
   // the coast: distance to the other side (a chamfer pass, twice for the wrap)
   const coastDistance = () => {
     const dc = new Float32Array(N).fill(1e9); for (let i = 0; i < N; i++) { const x = i % W, y = (i / W) | 0, r = x + 1 < W ? i + 1 : i - x, d = y + 1 < H ? i + W : i; if (water[i] !== water[r] || water[i] !== water[d]) dc[i] = 0; }
@@ -124,13 +138,12 @@ export function terrain(seed, w, h, kind, { cellW = 140, cellH = 70, jitter = 0.
   dc = coastDistance();
   const band = cellH * 0.2, beach = cellH * 0.1;
   for (let i = 0; i < N; i++) { if (water[i]) { if (dc[i] < band) cls[i] = CLS.shallow; } else if (dc[i] < beach && (cls[i] === CLS.mid || cls[i] === CLS.high)) cls[i] = CLS.low; }
-  const land = new Float32Array(w * h), area = new Float32Array(w * h);                             // usable share of every CELL's area
+  // per CELL: the usable share of its area (the 4-slot model still reads it); per SLOT: its nature; per DISTRICT: area + habitable
+  const land = new Float32Array(w * h), area = new Float32Array(w * h);
   for (let i = 0; i < N; i++) { area[owner[i]]++; if (cls[i] >= CLS.low && cls[i] !== CLS.chasm) land[owner[i]]++; }
   for (let k = 0; k < w * h; k++) land[k] = area[k] ? land[k] / area[k] : 0;
   const slotType = Array.from({ length: w * h }, () => new Array(4)); for (let k = 0; k < type.length; k++) slotType[(Math.floor(k / w2) >> 1) * w + ((k % w2) >> 1)][((k % w2) & 1) + 2 * (Math.floor(k / w2) & 1)] = type[k];
-  // THE DISTRICTS (his call 2026-10-21): the smallest cells are the districts — one per detail cell, only on habitable ground; the
-  // gross is all of them (16 a cell), the net the habitable ones. (The 4-slot model still reads `slotType` until it is rebuilt.)
-  const dArea = new Uint32Array(dtype.length); for (let i = 0; i < N; i++) dArea[det[i]]++;      // a nested seed can own no pixels: then it is no district
+  const dArea = new Uint32Array(dtype.length); for (let i = 0; i < N; i++) dArea[det[i]]++;
   const hab = new Uint8Array(dtype.length); for (let k = 0; k < dtype.length; k++) hab[k] = dArea[k] && habitable(kind, dtype[k]) ? 1 : 0;
   let gross = 0, net = 0; for (let k = 0; k < hab.length; k++) { if (dArea[k]) gross++; net += hab[k]; }
   return { w, h, W, H, cellW, cellH, kind, type, slotType, dtype, habitable: hab, dArea, cls, owner, slot, sub, det, seeds, subSeeds, detSeeds, land, gross, net };

@@ -5,7 +5,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { terrain, paint } from '../../src/eon/terrain.js';
 import { encodePng } from './png.mjs';
-const seed = process.argv[2] || 'mock', out = path.join('art', 'gen', new Date().toISOString().slice(0, 10), `district-mock-${seed}.png`);
+const GRID = process.argv.includes('--grid');                              // --grid: the smallest Voronoi outline in magenta over everything (his ask)
+const seed = process.argv.filter(a => !a.startsWith('--'))[2] || 'mock', out = path.join('art', 'gen', new Date().toISOString().slice(0, 10), `district-mock-${seed}${GRID ? '-grid' : ''}.png`);
 const KIND = { industry: [255, 179, 71], food: [126, 243, 176], housing: [245, 163, 199], science: [79, 163, 255] }, KINDS = Object.keys(KIND);
 function mulberry(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 // the districts' graph: neighbours and centres from the pixels
@@ -37,6 +38,7 @@ function draw(T, stage, px) {
     const a = edge ? 0.85 : 0.5; for (let ch = 0; ch < 3; ch++) px[i * 4 + ch] = Math.round(px[i * 4 + ch] * (1 - a) + c[ch] * a * (edge ? 0.55 : 1)); }
   const lx = G.cx[landing], ly = G.cy[landing];
   for (let y = 0; y < T.H; y++) for (let x = 0; x < T.W; x++) { const dd = Math.hypot(x - lx, (y - ly) * 2); if (dd > 4 && dd < 6.5) { const i = y * T.W + x; px[i * 4] = 255; px[i * 4 + 1] = 255; px[i * 4 + 2] = 255; } }
+  if (GRID) for (let y = 0; y < T.H; y++) for (let x = 0; x < T.W; x++) { const i = y * T.W + x, d = T.det[i]; if (d !== T.det[x + 1 < T.W ? i + 1 : i - x] || d !== T.det[y + 1 < T.H ? i + T.W : i]) { px[i * 4] = 255; px[i * 4 + 1] = 0; px[i * 4 + 2] = 255; } }
 }
 const PANELS = [['living', 6, 3, [12, 60, Infinity]], ['ocean', 4, 3, [8, 30, Infinity]], ['ice', 4, 2, [Infinity]], ['rock', 3, 2, [Infinity]]];
 const CW = 140, CH = 70, GAP = 24, rows = PANELS.map(p => ({ p, T: terrain(`${seed}-${p[1]}x${p[2]}`, p[1], p[2], p[0], { cellW: CW, cellH: CH }) }));
