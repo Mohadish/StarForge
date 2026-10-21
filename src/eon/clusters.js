@@ -10,16 +10,18 @@ const EX = [1, 0.5], EY = [-1, 0.5];
 function mulberry(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 export const CHIP = { r: [6, 8, 10, 12], hmax: [7, 11, 15, 19], n: [4, 6, 9, 12] };   // the four sizes: ground radius, the cone's top, how many pieces
 export const PALETTE = {
-  housing:  { ground: '#b9b2a2', edge: '#7a7468', top: '#e9ecf1', left: '#b9c0cb', right: '#89909d', light: '#ffd9a0', cap: '#f4f6f9' },
-  industry: { ground: '#9a9690', edge: '#5a5753', top: '#a7abb0', left: '#777b80', right: '#54585d', light: '#ff8c2a', smoke: 'rgba(232,236,240,.8)', pipe: '#6c7178' },
-  science:  { ground: '#c3c7d1', edge: '#777d8e', top: '#f4f7fc', left: '#c5cde0', right: '#97a2bb', light: '#56b5ff', glow: 'rgba(70,165,255,.5)' },
+  housing:  { ground: [185, 178, 162], top: '#e9ecf1', left: '#b9c0cb', right: '#89909d', light: '#ffd9a0', cap: '#f4f6f9' },
+  industry: { ground: [150, 146, 140], top: '#a7abb0', left: '#777b80', right: '#54585d', light: '#ff8c2a', smoke: 'rgba(232,236,240,.8)', pipe: '#6c7178' },
+  science:  { ground: [195, 199, 209], top: '#f4f7fc', left: '#c5cde0', right: '#97a2bb', light: '#56b5ff', glow: 'rgba(70,165,255,.5)' },
 };
 const toScreen = (u, v) => [u * EX[0] + v * EY[0], u * EX[1] + v * EY[1]];
 // ---- one chip ----
 export function makeChip(kind, variant, seed = 1) {
   const rnd = mulberry(seed * 131 + variant * 17 + kind.length * 7), r = CHIP.r[variant], hmax = CHIP.hmax[variant], n = CHIP.n[variant];
-  // the FLAKY footprint: many vertices, radii in and out (indentations), a few deeper bites
-  const foot = []; for (let k = 0, m = 20 + variant * 6; k < m; k++) { const t = k / m * 6.2832, f = 0.62 + rnd() * 0.38 - (rnd() < 0.12 ? 0.25 : 0); foot.push([Math.cos(t) * r * f, Math.sin(t) * r * 0.5 * f]); }
+  // the footprint BLENDS into the ground (his ask: no ledge, tendrils): three nested jagged rings on the unit circle (× r, squashed
+  // 2:1 when drawn), each spikier and fainter outward — the core under the buildings, a mid ring, and a halo of tendrils
+  const ring = (m, lo, hi, bite) => { const out = []; for (let k = 0; k < m; k++) { const t = k / m * 6.2832, f = lo + rnd() * (hi - lo) - (rnd() < bite ? (hi - lo) * 0.8 : 0); out.push([Math.cos(t) * f, Math.sin(t) * f]); } return out; };
+  const foot = ring(18 + variant * 4, 0.55, 0.85, 0.1), mid = ring(26 + variant * 6, 0.6, 1.15, 0.2), halo = ring(34 + variant * 8, 0.5, 1.55, 0.3);
   const inside = (x, y, m = 0.78) => Math.hypot(x / r, y / (r * 0.5)) <= m;
   const pieces = [], put = p => { pieces.push(p); return p; }, clear = (u, v, a, b) => !pieces.some(q => Math.abs(q.u - u) < q.a + a + 0.3 && Math.abs(q.v - v) < q.b + b + 0.3);
   const spot = (maxR, a, b, tries = 60) => { for (let t = 0; t < tries; t++) { const u = (rnd() - 0.5) * 2 * r * 0.7, v = (rnd() - 0.5) * 2 * r * 0.7, [x, y] = toScreen(u, v); if (!inside(x, y, maxR)) continue; if (!clear(u, v, a, b)) continue; return { u, v, x, y }; } return null; };
@@ -41,7 +43,7 @@ export function makeChip(kind, variant, seed = 1) {
     for (let i = 0; i < Math.max(1, variant); i++) { const a = 1.2 + rnd() * 1.2, b = 0.8 + rnd() * 0.8, s = spot(0.78, a, b); if (s) put({ ...s, a, b, h: 1.1 + rnd() * 0.9, kind: 'box' }); }
   }
   pieces.sort((p, q) => p.y - q.y);
-  return { kind, variant, r, foot, pieces };
+  return { kind, variant, r, foot, mid, halo, pieces };
 }
 // ---- drawing primitives (screen space, scale s) ----
 function poly(g, pts, cx, cy, s) { g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(cx + x * s, cy + y * s) : g.moveTo(cx + x * s, cy + y * s)); g.closePath(); }
@@ -68,10 +70,20 @@ function dome(g, cx, cy, s, p, P) {
   g.fillStyle = P.light; g.beginPath(); g.ellipse(x, y, rx * 0.5, H * 0.5, 0, Math.PI, 0); g.fill();
   g.fillStyle = P.top; g.beginPath(); g.ellipse(x, y, rx * 0.5, H * 0.5, 0, Math.PI, 0); g.globalAlpha = 0.55; g.fill(); g.globalAlpha = 1;
 }
+// the ground: the three rings, each a radial fade of the kind's ground colour, clipped to its jagged outline — the halo faint, the
+// core nearly solid under the buildings; drawn in the 2:1 squashed space so the rings are ellipses
+function ground(g, chip, cx, cy, s, P) {
+  const [R, G, B] = P.ground, rs = chip.r * s;
+  g.save(); g.translate(cx, cy); g.scale(1, 0.5);
+  for (const [pts, a0, a1] of [[chip.halo, 0.28, 0], [chip.mid, 0.55, 0.05], [chip.foot, 0.92, 0.35]]) {
+    const grad = g.createRadialGradient(0, 0, 0, 0, 0, rs * 1.55); grad.addColorStop(0, `rgba(${R},${G},${B},${a0})`); grad.addColorStop(1, `rgba(${R},${G},${B},${a1})`);
+    g.fillStyle = grad; g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(x * rs, y * rs) : g.moveTo(x * rs, y * rs)); g.closePath(); g.fill();
+  }
+  g.restore();
+}
 export function drawChip(g, chip, cx, cy, s, { tint = null } = {}) {
   const P = PALETTE[chip.kind];
-  g.fillStyle = P.edge; poly(g, chip.foot.map(([x, y]) => [x, y + 0.9]), cx, cy, s); g.fill();            // a thin dark lip under the lower edge
-  g.fillStyle = P.ground; poly(g, chip.foot, cx, cy, s); g.fill();
+  ground(g, chip, cx, cy, s, P);
   if (chip.kind === 'science') { g.fillStyle = P.glow; g.beginPath(); g.ellipse(cx, cy + 0.5 * s, chip.r * 0.55 * s, chip.r * 0.28 * s, 0, 0, 6.283); g.fill(); }
   for (const p of chip.pieces) {
     if (p.kind === 'pipe') { g.strokeStyle = P.pipe; g.lineWidth = Math.max(1, 0.35 * s); g.beginPath(); g.moveTo(cx + p.x * s, cy + p.y * s - 0.6 * s); g.lineTo(cx + p.x2 * s, cy + p.y2 * s - 0.6 * s); g.stroke(); continue; }
@@ -87,11 +99,18 @@ export function drawChip(g, chip, cx, cy, s, { tint = null } = {}) {
       g.fillStyle = P.top; g.beginPath(); g.ellipse(x + 0.3 * s, y - p.h * s - 0.2 * s, p.a * 1.3 * s, p.a * 0.75 * s, -0.5, 0, 6.283); g.fill(); g.fillStyle = P.left; g.beginPath(); g.ellipse(x + 0.3 * s, y - p.h * s - 0.2 * s, p.a * 0.8 * s, p.a * 0.45 * s, -0.5, 0, 6.283); g.fill(); continue; }
   }
 }
-// ---- a district's chips: 2–4 overlapped chips (his "each block is 2, 3, sometimes 4 of these"), bigger with the level; full = 6 ----
-export const CHIPS_BY_LEVEL = [[], [0, 0], [1, 0, 0], [2, 1, 0, 0]], CHIPS_FULL = [3, 2, 1, 1, 0, 0];
-export function layout(spots, centre, level, { full = false } = {}) {   // spots: candidate [x, y] on the ground inside the district
-  const plan = full ? CHIPS_FULL : CHIPS_BY_LEVEL[Math.max(0, Math.min(3, level))];
+// ---- a district FILLS UP (his direction): its chips by how built it is (fill 0..1) — one small chip first, then more and bigger
+// ones packed from the district's heart outward, the biggest at the heart, smaller toward the edge; a full district holds `cap` ----
+export function layout(spots, centre, fill, { cap = 8, gap = 4 } = {}) {   // spots: candidate [x, y] on the ground inside the district; gap: px between chips
+  if (fill <= 0 || !spots.length) return [];
   const sorted = spots.slice().sort((p, q) => Math.hypot(p[0] - centre[0], (p[1] - centre[1]) * 2) - Math.hypot(q[0] - centre[0], (q[1] - centre[1]) * 2));
-  const out = []; for (let i = 0; i < plan.length && i < sorted.length; i++) out.push({ x: sorted[i][0], y: sorted[i][1], variant: plan[i] });
+  const n = Math.max(1, Math.round(cap * fill)), big = fill < 0.3 ? 0 : fill < 0.6 ? 1 : fill < 0.85 ? 2 : 3, out = [];
+  for (const p of sorted) {                                                 // spread across the district: the heart first, then outward, never closer than `gap`
+    if (out.length >= n) break; if (out.some(q => Math.hypot(p[0] - q.x, (p[1] - q.y) * 2) < gap)) continue;
+    const i = out.length; out.push({ x: p[0], y: p[1], variant: Math.max(0, big - (i === 0 ? 0 : i < 3 ? 1 : i < 6 ? 2 : 3)) });
+  }
   return out;
 }
+// the colony's districts fill in OVERLAPPING stages: the i-th district in the build order starts when the (i × STAGGER)-th slot of
+// progress is reached and takes SPAN to fill — the first is done while the second is half way and the third has just begun
+export const fillOf = (orderIndex, progress, { stagger = 0.6, span = 3 } = {}) => Math.max(0, Math.min(1, (progress - orderIndex * stagger) / span));

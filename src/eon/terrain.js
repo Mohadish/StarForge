@@ -170,7 +170,7 @@ export function terrain(seed, w, h, kind, { cellW = 140, cellH = 70, jitter = 0.
   const dArea = new Uint32Array(dtype.length); for (let i = 0; i < N; i++) dArea[det[i]]++;
   const hab = new Uint8Array(dtype.length); for (let k = 0; k < dtype.length; k++) hab[k] = dArea[k] && habitable(kind, dtype[k]) ? 1 : 0;
   let gross = 0, net = 0; for (let k = 0; k < hab.length; k++) { if (dArea[k]) gross++; net += hab[k]; }
-  const T = { w, h, W, H, cellW, cellH, kind, type, slotType, dtype, habitable: hab, dArea, cls, owner, slot, sub, det, seeds, subSeeds, detSeeds, land, gross, net };
+  const T = { w, h, W, H, cellW, cellH, kind, type, slotType, dtype, habitable: hab, dArea, cls, owner, slot, sub, det, seeds, subSeeds, detSeeds, land, gross, net, hill };
   features(T, rnd); return T;
 }
 // ---- the districts' FEATURES and GRADES: the graph of districts from the pixels, then coast distance, landmasses, shelter, specials ----
@@ -195,15 +195,27 @@ function features(T, rnd) {
   for (let s = 0, tries = 0; s < want && tries < 200; tries++) { const k = Math.floor(rnd() * n); if (!land(k) || f[k].special) continue; f[k].special = pool[Math.floor(rnd() * pool.length)]; s++; }
   T.feat = f; T.adj = adj; T.grade = f.map(ff => gradeOf(kind, ff));
 }
-// ---- paint into an RGBA buffer: flat classes, a darker coast, cell frames, slot lines ----
-export function paint(T, rgba, { frames = true, slots = true } = {}) {
-  const { W, H, cls, owner, sub } = T, pal = PALETTE[T.kind];
+// ---- paint into an RGBA buffer: the classes with RELIEF (his ask 2026-10-21: "more gradient between the transitions"): on land the
+// band's colour slides toward the next band by the hill noise, and a hillshade from the noise's slope (light from the upper left)
+// gives the ground its topography; the water gets a gentle depth gradient; a darker coast; optional cell frames and slot lines ----
+export function paint(T, rgba, { frames = true, slots = true, relief = true } = {}) {
+  const { W, H, cls, owner, sub, hill } = T, pal = PALETTE[T.kind];
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const i = y * W + x, c = cls[i]; let [r, g, b] = pal[c];
     const right = x + 1 < W ? i + 1 : y * W, down = y + 1 < H ? i + W : i;                               // the right edge continues at the left (wrap)
     const water = c <= CLS.shallow, wR = cls[right] <= CLS.shallow, wD = cls[down] <= CLS.shallow;
+    if (relief && hill) {
+      const hv = hill[i], left = x ? i - 1 : i + W - 1, up = y ? i - W : i;
+      if (c >= CLS.low && c <= CLS.high) {                                                           // the band slides toward its neighbour band by the hill
+        const nb = hv > 0 ? Math.min(CLS.high, c + 1) : Math.max(CLS.low, c - 1), f = Math.min(1, Math.abs(hv) * 1.6) * 0.55, q = pal[nb];
+        r += (q[0] - r) * f; g += (q[1] - g) * f; b += (q[2] - b) * f;
+        const sh = 1 + Math.max(-0.2, Math.min(0.2, -((hill[right] - hill[left]) + (hill[down] - hill[up])) * 5));   // hillshade
+        r *= sh; g *= sh; b *= sh;
+      } else if (water) { const sh = 1 + hv * 0.18; r *= sh; g *= sh; b *= sh; }
+      else if (c === CLS.ice) { const sh = 1 + Math.max(-0.12, Math.min(0.12, -((hill[right] - hill[left]) + (hill[down] - hill[up])) * 3)); r *= sh; g *= sh; b *= sh; }
+    }
     if (water !== wR || water !== wD) { r *= 0.55; g *= 0.6; b *= 0.65; }
-    else if (c !== cls[right] || c !== cls[down]) { r *= 0.88; g *= 0.88; b *= 0.88; }
+    else if (!relief && (c !== cls[right] || c !== cls[down])) { r *= 0.88; g *= 0.88; b *= 0.88; }
     if (frames && (owner[i] !== owner[right] || owner[i] !== owner[down])) { r = r * 0.35 + 20; g = g * 0.35 + 24; b = b * 0.35 + 30; }
     else if (slots && (sub[i] !== sub[right] || sub[i] !== sub[down])) { r = r * 0.8 + 30; g = g * 0.8 + 32; b = b * 0.8 + 36; }
     rgba[i * 4] = r; rgba[i * 4 + 1] = g; rgba[i * 4 + 2] = b; rgba[i * 4 + 3] = 255;
