@@ -18,7 +18,7 @@ const SHARE = {                                                              // 
   rock:   { water: 0, high: 0.3, chasm: 0 },                                 // a dead world is all surface — only tiny pits are lost (his call)
   irradiated: { water: 0, high: 0.35, chasm: 0 },
 };
-const CAP = { living: 0.86, ocean: 0.88, ice: 0.7, rock: 2, irradiated: 2 };   // |latitude| of a detail seed beyond which it is polar ice (rock: never)
+const CAP = { living: 0.9, ocean: 0.915, ice: 0.78, rock: 2, irradiated: 2 };   // |latitude| of a detail seed beyond which it is polar ice (rock: never) — pulled back ~30 % (his call 2026-10-21)
 export const PALETTE = {                                                     // per class, [r,g,b]: deep, shallow, low, mid, high, ice, chasm
   living: [[24, 58, 104], [52, 118, 160], [92, 140, 72], [132, 138, 88], [182, 176, 150], [232, 240, 246], [30, 26, 24]],
   ocean:  [[16, 48, 96], [40, 110, 160], [100, 146, 90], [146, 144, 100], [196, 190, 170], [232, 240, 246], [30, 26, 24]],
@@ -162,6 +162,7 @@ export function terrain(seed, w, h, kind, { cellW = 140, cellH = 70, jitter = 0.
   dc = coastDistance();
   const band = cellH * 0.2, beach = cellH * 0.1;
   for (let i = 0; i < N; i++) { if (water[i]) { if (dc[i] < band) cls[i] = CLS.shallow; } else if (dc[i] < beach && (cls[i] === CLS.mid || cls[i] === CLS.high)) cls[i] = CLS.low; }
+  const coast = dc;                                                                               // kept for the painter: the water's depth gradient
   // per CELL: the usable share of its area (the 4-slot model still reads it); per SLOT: its nature; per DISTRICT: area + habitable
   const land = new Float32Array(w * h), area = new Float32Array(w * h);
   for (let i = 0; i < N; i++) { area[owner[i]]++; if (cls[i] >= CLS.low && cls[i] !== CLS.chasm) land[owner[i]]++; }
@@ -179,7 +180,7 @@ export function terrain(seed, w, h, kind, { cellW = 140, cellH = 70, jitter = 0.
     const jx = fbm(nJ, x / 10, y / 5, 3) * 9 + fbm(nJ, x / 3.5 + 50, y / 1.75, 2) * 3, jy = fbm(nJ, x / 10 + 90, y / 5 + 90, 3) * 4.5 + fbm(nJ, x / 3.5 + 140, y / 1.75, 2) * 1.5;
     const sx = (((x + Math.round(jx)) % W) + W) % W, sy = Math.max(0, Math.min(H - 1, y + Math.round(jy))), j = sy * W + sx, c1 = cls[j];
     if (c1 <= CLS.shallow || c1 === CLS.chasm || (c1 === CLS.ice) !== (c0 === CLS.ice)) continue; detJ[i] = det[j]; }
-  const T = { w, h, W, H, cellW, cellH, kind, type, slotType, dtype, polar, habitable: hab, dArea, cls, owner, slot, sub, det, detJ, seeds, subSeeds, detSeeds, land, gross, net, hill, fine };
+  const T = { w, h, W, H, cellW, cellH, kind, type, slotType, dtype, polar, habitable: hab, dArea, cls, owner, slot, sub, det, detJ, seeds, subSeeds, detSeeds, land, gross, net, hill, fine, coast };
   features(T, rnd); return T;
 }
 // ---- the districts' FEATURES and GRADES: the graph of districts from the pixels, then coast distance, landmasses, shelter, specials ----
@@ -203,6 +204,8 @@ function features(T, rnd) {
   const pool = { living: [2, 4], ocean: [4], ice: [1, 2, 4], rock: [1, 3, 4], irradiated: [1, 3, 4, 4] }[kind], want = 1 + Math.floor(rnd() * 3);
   for (let s = 0, tries = 0; s < want && tries < 200; tries++) { const k = Math.floor(rnd() * n); if (!land(k) || f[k].special) continue; f[k].special = pool[Math.floor(rnd() * pool.length)]; s++; }
   T.feat = f; T.adj = adj; T.grade = f.map(ff => gradeOf(kind, ff));
+  // the BUFFER round the polar caps (his call 2026-10-21: "one tile between"): a district touching the cap is not buildable either
+  if (T.polar) { let net = 0; for (let k = 0; k < n; k++) { if (T.habitable[k] && adj[k].some(q => T.polar[q])) T.habitable[k] = 0; net += T.habitable[k]; } T.net = net; }
 }
 // ---- paint into an RGBA buffer (his asks 2026-10-21: no sharp lines between the bands, no uniform bump): the band is looked up at a
 // position warped by a fine noise so its edges are RAGGED, its colour slides toward the neighbour band by the hill, and then the land
@@ -217,7 +220,11 @@ export function paint(T, rgba, { frames = true, slots = true, relief = true } = 
     let [r, g, b] = pal[c];
     if (relief && hill) { const hv = hill[i];
       if (g0 === 1) { const nb = hv > 0 ? Math.min(CLS.high, c + 1) : Math.max(CLS.low, c - 1), f = Math.min(1, Math.abs(hv) * 1.6) * 0.5, q = pal[nb]; r += (q[0] - r) * f; g += (q[1] - g) * f; b += (q[2] - b) * f; }
-      else if (g0 === 0) { const sh = 1 + hv * 0.18; r *= sh; g *= sh; b *= sh; } }
+      else if (g0 === 0) {                                                                           // THE WATER (his ask): a depth gradient from the shallows into the deep, and a ripple texture
+        const dcv = T.coast ? T.coast[i] : 99, t = Math.min(1, dcv / 34), e = t * t * (3 - 2 * t), S = pal[CLS.shallow], D = pal[CLS.deep];
+        r = S[0] + (D[0] - S[0]) * e; g = S[1] + (D[1] - S[1]) * e; b = S[2] + (D[2] - S[2]) * e;
+        if (dcv < 3) { r = r * 0.7 + 190 * 0.3; g = g * 0.7 + 188 * 0.3; b = b * 0.7 + 160 * 0.3; }    // a sandy lip at the shore
+        const rip = 1 + (fine ? fine[i] : 0) * 0.14 + hv * 0.08 + ((fine && fine[i] > 0.28) ? 0.05 : 0); r *= rip; g *= rip; b *= rip; } }
     base[i * 3] = r; base[i * 3 + 1] = g; base[i * 3 + 2] = b; grp[i] = g0;
   }
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
