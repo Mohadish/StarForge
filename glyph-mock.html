@@ -29,6 +29,11 @@ function grow(T, share, rnd) {
   }
   return { built, landing };
 }
+// ?icons — the AI-made icons (art/icons/far, his call: the code symbols were ugly) instead of the code symbols
+const ICONS = new URLSearchParams(location.search).has('icons'), ICON = {}, ICON_SIZE = [0, 16, 20, 25], LM_SIZE = 26;
+const ICON_FILES = { 'housing-1': 901, 'housing-2': 902, 'housing-3': 903, 'food-1': 904, 'food-2': 905, 'food-3': 906, 'industry-1': 907, 'industry-2': 908, 'industry-3': 909, 'science-1': 910, 'science-2': 911, 'science-3': 912, crater: 913, geyser: 914, crystal: 915, anomaly: 916, ridge: 917, canyon: 918 };
+async function loadIcons() { await Promise.all(Object.entries(ICON_FILES).map(([k, s]) => new Promise(res => { const im = new Image(); im.onload = () => { ICON[k] = im; res(); }; im.onerror = res; im.src = `./art/icons/far/${k.includes('-') ? 'ico-' : 'lm-'}${k}-zl-s${s}-cut.png`; }))); }
+const drawIcon = (g, key, x, y, size) => { const im = ICON[key]; if (!im) return; const k = size / Math.max(im.width, im.height), w = im.width * k, h = im.height * k; g.drawImage(im, x - w / 2, y - h * 0.6, w, h); };
 function render(cv, T, scale, col) {
   const g = cv.getContext('2d'), img = g.createImageData(T.W, T.H); paint(T, img.data, { frames: true, slots: false });
   const { built, landing } = col;
@@ -37,19 +42,22 @@ function render(cv, T, scale, col) {
   g.imageSmoothingEnabled = true; g.drawImage(off, 0, 0, T.W * scale, T.H * scale);
   const pal = { light: '#e8ecf2', dark: '#2a2420', accent: '#8fe3ff', rock: T.kind === 'rock' ? '#b09a78' : '#9aa08c' };
   // landmarks first (under the symbols): ridges on the highest districts (one per 'high' slot), canyons, specials
+  const lm = (name, x, y) => ICONS ? drawIcon(g, name, x, y, LM_SIZE * scale) : drawLandmark(g, name, x, y, pal);
   T.feat.forEach((f, k) => { if (!T.dArea[k]) return; const x = f.x * scale, y = f.y * scale;
-    if (f.nature === 'high' && (k & 3) === 1) drawLandmark(g, 'ridge', x, y, pal);
-    if (f.canyon) drawLandmark(g, 'canyon', x, y, pal);
-    if (f.special) drawLandmark(g, SPECIALS[f.special], x, y, pal); });
+    if (f.nature === 'high' && (k & 3) === 1) lm('ridge', x, y);
+    if (f.canyon) lm('canyon', x, y);
+    if (f.special) lm(SPECIALS[f.special], x, y); });
   T.feat.forEach((f, k) => { const kd = built[k]; if (kd < 0) return; const dk = DISTRICT_KINDS[kd], gr = T.grade[k][dk], level = gr >= 0.6 ? 3 : gr >= 0.38 ? 2 : 1;
+    if (ICONS) { drawIcon(g, `${dk}-${level}`, f.x * scale, f.y * scale, ICON_SIZE[level] * scale); return; }
     g.save(); g.translate(f.x * scale, f.y * scale); g.scale(scale, scale); drawDistrict(g, dk, level, 0, 0, COLOR[dk]); g.restore(); });
   const lf = T.feat[landing]; g.strokeStyle = '#fff'; g.lineWidth = 1.5; g.beginPath(); g.arc(lf.x * scale, lf.y * scale, 6 * scale, 0, 6.283); g.stroke();
 }
+if (ICONS) await loadIcons();
 const TA = terrain('glyph-6x3', 6, 3, 'living'), TB = terrain('glyph-4x3', 4, 3, 'rock');
 const colA = grow(TA, 0.55, mulberry(3)), colB = grow(TB, 0.55, mulberry(5));
 render(document.getElementById('a'), TA, 1, colA); render(document.getElementById('b'), TB, 1, colB); render(document.getElementById('c'), TA, 2, colA);
 const d = document.getElementById('d').getContext('2d'); d.fillStyle = '#5a7a5a'; d.fillRect(0, 0, 700, 60); let x = 24;
-for (const dk of DISTRICT_KINDS) for (const L of [1, 2, 3]) { drawDistrict(d, dk, L, x, 30, COLOR[dk]); x += 36; }
-x += 20; for (const nm of ['crater', 'geyser', 'crystal', 'anomaly', 'ridge', 'canyon']) { drawLandmark(d, nm, x, 30, { light: '#e8ecf2', dark: '#2a2420', accent: '#8fe3ff', rock: '#b09a78' }); x += 40; }
+for (const dk of DISTRICT_KINDS) for (const L of [1, 2, 3]) { if (ICONS) drawIcon(d, `${dk}-${L}`, x, 30, ICON_SIZE[L] * 1.6); else drawDistrict(d, dk, L, x, 30, COLOR[dk]); x += 36; }
+x += 20; for (const nm of ['crater', 'geyser', 'crystal', 'anomaly', 'ridge', 'canyon']) { if (ICONS) drawIcon(d, nm, x, 30, LM_SIZE * 1.6); else drawLandmark(d, nm, x, 30, { light: '#e8ecf2', dark: '#2a2420', accent: '#8fe3ff', rock: '#b09a78' }); x += 40; }
 window.mock = { TA, TB, colA, colB };
 </script></body></html>
