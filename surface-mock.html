@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Forge — surface mock (satellite look)</title>
+<style>body{margin:0;background:#060a14;color:#cfd8e6;font:12px system-ui;padding:12px}canvas{display:block;margin:0 0 12px}h3{margin:10px 0 4px;font-weight:600}</style></head>
+<body>
+<h3>living 6 × 3 at 1:1 (cell 140 × 70) — a colony grown by grade; fields = a tiny tiled texture clipped soft to the district; city / industry / science = small sprites assembled inside the district, more of them as it grows; no lines, no colours</h3>
+<canvas id="a" width="840" height="210"></canvas>
+<h3>the same at 2×</h3>
+<canvas id="c" width="1680" height="420"></canvas>
+<h3>growth stages of one district, per kind: level 1 · 2 · 3 (at 3×)</h3>
+<canvas id="d" width="1000" height="330"></canvas>
+<script type="module">
+import { terrain, paint, DISTRICT_KINDS } from './src/eon/terrain.js';
+const SPR = { housing: [], industry: [], science: [] }, SEEDS = { housing: [1101, 1102, 1103, 1104, 1105, 1106, 1107], industry: [1108, 1109, 1110, 1111, 1112, 1113, 1114], science: [1115, 1116, 1117, 1118, 1119, 1120, 1121] }, PRE = { housing: 'sp-city', industry: 'sp-ind', science: 'sp-sci' };
+let FIELDS = null;
+const load = src => new Promise(res => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = src; });
+async function loadAll() { for (const k of Object.keys(SPR)) SPR[k] = (await Promise.all(SEEDS[k].map((s, i) => load(`./art/icons/sprites/${PRE[k]}-${i + 1}-zl-s${s}-cut.png`)))).filter(Boolean); FIELDS = await load('./art/icons/tex/tex-fields-z-s1002.png'); }
+function mulberry(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+// a smooth value noise for the fields' holes and soft edges
+function vnoise(seed) { const r = mulberry(seed), g = new Float32Array(64 * 64); for (let i = 0; i < g.length; i++) g[i] = r(); return (x, y) => { const xi = Math.floor(x), yi = Math.floor(y), fx = x - xi, fy = y - yi, s = (a, b) => g[((b & 63) * 64) + (a & 63)], u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy); return (s(xi, yi) * (1 - u) + s(xi + 1, yi) * u) * (1 - v) + (s(xi, yi + 1) * (1 - u) + s(xi + 1, yi + 1) * u) * v; }; }
+// the colony: from the landing outward, the kind the colony lacks, the best frontier district for it (+ luck); a level per district
+function grow(T, share, rnd) {
+  const n = T.dtype.length, built = new Int8Array(n).fill(-1), level = new Uint8Array(n); let landing = -1, best = -1;
+  for (let k = 0; k < n; k++) if (T.habitable[k]) { const v = T.grade[k].housing - 0.3 * Math.abs(T.feat[k].x / T.W - 0.5); if (v > best) { best = v; landing = k; } }
+  const count = [0, 0, 0, 0], frontier = new Set([landing]), want = Math.round(T.net * share); let n0 = 0;
+  while (frontier.size && n0 < want) {
+    const kind = count.indexOf(Math.min(...count)), dk = DISTRICT_KINDS[kind]; let pick = -1, pb = -1;
+    for (const k of frontier) { const v = T.grade[k][dk] + rnd() * 0.25; if (v > pb) { pb = v; pick = k; } }
+    frontier.delete(pick); built[pick] = kind; count[kind]++; n0++; const gr = T.grade[pick][dk]; level[pick] = gr >= 0.6 ? 3 : gr >= 0.38 ? 2 : 1;
+    for (const q of T.adj[pick]) if (T.habitable[q] && built[q] < 0) frontier.add(q);
+  }
+  return { built, level, landing };
+}
+// the district's pixels, and the distance (in px) from each to the district's edge against anything that is not the same kind
+function edgeDistance(T, built) {
+  const { W, H, det } = T, N = W * H, key = i => built[det[i]], d = new Float32Array(N).fill(1e9);
+  for (let i = 0; i < N; i++) { const x = i % W, y = (i / W) | 0, r = x + 1 < W ? i + 1 : i - x, dn = y + 1 < H ? i + W : i; if (key(i) !== key(r) || key(i) !== key(dn)) { d[i] = 0; if (key(r) !== key(i)) d[r] = 0; if (key(dn) !== key(i)) d[dn] = 0; } }
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const i = y * W + x, l = x ? i - 1 : i, u = y ? i - W : i; d[i] = Math.min(d[i], d[l] + 1, d[u] + 2); }
+  for (let y = H - 1; y >= 0; y--) for (let x = W - 1; x >= 0; x--) { const i = y * W + x, r = x + 1 < W ? i + 1 : i, dn = y + 1 < H ? i + W : i; d[i] = Math.min(d[i], d[r] + 1, d[dn] + 2); }
+  return d;
+}
+const FACTION = [126, 243, 176];   // the empire's colour (a mild tint on the city's hull)
+function render(cv, T, scale, col, { seed = 1 } = {}) {
+  const g = cv.getContext('2d'), { built, level } = col, { W, H, det } = T, img = g.createImageData(W, H); paint(T, img.data, { frames: false, slots: false });
+  // FIELDS: the tiled texture, tiny, through a soft mask (edge feather + holes by a noise, more holes at low levels)
+  const fc = document.createElement('canvas'); fc.width = FIELDS.width; fc.height = FIELDS.height; const fg = fc.getContext('2d'); fg.drawImage(FIELDS, 0, 0); const fdat = fg.getImageData(0, 0, fc.width, fc.height).data;
+  const ed = edgeDistance(T, built), nz = vnoise(seed), K = 0.14;                      // K: texture px per surface px (tiny fields)
+  const foodId = DISTRICT_KINDS.indexOf('food');
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const i = y * W + x, k = det[i]; if (built[k] !== foodId) continue;
+    const holes = nz(x / 9, y / 4.5), keep = level[k] === 3 ? 0.15 : level[k] === 2 ? 0.4 : 0.6; if (holes < keep) continue;
+    const a = Math.min(1, ed[i] / 3.5) * Math.min(1, (holes - keep) / 0.12); if (a <= 0) continue;
+    const tx = Math.floor(x / K) % fc.width, ty = Math.floor(y / K * 2) % fc.height, o = (ty * fc.width + tx) * 4;   // the 2:1 tilt: twice the rows
+    for (let ch = 0; ch < 3; ch++) img.data[i * 4 + ch] = Math.round(img.data[i * 4 + ch] * (1 - a) + fdat[o + ch] * a); }
+  const off = document.createElement('canvas'); off.width = W; off.height = H; off.getContext('2d').putImageData(img, 0, 0);
+  g.imageSmoothingEnabled = true; g.drawImage(off, 0, 0, W * scale, H * scale);
+  // SPRITES: an isometric lattice of spots inside each district (spacing SP px), filled from the district's centre outward by level
+  const rnd = mulberry(seed + 7), spots = [], SP = 7, byD = new Map();
+  for (let y = 0; y < H; y += SP / 2) for (let x = 0; x < W; x += SP) { const xx = x + ((Math.round(y / (SP / 2)) & 1) ? SP / 2 : 0), i = Math.floor(y) * W + Math.floor(xx); if (xx >= W) continue; const k = det[i]; if (built[k] < 0 || built[k] === foodId) continue; if (ed[i] < 2) continue; if (!byD.has(k)) byD.set(k, []); byD.get(k).push({ x: xx + (rnd() - 0.5) * 2, y: y + (rnd() - 0.5) * 1.2, k }); }
+  for (const [k, list] of byD) { const f = T.feat[k], dk = DISTRICT_KINDS[built[k]], share = [0, 0.3, 0.65, 1][level[k]];
+    list.sort((a, b) => (Math.hypot(a.x - f.x, (a.y - f.y) * 2)) - (Math.hypot(b.x - f.x, (b.y - f.y) * 2)));
+    list.slice(0, Math.max(1, Math.round(list.length * share))).forEach(p => spots.push({ ...p, dk, im: SPR[dk][Math.floor(rnd() * SPR[dk].length)], h: (dk === 'housing' ? 9 : dk === 'industry' ? 8 : 8) * (0.8 + rnd() * 0.5) })); }
+  spots.sort((a, b) => a.y - b.y);
+  for (const p of spots) { if (!p.im) continue; const h = p.h * scale, w = h * p.im.width / p.im.height; g.drawImage(p.im, p.x * scale - w / 2, p.y * scale - h * 0.85, w, h); }
+  // science glow: a faint blue halo over science districts; the city: a mild faction tint (done on the sprites via a second pass is costly — skipped in the mock)
+  const sciId = DISTRICT_KINDS.indexOf('science'); g.save(); g.globalCompositeOperation = 'lighter'; g.fillStyle = 'rgba(60,140,255,.10)';
+  for (let y = 0; y < H; y += 2) for (let x = 0; x < W; x += 2) { const i = y * W + x; if (built[det[i]] === sciId && ed[i] > 1) g.fillRect(x * scale, y * scale, 2 * scale, 2 * scale); } g.restore();
+}
+await loadAll();
+const T = terrain('surf-6x3', 6, 3, 'living'), col = grow(T, 0.55, mulberry(3));
+render(document.getElementById('a'), T, 1, col); render(document.getElementById('c'), T, 2, col);
+// the stages: one district per kind, drawn at level 1 / 2 / 3 on its own patch (3×)
+const d = document.getElementById('d'), dg = d.getContext('2d'); dg.fillStyle = '#060a14'; dg.fillRect(0, 0, d.width, d.height);
+const pick = {}; for (let k = 0; k < T.dtype.length; k++) { const b = col.built[k]; if (b < 0) continue; const f = T.feat[k]; if (f.y < T.H * 0.25 || f.y > T.H * 0.75 || f.x < 50 || f.x > T.W - 50) continue; const dk = DISTRICT_KINDS[b]; if (!pick[dk] || T.dArea[k] > T.dArea[pick[dk]]) pick[dk] = k; }
+DISTRICT_KINDS.forEach((dk, row) => { const k = pick[dk]; if (k == null) return; const f = T.feat[k], x0 = Math.max(0, Math.round(f.x - 40)), y0 = Math.max(0, Math.round(f.y - 20));
+  [1, 2, 3].forEach((L, colI) => { const b2 = new Int8Array(col.built.length).fill(-1); b2[k] = col.built[k]; const l2 = new Uint8Array(col.level.length); l2[k] = L;
+    const tmp = document.createElement('canvas'); tmp.width = T.W * 3; tmp.height = T.H * 3; render(tmp, T, 3, { built: b2, level: l2, landing: k }, { seed: 1 });
+    dg.drawImage(tmp, x0 * 3, y0 * 3, 240, 120, 10 + colI * 250, 10 + row * 80, 240, 72); });
+  dg.fillStyle = '#cfd8e6'; dg.font = '12px system-ui'; dg.fillText(dk, 770, 50 + row * 80); });
+window.mock = { T, col };
+</script></body></html>
