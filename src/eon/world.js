@@ -52,7 +52,8 @@ export function createWorld(seedText, n = 2, o = {}) {
   const taken = [];
   for (let i = 0; i < n; i++) {
     const S = newState(seed, { galaxy: o.galaxy }); S.seedText = String(seedText); S.hostiles = []; S.empire = i; S.name = WORLD.names[i] || `Empire ${i + 1}`; S.homePlace = 'home';
-    S.look = { style: WORLD.styles[i % WORLD.styles.length], colA: WORLD.colors[i % WORLD.colors.length][0], colB: WORLD.colors[i % WORLD.colors.length][1], hull: WORLD.hulls[i % WORLD.hulls.length] };
+    const pick = o.colors && o.colors[i];                 // a colour chosen at the setup (his ask 2026-10-21), else the empire's default pair
+    S.look = { style: WORLD.styles[i % WORLD.styles.length], colA: pick || WORLD.colors[i % WORLD.colors.length][0], colB: WORLD.colors[i % WORLD.colors.length][1], hull: WORLD.hulls[i % WORLD.hulls.length] };
     if (i > 0) { const pl = pickHome(S, taken); if (!pl) throw new Error('no world left for another empire'); moveHome(S, pl); }
     taken.push(S.homeSys); W.empires.push(S);
   }

@@ -36,8 +36,9 @@ let S = load();
 // THE WORLD (world.js; his ask, 2026-10-16 "when you take over, the AI stops"): other empires on the same galaxy, each with a head of
 // its own (ai.js) that plays on while you play yours — from a replay you stopped, or a new game against AI empires. Null = alone.
 let W = null;
-try { const w = JSON.parse(localStorage.getItem(KEY + '.world') || 'null'); if (w && w.snap) { W = createWorld(w.seedText, w.n, { galaxy: w.galaxy || null }); worldRestore(W, w.snap); W.me = w.me; W.focus = w.focus || null; S = W.empires[W.me]; } } catch (e) { W = null; }
+try { const w = JSON.parse(localStorage.getItem(KEY + '.world') || 'null'); if (w && w.snap) { W = createWorld(w.seedText, w.n, { galaxy: w.galaxy || null, colors: w.colors || null }); worldRestore(W, w.snap); W.me = w.me; W.focus = w.focus || null; W.colors = w.colors || null; S = W.empires[W.me]; } } catch (e) { W = null; }
 const brainFor = (w, E) => makeBrain(w, E, { focus: w.focus ? w.focus[E.empire] : 'default' });   // an AI empire's head, leaning the way the setup said
+const myCol = () => (S && S.look && S.look.colA) || '#7ef3b0', myColA = a => { const c = myCol(); return `rgba(${parseInt(c.slice(1, 3), 16)},${parseInt(c.slice(3, 5), 16)},${parseInt(c.slice(5, 7), 16)},${a})`; };   // YOUR colour: the empire's (chosen at the setup), green when none (his bug 2026-10-21)
 const foreignEmpires = () => W ? W.empires.map((E, k) => ({ E, k, col: E.look.colA })).filter(x => x.E !== S && !x.E.dead) : [];   // the other empires, as they are (not a summary)
 const sysOfPlaceOf = (E, id) => (E.places.find(p => p.id === id) || {}).sys;
 let tab = 'empire', newIds = new Set();
@@ -270,7 +271,7 @@ function load() {
   } catch (e) { /* new game */ }
   return newState();
 }
-function save() { if (SIM) return; try { localStorage.setItem(KEY, JSON.stringify(S)); if (W && !REPLAY) localStorage.setItem(KEY + '.world', JSON.stringify({ seedText: W.seedText, n: W.n, galaxy: W.galaxy, me: W.me, focus: W.focus || null, snap: worldSnapshot(W) })); else localStorage.removeItem(KEY + '.world'); } catch (e) { /* ignore */ } }   // the world too, while you play in one (a replay or a running simulation is not kept)
+function save() { if (SIM) return; try { localStorage.setItem(KEY, JSON.stringify(S)); if (W && !REPLAY) localStorage.setItem(KEY + '.world', JSON.stringify({ seedText: W.seedText, n: W.n, galaxy: W.galaxy, me: W.me, focus: W.focus || null, colors: W.colors || null, snap: worldSnapshot(W) })); else localStorage.removeItem(KEY + '.world'); } catch (e) { /* ignore */ } }   // the world too, while you play in one (a replay or a running simulation is not kept)
 function loadHulls() { try { return JSON.parse(localStorage.getItem(HULL_KEY) || '[]') || []; } catch (e) { return []; } }
 function saveHulls() { try { localStorage.setItem(HULL_KEY, JSON.stringify(HULLS)); } catch (e) { /* ignore */ } setUserHulls(HULLS); }
 
@@ -405,13 +406,13 @@ function drawGalaxy(c) {
   const reachR = ringR(gSel);
   if (gMode === 'fleet' && reachR > 0 && G.pos[gSel]) { const p = G.pos[gSel]; g.strokeStyle = '#fff'; g.globalAlpha = 0.45; g.setLineDash([2, 4]); g.beginPath(); g.arc(p.x, p.y, reachR * LY * G.k, 0, 7); g.stroke(); g.setLineDash([]); g.globalAlpha = 1; }
   // picked ships, and the star they would go to
-  if (sendTo && (pickScope?.kind === 'galaxy' || pickScope?.kind === 'outgoing') && G.pos[pickScope.sys] && G.pos[sendTo]) { const a = G.pos[pickScope.sys], b = G.pos[sendTo]; g.strokeStyle = '#7ef3b0'; g.lineWidth = 2; g.setLineDash([6, 5]); g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke(); g.setLineDash([]); g.lineWidth = 1; }
+  if (sendTo && (pickScope?.kind === 'galaxy' || pickScope?.kind === 'outgoing') && G.pos[pickScope.sys] && G.pos[sendTo]) { const a = G.pos[pickScope.sys], b = G.pos[sendTo]; g.strokeStyle = myCol(); g.lineWidth = 2; g.setLineDash([6, 5]); g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke(); g.setLineDash([]); g.lineWidth = 1; }
   // derelicts, where they broke down (in God mode everyone's)
   for (const E of GE || [S]) for (const w of E.derelicts || []) { const a = G.pos[w.A], b = G.pos[w.B]; if (!a || !b) continue; const x = a.x + (b.x - a.x) * w.pos, y = a.y + (b.y - a.y) * w.pos; g.strokeStyle = '#8a93a8'; g.lineWidth = 1.5; g.beginPath(); g.moveTo(x - 4, y - 4); g.lineTo(x + 4, y + 4); g.moveTo(x + 4, y - 4); g.lineTo(x - 4, y + 4); g.stroke(); g.lineWidth = 1; }
   // ships crossing between stars (in God mode every empire's, in its colour; each dot is clickable)
   // ships under way travel as FLEETS: one dot per fleet (the ships that left together, or alone), its count beside it — in God mode
   // a click opens the whole fleet (his ask, 2026-10-17: "I'm clicking at a fleet in transit and I see one ship")
-  const flights = GE ? GE.flatMap((E, k) => E.dead || !GODC || !GODC[k] ? [] : GODC[k].ships.map(s => ({ u: s.u, k, E, col: E.look.colA }))) : c.ships.map(s => ({ u: s.u, k: null, E: S, col: '#7ef3b0' }));
+  const flights = GE ? GE.flatMap((E, k) => E.dead || !GODC || !GODC[k] ? [] : GODC[k].ships.map(s => ({ u: s.u, k, E, col: E.look.colA }))) : c.ships.map(s => ({ u: s.u, k: null, E: S, col: myCol() }));
   const convoys = new Map();
   // (this eon's departures wait at their star — the OUTGOING icons below — not on the line)
   for (const f of flights) { const u = f.u; if (!u.dest) continue; if (!GE && outKeyOf(u)) continue; const V = u.voy, key = `${f.k}|${V && V.fleet ? V.fleet : V ? `${V.A}>${V.B}@${(V.pos ?? 0).toFixed(2)}` : `${u.at}>${u.dest}@${u.eta}`}`; (convoys.get(key) || convoys.set(key, { ...f, ids: [] }).get(key)).ids.push(u.id); }
@@ -457,12 +458,12 @@ function drawGalaxy(c) {
         g.fillStyle = A ? A.look.colA : '#ff7979'; g.font = 'bold 9px sans-serif'; g.fillText(`blockade ${n} of ${WORLD.siege}`, p.x, p.y + size + 24);
       }
     } else {
-      if (here?.colonies) { g.strokeStyle = '#7ef3b0'; g.lineWidth = 2; g.beginPath(); g.arc(p.x, p.y, size + 4, 0, 7); g.stroke(); g.lineWidth = 1; }
+      if (here?.colonies) { g.strokeStyle = myCol(); g.lineWidth = 2; g.beginPath(); g.arc(p.x, p.y, size + 4, 0, 7); g.stroke(); g.lineWidth = 1; }
       if (here?.ships) {                               // YOUR FLEET here: a big triangle by the star — click it for the fleet, the star for the system (his ask, 2026-10-15)
         const x = p.x + size + 15, y = p.y - size - 7, on = gMode === 'fleet' && s.id === gSel; G.fleet[s.id] = { x, y };
-        g.fillStyle = on ? '#fff' : '#7ef3b0'; g.beginPath(); g.moveTo(x, y - 8); g.lineTo(x + 8, y + 7); g.lineTo(x - 8, y + 7); g.closePath(); g.fill();
-        if (on || (s.id === gHover && gHoverFleet)) { g.strokeStyle = on ? '#7ef3b0' : 'rgba(255,255,255,.6)'; g.lineWidth = 1.5; g.beginPath(); g.arc(x, y + 1, 13, 0, 7); g.stroke(); g.lineWidth = 1; }
-        g.font = 'bold 11px sans-serif'; g.textAlign = 'left'; g.fillStyle = on ? '#fff' : '#7ef3b0'; g.fillText(String(here.ships), x + 12, y + 5); g.textAlign = 'center';
+        g.fillStyle = on ? '#fff' : myCol(); g.beginPath(); g.moveTo(x, y - 8); g.lineTo(x + 8, y + 7); g.lineTo(x - 8, y + 7); g.closePath(); g.fill();
+        if (on || (s.id === gHover && gHoverFleet)) { g.strokeStyle = on ? myCol() : 'rgba(255,255,255,.6)'; g.lineWidth = 1.5; g.beginPath(); g.arc(x, y + 1, 13, 0, 7); g.stroke(); g.lineWidth = 1; }
+        g.font = 'bold 11px sans-serif'; g.textAlign = 'left'; g.fillStyle = on ? '#fff' : myCol(); g.fillText(String(here.ships), x + 12, y + 5); g.textAlign = 'center';
       }
       if (here?.platforms) {                           // YOUR PLATFORMS here: orange rectangles in a row under the star (his ask, 2026-10-20)
         const n = Math.min(here.platforms, 6), w = 9, gap = 4, x0 = p.x - ((n - 1) * (w + gap)) / 2, y = p.y + size + 24;
@@ -492,7 +493,7 @@ function drawGalaxy(c) {
     const bySys = new Map();
     for (const { u } of c.ships) { const key = outKeyOf(u); if (!key) continue; const sys = u.voy.A; let m = bySys.get(sys); if (!m) bySys.set(sys, m = new Map()); let o = m.get(key); if (!o) m.set(key, o = { key, sys, to: u.voy.B, dest: u.dest, ids: [] }); o.ids.push(u.id); }
     if (outOpen && !bySys.has(outOpen)) outOpen = null;
-    const line = (x, y, b, strong) => { if (!b) return; g.setLineDash([4, 5]); g.strokeStyle = '#7ef3b0'; g.globalAlpha = strong ? 0.9 : 0.55; g.lineWidth = strong ? 2 : 1.2; g.beginPath(); g.moveTo(x, y); g.lineTo(b.x, b.y); g.stroke(); g.setLineDash([]); g.globalAlpha = 1; g.lineWidth = 1; };
+    const line = (x, y, b, strong) => { if (!b) return; g.setLineDash([4, 5]); g.strokeStyle = myCol(); g.globalAlpha = strong ? 0.9 : 0.55; g.lineWidth = strong ? 2 : 1.2; g.beginPath(); g.moveTo(x, y); g.lineTo(b.x, b.y); g.stroke(); g.setLineDash([]); g.globalAlpha = 1; g.lineWidth = 1; };
     const tri = (x, y, ang, col) => { g.save(); g.translate(x, y + 1); g.rotate(ang); g.fillStyle = col; g.beginPath(); g.moveTo(0, -9); g.lineTo(8, 7); g.lineTo(-8, 7); g.closePath(); g.fill(); g.restore(); };
     for (const [sys, m] of bySys) {
       const p = G.pos[sys], st = sysOf(sys) && STARS[sysOf(sys).type]; if (!p || !st) continue;
@@ -501,9 +502,9 @@ function drawGalaxy(c) {
       if (n >= 3 && outOpen !== sys) {                   // the STACK: one icon, a triangle behind a triangle, the fleets' count; every route from it
         const hov = gHover === 'outs:' + sys; G.outStack[sys] = { x: x0, y: y0, sys, n };
         for (const o of list) line(x0, y0, G.pos[o.to], hov);
-        tri(x0 - 6, y0 - 5, 0, 'rgba(126,243,176,.45)'); tri(x0 - 3, y0 - 2.5, 0, 'rgba(126,243,176,.7)'); tri(x0, y0, 0, '#7ef3b0');
+        tri(x0 - 6, y0 - 5, 0, myColA(.45)); tri(x0 - 3, y0 - 2.5, 0, myColA(.7)); tri(x0, y0, 0, myCol());
         if (hov) { g.strokeStyle = 'rgba(255,255,255,.6)'; g.lineWidth = 1.5; g.beginPath(); g.arc(x0 - 3, y0 - 1, 15, 0, 7); g.stroke(); g.lineWidth = 1; }
-        g.font = 'bold 10px sans-serif'; g.textAlign = 'center'; g.fillStyle = '#7ef3b0'; g.fillText(`${n} fleets`, x0 - 3, y0 + 24);
+        g.font = 'bold 10px sans-serif'; g.textAlign = 'center'; g.fillStyle = myCol(); g.fillText(`${n} fleets`, x0 - 3, y0 + 24);
         continue;
       }
       // one by one: in a row while they are two, else the block (rows = ⌈√n⌉, filled a row at a time, leftward and upward)
@@ -511,9 +512,9 @@ function drawGalaxy(c) {
       list.forEach((o, i) => {
         const x = x0 - (i % cols) * 28, y = y0 - Math.floor(i / cols) * 30, b = G.pos[o.to], on = pickScope && pickScope.kind === 'outgoing' && pickScope.key === o.key, hov = gHover === 'out:' + o.key; G.out[o.key] = { ...o, x, y };
         line(x, y, b, on || hov);
-        tri(x, y, b ? Math.atan2(b.y - y, b.x - x) + Math.PI / 2 : 0, on ? '#fff' : '#7ef3b0');
-        if (on || hov) { g.strokeStyle = on ? '#7ef3b0' : 'rgba(255,255,255,.6)'; g.lineWidth = 1.5; g.beginPath(); g.arc(x, y + 1, 13, 0, 7); g.stroke(); g.lineWidth = 1; }
-        g.font = 'bold 10px sans-serif'; g.textAlign = 'center'; g.fillStyle = on ? '#fff' : '#7ef3b0'; g.fillText(String(o.ids.length), x + 11, y - 6);
+        tri(x, y, b ? Math.atan2(b.y - y, b.x - x) + Math.PI / 2 : 0, on ? '#fff' : myCol());
+        if (on || hov) { g.strokeStyle = on ? myCol() : 'rgba(255,255,255,.6)'; g.lineWidth = 1.5; g.beginPath(); g.arc(x, y + 1, 13, 0, 7); g.stroke(); g.lineWidth = 1; }
+        g.font = 'bold 10px sans-serif'; g.textAlign = 'center'; g.fillStyle = on ? '#fff' : myCol(); g.fillText(String(o.ids.length), x + 11, y - 6);
       });
     }
   }
@@ -710,7 +711,7 @@ function renderShipPop() {
   const el = $('shipPop'); if (!el) return; if (!POP) { el.hidden = true; return; }
   const E = POP.k == null ? S : W ? W.empires[POP.k] : null, c = POP.k == null ? LAST : GODC && GODC[POP.k]; if (!E || !c) return closeShipPop();
   const units = POP.ids.map(id => c.ships.find(s => s.u.id === id)).filter(Boolean); if (!units.length) return closeShipPop();
-  const col = POP.k == null ? '#7ef3b0' : E.look.colA, who = POP.k == null ? 'Your' : `${esc(E.name)}'s`;
+  const col = POP.k == null ? myCol() : E.look.colA, who = POP.k == null ? 'Your' : `${esc(E.name)}'s`;
   const groups = new Map(); for (const s of units) { const g = groups.get(s.u.design.id) || { d: s.u.design, ships: [] }; g.ships.push(s); groups.set(s.u.design.id, g); }
   let h = `<h2><span style="color:${col}">${who} ${units.length === 1 ? esc(units[0].u.name) : plural(units.length, 'ship')}</span><button class="x" data-popclose title="close (Esc)">✕</button></h2>`;
   // yours under way: UNDO the send while the eon it left in lasts (nothing has moved yet), else CALL IT BACK (his ask, 2026-10-18)
@@ -792,7 +793,7 @@ function placeTip(pl) {                               // a world in words: what 
   const own = pl.colony ? null : ownerOfPlace(pl.id), g = gridOf(pl), size = g ? SIZES[sizeClassOf(pl)] : null, pc = LAST && LAST.colonies.find(x => x.pl.id === pl.id), H = hostileIn(S, pl.sys);
   const here = LAST ? LAST.ships.filter(s => !s.u.dest && s.u.at === pl.id).length : 0, learn = topFields(pl).filter(x => x[2] > 0.06).slice(0, 3);
   return `<b>${esc(pl.name)}</b> · ${KIND_WORD[pl.kind]}${size ? ` · ${size.name} ${size.w} × ${size.h}` : ''}<br>${pl.landable ? esc(habWord(habitabilityOf(pl))) : esc(pl.note || '')}`
-    + (pc ? `<br><span style="color:#7ef3b0">your colony — ${peopleWord(pc.P.people)} people · industry ${fmt(pc.industry)} · research ${fmt(pc.research)}${pc.water ? '' : pc.waterNeed > 0 ? ` · water ${fmt(pc.waterIn)} / ${fmt(pc.waterNeed)} M` : ' · no water'}</span><br><b>click: open the colony</b>` : own ? `<br><span style="color:${own.col}">${esc(own.E.name)}'s colony</span>` : pl.landable ? '<br>can be settled' : '')
+    + (pc ? `<br><span style="color:${myCol()}">your colony — ${peopleWord(pc.P.people)} people · industry ${fmt(pc.industry)} · research ${fmt(pc.research)}${pc.water ? '' : pc.waterNeed > 0 ? ` · water ${fmt(pc.waterIn)} / ${fmt(pc.waterNeed)} M` : ' · no water'}</span><br><b>click: open the colony</b>` : own ? `<br><span style="color:${own.col}">${esc(own.E.name)}'s colony</span>` : pl.landable ? '<br>can be settled' : '')
     + (here ? `<br>${plural(here, 'ship')} of yours in orbit` : '') + (H ? `<br><span class="up">⚔ ${esc(hostileWord(H))}</span>` : '')
     + (learn.length ? `<br><span class="tiny">to learn: ${learn.map(([f, now]) => `${DOMAINS[f].name} ${pct(now)}`).join(' · ')}</span>` : '');
 }
@@ -801,7 +802,7 @@ function renderSysPop() {
   if (!sysPop || tab !== 'galaxy' || pickCount() || !LAST) return;
   const G = $('gMap')._geo, p = G && G.pos[sysPop], s = sysOf(sysPop); if (!p || !s) return;
   const places = placesIn(sysPop);
-  const row = places.map(pl => { const lk = lookOf(pl), r = Math.round(Math.max(6, Math.min(15, lk.size * 1.1))), own = pl.colony ? null : ownerOfPlace(pl.id), ring = pl.colony ? '#7ef3b0' : own ? own.col : 'transparent', pc = LAST.colonies.find(x => x.pl.id === pl.id) || (own && GODC && GODC[own.k] ? GODC[own.k].colonies.find(x => x.pl.id === pl.id) : null);
+  const row = places.map(pl => { const lk = lookOf(pl), r = Math.round(Math.max(6, Math.min(15, lk.size * 1.1))), own = pl.colony ? null : ownerOfPlace(pl.id), ring = pl.colony ? myCol() : own ? own.col : 'transparent', pc = LAST.colonies.find(x => x.pl.id === pl.id) || (own && GODC && GODC[own.k] ? GODC[own.k].colonies.find(x => x.pl.id === pl.id) : null);
     const dry = pc && !pc.water && pc.waterIn < pc.waterNeed - 0.5;
     return `<button class="sp ${pl.colony ? 'mine' : ''}" data-spplace="${pl.id}"><i style="width:${2 * r}px;height:${2 * r}px;background:${lk.color};outline:2px solid ${ring};outline-offset:2px"></i><small>${esc(pl.name)}</small>${pl.colony ? `<em>${peopleWord(pl.colony.people)}${dry ? ' · 💧!' : ''}</em>` : own ? `<em style="color:${own.col}">${esc(own.E.name)}${pc ? ' · ' + peopleWord(pc.P.people) : ''}${dry ? ' · 💧!' : ''}</em>` : ''}</button>`; }).join('');
   el.innerHTML = `<div class="fphead"><b>${esc(s.name)}</b><span class="tiny">${STARS[s.type].name}</span><button class="x" data-opensys="${s.id}" title="the star-system screen">open ▸</button><button class="x" data-spclose title="close (or click outside)">✕</button></div><div class="sprow">${row}</div><div class="tiny">Hover a world for its details${places.some(pl => pl.colony) ? ' · click your colony to open it' : ''}${godEmpires() && places.some(pl => !pl.colony && ownerOfPlace(pl.id)) ? ' · click any colony to open it (God mode)' : ''} · click another to see it in the system.</div>`;
@@ -826,7 +827,7 @@ function renderSendBadge() {
       // THE SYSTEM, IN THE BADGE (his ask, 2026-10-18: "open the system as a pop-up and let me pick exactly where to send it"): its
       // places in a row, the star first — click one, then Send here; a colony of yours ringed, another empire's in its colour
       const dest = placeOf(sendDest()), places = placesIn(sendTo);
-      const row = places.map(pl => { const lk = lookOf(pl), r = Math.round(Math.max(5, Math.min(12, lk.size * 0.9))), own = pl.colony ? null : ownerOfPlace(pl.id), ring = pl.colony ? '#7ef3b0' : own ? own.col : 'transparent';
+      const row = places.map(pl => { const lk = lookOf(pl), r = Math.round(Math.max(5, Math.min(12, lk.size * 0.9))), own = pl.colony ? null : ownerOfPlace(pl.id), ring = pl.colony ? myCol() : own ? own.col : 'transparent';
         return `<button class="sp ${dest && dest.id === pl.id ? 'on' : ''}" data-sendplace="${pl.id}" title="${esc(pl.name)} — ${KIND_WORD[pl.kind]}${pl.colony ? ' · your colony' : own ? ` · ${esc(own.E.name)}'s colony` : pl.landable ? ' · can be settled' : ''}"><i style="width:${2 * r}px;height:${2 * r}px;background:${lk.color};outline:2px solid ${ring};outline-offset:1px"></i><small>${esc(pl.name)}</small></button>`; }).join('');
       line = `<b>${plural(ships.length, 'ship')} → ${esc(dest ? dest.name : sysOf(sendTo).name)}${dest && dest.kind !== 'star' ? ` <span class="tiny">(${esc(sysOf(sendTo).name)})</span>` : ''}</b><div class="sprow">${row}</div><div class="tiny">${d.toFixed(1)} ly · ${plural(f.eons, 'eon')} · <b class="${f.chance < 0.9 ? 'up' : 'down'}">${f.chance >= 1 ? 'sure' : Math.round(f.chance * 100) + ' %'}</b> to make it${f.chance < 1 ? ` (in at ~${Math.round(f.expected)} %)` : ''} · ${ZONE.names[z]}${z < 5 ? '' : ' — no restocking there'}${foe ? ` · <b class="up">⚔ ${esc(hostileWord(foe))}</b>` : ''}${them.length ? ` · <b class="up">${them.map(o => `<span style="color:${o.color}">${esc(o.name)}</span>`).join(', ')} ${them.some(o => o.fleets.some(x => x.sys === sendTo)) ? 'has a fleet there — a fight on arrival' : 'holds a colony there — a blockade on arrival'}</b>` : ''}</div>`;
     } else { const to = placeOf(sendTo), eta = Math.max(...ships.map(s => T.travel[s.u.klass] || 0)), own = ownerOfPlace(sendTo); line = `<b>${plural(ships.length, 'ship')} → ${esc(to.name)}</b><div class="tiny">${plural(eta, 'eon')}${own ? ` · <b style="color:${own.col}">${esc(own.E.name)}'s colony</b>${ships.some(s => s.u.people > 0) ? ' — troops aboard can land there' : ''}` : to.landable && !to.colony && ships.some(s => s.u.people > 0) ? ' · settlers aboard can land there' : ''}</div>`; }
@@ -858,10 +859,11 @@ function seedOf(text) {                               // a number is used as it 
   let h = 2166136261; for (const ch of s) { h ^= ch.codePointAt(0); h = Math.imul(h, 16777619); }
   return h >>> 0;
 }
-function startGame(text, n = 1, stars = GALAXY.count, { me = 0, focus = null } = {}) {   // n > 1: a WORLD of n empires, you `me`, the rest played by ai.js (each leaning its focus); stars: the sector's size (galaxyOf)
+function startGame(text, n = 1, stars = GALAXY.count, { me = 0, focus = null, colors = null } = {}) {   // n > 1: a WORLD of n empires, you `me`, the rest played by ai.js (each leaning its focus); stars: the sector's size (galaxyOf)
   const seedText = String(text).trim() || '7', galaxy = galaxyOf(stars);
   leaveOutline(); simStop(false); REPLAY = null; GOD = false; godPick = null;
-  if (n > 1) { W = createWorld(seedText, n, { galaxy }); W.me = me; W.focus = focus; S = W.empires[me]; }
+  if (n > 1) { W = createWorld(seedText, n, { galaxy, colors }); W.me = me; W.focus = focus; W.colors = colors; S = W.empires[me]; }
+  else if (colors && colors[0]) S.look = { ...(S.look || {}), colA: colors[0] };   // alone: the chosen colour is yours too
   else { W = null; S = newState(seedOf(seedText), { galaxy }); S.seedText = seedText; }
   freshView(); save(); refresh();
 }
@@ -870,11 +872,13 @@ function startGame(text, n = 1, stars = GALAXY.count, { me = 0, focus = null } =
 // runs in the game itself (the same heads, the same world — no tool, no other engine), eon by eon in the background, God mode on,
 // and ends as a replay to scrub; any empire marked You → a game, the rest played by the heads.
 const FOCUS_CHOICES = [['default', 'default (exterminate)'], ['mid', 'mid — never moves'], ['expand', 'Expansion'], ['exploit', 'Exploitation'], ['explore', 'Exploration'], ['exterm', 'Extermination']];
-let setup = { seed: null, stars: GALAXY.count, n: 3, who: ['ai', 'ai', 'ai', 'ai', 'ai'], focus: ['default', 'default', 'default', 'default', 'default'], cap: 1200 };
+let setup = { seed: null, stars: GALAXY.count, n: 3, who: ['ai', 'ai', 'ai', 'ai', 'ai'], focus: ['default', 'default', 'default', 'default', 'default'], colors: [null, null, null, null, null], pick: -1, cap: 1200 };   // colors: a chosen colour per empire (null = its default); pick: whose palette is open
+const SETUP_COLORS = ['#7ef3b0', '#7fb3ff', '#ffd94a', '#ff5f5f', '#c084fc', '#5fe3d0', '#ff6bd6', '#f2f4f8'];   // green · blue · yellow · red · purple · cyan · magenta · white (his list)
+const setupColor = i => setup.colors[i] || WORLD.colors[i % WORLD.colors.length][0];
 function setupHtml() {
-  const n = setup.n, rows = Array.from({ length: n }, (_, i) => `<div class="shiprow" style="display:grid;grid-template-columns:auto 1fr auto auto;gap:8px;align-items:center;padding:4px 8px"><i class="dot" style="background:${WORLD.colors[i % WORLD.colors.length][0]}"></i><b>${WORLD.names[i]}</b>
+  const n = setup.n, rows = Array.from({ length: n }, (_, i) => `<div class="shiprow" style="display:grid;grid-template-columns:auto 1fr auto auto;gap:8px;align-items:center;padding:4px 8px"><button class="x" data-sucol="${i}" title="pick this empire's colour" style="width:18px;height:18px;padding:0;border-radius:50%;background:${setupColor(i)};border:1px solid rgba(255,255,255,.35)"></button><b>${WORLD.names[i]}</b>
     <select data-su="who|${i}" ${n === 1 ? 'disabled' : ''} title="an AI plays it, or you do">${[['ai', 'AI'], ['you', 'You']].map(([v, w]) => `<option value="${v}" ${(n === 1 ? 'you' : setup.who[i]) === v ? 'selected' : ''}>${w}</option>`).join('')}</select>
-    <select data-su="focus|${i}" ${setup.who[i] === 'you' && n > 1 ? 'disabled' : ''} title="the focus this empire's head leans to">${FOCUS_CHOICES.map(([v, w]) => `<option value="${v}" ${setup.focus[i] === v ? 'selected' : ''}>${w}</option>`).join('')}</select></div>`).join('');
+    <select data-su="focus|${i}" ${setup.who[i] === 'you' && n > 1 ? 'disabled' : ''} title="the focus this empire's head leans to">${FOCUS_CHOICES.map(([v, w]) => `<option value="${v}" ${setup.focus[i] === v ? 'selected' : ''}>${w}</option>`).join('')}</select></div>${setup.pick === i ? `<div style="display:flex;gap:6px;align-items:center;padding:2px 8px 6px 34px"><span class="tiny">colour:</span>${SETUP_COLORS.map(c => `<button class="x" data-supick="${i}|${c}" title="${c}" style="width:20px;height:20px;padding:0;border-radius:50%;background:${c};border:2px solid ${setupColor(i).toLowerCase() === c ? '#fff' : 'transparent'}"></button>`).join('')}<button class="x tiny" data-supick="${i}|" title="the default colour">default</button></div>` : ''}`).join('');
   const sim = n > 1 && setup.who.slice(0, n).every(w => w === 'ai');
   return `<details id="gSetup" open><summary style="cursor:pointer"><b>New game or simulation</b></summary>
     <div style="display:flex;gap:6px;margin:6px 0 4px;align-items:center;flex-wrap:wrap"><span class="tiny">Seed</span><input type="text" id="gSeed" value="${esc(setup.seed ?? seedDraft ?? S.seedText ?? S.seed)}" style="flex:1;min-width:80px"><button data-randseed title="put a random seed in the box">Random</button>
@@ -887,7 +891,7 @@ function setupHtml() {
 function simStart() {
   const seedText = String($('gSeed')?.value || setup.seed || '7').trim() || '7', n = setup.n, focus = setup.focus.slice(0, n);
   leaveOutline(); REPLAY = null; godPick = null;
-  W = createWorld(seedText, n, { galaxy: galaxyOf(setup.stars) }); W.me = null; W.focus = focus; S = W.empires[0];
+  W = createWorld(seedText, n, { galaxy: galaxyOf(setup.stars), colors: setup.colors.slice(0, n) }); W.me = null; W.focus = focus; W.colors = setup.colors.slice(0, n); S = W.empires[0];
   const log = newLog(W, { player: 'game', focus });
   const brains = W.empires.map((E, k) => makeBrain(W, E, { focus: focus[k], onAct: (E2, a) => log.empires[E2.empire].actions.push({ eon: W.eon, ...a }) }));
   SIM = { W, log, brains, cap: Math.max(10, Math.min(5000, +setup.cap || 1200)), running: false, snaps: new Map([[1, worldSnapshot(W)]]), snapEvery: 50, t0: performance.now() };
@@ -961,13 +965,13 @@ function drawMap(c) {
   g.strokeStyle = 'rgba(170,210,255,.09)';
   for (const r of new Set(here.filter(p => p.r > 0).map(p => p.r))) { g.beginPath(); g.arc(G.cx, G.cy, r * G.R, 0, 7); g.stroke(); }
   // the route a pick would take: a dotted line from where the picked ships rest to the place clicked (the send-here badge sits there)
-  if (sendTo && pickScope && pickScope.kind === 'system' && G.pos[pickScope.place] && G.pos[sendTo]) { const a = G.pos[pickScope.place], b = G.pos[sendTo]; g.strokeStyle = '#7ef3b0'; g.lineWidth = 2; g.setLineDash([6, 5]); g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke(); g.setLineDash([]); g.lineWidth = 1; }
+  if (sendTo && pickScope && pickScope.kind === 'system' && G.pos[pickScope.place] && G.pos[sendTo]) { const a = G.pos[pickScope.place], b = G.pos[sendTo]; g.strokeStyle = myCol(); g.lineWidth = 2; g.setLineDash([6, 5]); g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke(); g.setLineDash([]); g.lineWidth = 1; }
   // ships under way inside this system (a crossing to another star is drawn on the galaxy map)
   for (const u of S.ships) {
     const a = G.pos[u.at], b = u.dest && G.pos[u.dest]; if (!a || !b) continue;
     const k = Math.max(0.12, 1 - u.eta / (u.trip || T.travel[u.klass] || 1)), x = a.x + (b.x - a.x) * k, y = a.y + (b.y - a.y) * k;
-    g.setLineDash([4, 5]); g.strokeStyle = 'rgba(126,243,176,.45)'; g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke(); g.setLineDash([]);
-    g.fillStyle = '#7ef3b0'; g.beginPath(); g.arc(x, y, 4, 0, 7); g.fill();
+    g.setLineDash([4, 5]); g.strokeStyle = myColA(.45); g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke(); g.setLineDash([]);
+    g.fillStyle = myCol(); g.beginPath(); g.arc(x, y, 4, 0, 7); g.fill();
   }
   // THE WATER (his ask, 2026-10-18: "a dotted line that shows the trade route"): blue dots from each source in this system to the dry
   // colony it waters; water from another star comes in from the edge, toward that star
@@ -986,7 +990,7 @@ function drawMap(c) {
     if (pl.kind === 'star') { const gr = g.createRadialGradient(p.x, p.y, 3, p.x, p.y, size * 2.2); gr.addColorStop(0, '#fffbe6'); gr.addColorStop(0.45, color); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.beginPath(); g.arc(p.x, p.y, size * 2.2, 0, 7); g.fill(); }
     else if (pl.kind === 'anomaly') { g.save(); g.translate(p.x, p.y); g.rotate(Math.PI / 4); g.shadowColor = color; g.shadowBlur = 16; g.fillStyle = color; g.fillRect(-size, -size, size * 2, size * 2); g.restore(); }
     else { g.fillStyle = color; g.beginPath(); g.arc(p.x, p.y, size, 0, 7); g.fill(); }
-    if (pl.colony) { g.strokeStyle = '#7ef3b0'; g.lineWidth = 2; g.beginPath(); g.arc(p.x, p.y, size + 5, 0, 7); g.stroke(); }
+    if (pl.colony) { g.strokeStyle = myCol(); g.lineWidth = 2; g.beginPath(); g.arc(p.x, p.y, size + 5, 0, 7); g.stroke(); }
     // ANOTHER EMPIRE's colony here (his ask, 2026-10-16: "you can't see their planets"): a ring in its colour, solid for its homeworld; its ships below
     const owner = foreign.find(x => x.E.places.find(q => q.id === pl.id)?.colony), theirHome = owner && owner.E.homePlace === pl.id;
     if (owner) { g.strokeStyle = owner.col; g.lineWidth = theirHome ? 2.5 : 1.5; g.setLineDash(theirHome ? [] : [4, 3]); g.beginPath(); g.arc(p.x, p.y, size + 5, 0, 7); g.stroke(); g.setLineDash([]); }
@@ -998,7 +1002,7 @@ function drawMap(c) {
     g.fillStyle = owner ? owner.col : pl.colony ? '#e8f0ff' : '#9eb3d8'; g.font = (pl.colony || owner ? 'bold ' : '') + '12px sans-serif';
     g.fillText(owner ? `${pl.name} · ${owner.E.name}` : pl.name, p.x, p.y - (pl.kind === 'star' ? size * 1.9 : size) - 12);
     const parked = S.ships.filter(u => !u.dest && u.at === pl.id);
-    parked.slice(0, 6).forEach((u, i) => { const x = p.x - (Math.min(parked.length, 6) - 1) * 6 + i * 12, y = p.y + size + 12; g.fillStyle = u.klass === 'starship' ? '#7ef3b0' : '#ffb347'; g.beginPath(); g.moveTo(x, y - 5); g.lineTo(x + 5, y + 4); g.lineTo(x - 5, y + 4); g.fill(); });
+    parked.slice(0, 6).forEach((u, i) => { const x = p.x - (Math.min(parked.length, 6) - 1) * 6 + i * 12, y = p.y + size + 12; g.fillStyle = u.klass === 'starship' ? myCol() : '#ffb347'; g.beginPath(); g.moveTo(x, y - 5); g.lineTo(x + 5, y + 4); g.lineTo(x - 5, y + 4); g.fill(); });
     let row = 0;
     for (const { E, col } of foreign) { const theirs = E.ships.filter(u => !u.dest && u.at === pl.id); if (!theirs.length) continue; row++; theirs.slice(0, 6).forEach((u, i) => { const x = p.x - (Math.min(theirs.length, 6) - 1) * 6 + i * 12, y = p.y + size + 12 + 11 * row; g.fillStyle = col; g.beginPath(); g.moveTo(x, y - 5); g.lineTo(x + 5, y + 4); g.lineTo(x - 5, y + 4); g.fill(); }); if (theirs.length > 6) { g.fillStyle = col; g.font = 'bold 9px sans-serif'; g.fillText(`+${theirs.length - 6}`, p.x + 40, p.y + size + 15 + 11 * row); } }
   }
@@ -1619,7 +1623,7 @@ document.addEventListener('click', e => {
   if ((t = q('[data-newseed]'))) {
     const text = $('gSeed').value.trim() || '7', n = setup.n, who = setup.who.slice(0, n), sim = n > 1 && who.every(w => w === 'ai');
     if (!confirm(sim ? `Simulate ${n} AI empires on ${setup.stars} stars (seed "${text}") up to eon ${setup.cap}? The game you are playing is lost.` : `Start a new game in the galaxy of seed "${text}" (${setup.stars} stars${n > 1 ? `, ${n} empires` : ''})? The game you are playing is lost.`)) return;
-    setup.seed = text; if (sim) simStart(); else startGame(text, n, setup.stars, { me: Math.max(0, who.indexOf('you')), focus: setup.focus.slice(0, n) }); return;
+    setup.seed = text; if (sim) simStart(); else startGame(text, n, setup.stars, { me: Math.max(0, who.indexOf('you')), focus: setup.focus.slice(0, n), colors: setup.colors.slice(0, n) }); return;
   }
   if ((t = q('[data-opensys]'))) return openSystem(t.dataset.opensys);
   if ((t = q('[data-gplace]'))) return openSystem(placeOf(t.dataset.gplace).sys, t.dataset.gplace);
@@ -1805,6 +1809,10 @@ document.addEventListener('click', e => {
 document.addEventListener('change', e => { if (e.target.matches('[data-rview]')) { if (SIM) { S = SIM.W.empires[+e.target.value]; freshView(); gMode = GOD ? 'god' : 'system'; return refresh(); } return replayView(+e.target.value); }
   if (e.target.matches('[data-simcap]')) { if (SIM) SIM.cap = Math.max(SIM.W.eon, +e.target.value || SIM.cap); return; } if (e.target.matches('[data-reon]')) return replayGoto(+e.target.value); if (e.target.matches('[data-foes]')) foesDraft = +e.target.value; if (e.target.matches('[data-stars]')) starsDraft = +e.target.value;
   const su = e.target.closest('[data-su]'); if (su) { const [k, i] = su.dataset.su.split('|'); if (k === 'stars' || k === 'n' || k === 'cap') setup[k] = +su.value; else setup[k][+i] = su.value; setup.seed = $('gSeed') ? $('gSeed').value : setup.seed; renderGalaxy(LAST); } });
+document.addEventListener('click', e => {               // the setup's colour dots: click one → its palette; pick a swatch (or 'default')
+  const dot = e.target.closest('[data-sucol]'); if (dot) { const i = +dot.dataset.sucol; setup.pick = setup.pick === i ? -1 : i; setup.seed = $('gSeed') ? $('gSeed').value : setup.seed; return renderGalaxy(LAST); }
+  const sw = e.target.closest('[data-supick]'); if (sw) { const [i, c] = sw.dataset.supick.split('|'); setup.colors[+i] = c || null; setup.pick = -1; setup.seed = $('gSeed') ? $('gSeed').value : setup.seed; return renderGalaxy(LAST); }
+});
 document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target.matches?.('[data-reon]')) return replayGoto(+e.target.value);
   // REPLAY KEYS (his ask, 2026-10-17): ← → an eon back / on, Page Up / Page Down ten eons; not while typing, not with the arena open
