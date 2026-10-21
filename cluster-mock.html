@@ -60,7 +60,8 @@ FIELDS = await load('./art/icons/tex/tex-fields-z-s1002.png');
 const T = terrain('surf-6x3', 6, 3, 'living'), col = grow(T, 0.55, mulberry(3));
 render(document.getElementById('a'), T, 1, col); render(document.getElementById('c'), T, 2, col);
 { const big = document.createElement('canvas'); big.width = T.W * 4; big.height = T.H * 4; render(big, T, 4, col);
-  let sx = 0, sy = 0, n = 0; col.built.forEach((b, k) => { if (b >= 0 && b !== DISTRICT_KINDS.indexOf('food')) { sx += T.feat[k].x; sy += T.feat[k].y; n++; } });   // the built area's centre
-  const zg = document.getElementById('z').getContext('2d'); zg.drawImage(big, Math.max(0, Math.min(big.width - 1400, sx / n * 4 - 700)), Math.max(0, Math.min(big.height - 400, sy / n * 4 - 200)), 1400, 400, 0, 0, 1400, 400); }
+  const foodId = DISTRICT_KINDS.indexOf('food'), isB = k => col.built[k] >= 0 && col.built[k] !== foodId; let bestK = -1, bestN = -1;   // the densest built spot: the built district with most built districts within 60 px
+  col.built.forEach((b, k) => { if (!isB(k)) return; let m = 0; col.built.forEach((b2, q) => { if (isB(q) && Math.hypot(T.feat[q].x - T.feat[k].x, (T.feat[q].y - T.feat[k].y) * 2) < 60) m++; }); if (m > bestN) { bestN = m; bestK = k; } });
+  const f = T.feat[bestK], zg = document.getElementById('z').getContext('2d'); zg.drawImage(big, Math.max(0, Math.min(big.width - 1400, f.x * 4 - 700)), Math.max(0, Math.min(big.height - 400, f.y * 4 - 200)), 1400, 400, 0, 0, 1400, 400); }
 window.mock = { T, col, CHIPS };
 </script></body></html>
