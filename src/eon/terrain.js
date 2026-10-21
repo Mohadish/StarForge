@@ -54,26 +54,37 @@ export function terrain(seed, w, h, kind, { cellW = 140, cellH = 70, jitter = 0.
   const W = w * cellW, H = h * cellH, N = W * H, s = hash(seed + '|' + kind), rnd = mulberry(s ^ 0x7f4a7c15), n1 = perlin(s), n2 = perlin(s ^ 0x9e3779b9);
   const w2 = w * 2, h2 = h * 2, sw = cellW / 2, sh = cellH / 2;                                    // the slot grid
   const type = assignTypes(w2, h2, kind, rnd);                                                     // a nature per SLOT
-  const seeds = []; for (let j = 0; j < h2; j++) for (let i = 0; i < w2; i++) seeds.push({ x: (i + 0.5 + (rnd() - 0.5) * 2 * jitter) * sw, y: (j + 0.5 + (rnd() - 0.5) * 2 * jitter) * sh });
   const cellOf = k => (Math.floor(k / w2) >> 1) * w + ((k % w2) >> 1), slotOf = k => ((k % w2) & 1) + 2 * (Math.floor(k / w2) & 1);
-  const cls = new Uint8Array(N), owner = new Int16Array(N), slot = new Uint8Array(N), sub = new Int16Array(N), amp = sh * 1.1, band = sh * 0.45, beach = sh * 0.16;
+  // ONE MORE LEVEL (his ask 2026-10-21, "small islands inside oceans"): a DETAIL Voronoi, 4 per slot, not part of the district logic —
+  // every detail cell inherits its slot's nature with a small chance to flip: an island in an ocean slot, a lake or a bump on land
+  const w4 = w * 4, h4 = h * 4, dw = cellW / 4, dh = cellH / 4, parentOf = k => (Math.floor(k / w4) >> 1) * w2 + ((k % w4) >> 1);
+  const seeds = []; for (let j = 0; j < h4; j++) for (let i = 0; i < w4; i++) seeds.push({ x: (i + 0.5 + (rnd() - 0.5) * 2 * jitter) * dw, y: (j + 0.5 + (rnd() - 0.5) * 2 * jitter) * dh });
+  const FLIP = { living: { island: 0.09, lake: 0.06, bump: 0.12 }, ocean: { island: 0.07, lake: 0.04, bump: 0.1 }, ice: { island: 0.05, lake: 0.05, bump: 0.1 }, rock: { island: 0, lake: 0, bump: 0.14, pit: 0.04 } }[kind];
+  const dtype = []; for (let k = 0; k < w4 * h4; k++) { const t = type[parentOf(k)], r = rnd(); let d = t;
+    if (t === 'ocean') { if (r < FLIP.island) d = 'low'; }
+    else if (t === 'chasm') { if (r < 0.1) d = 'mid'; }
+    else if (r < FLIP.lake && t !== 'ice' && kind !== 'rock') d = 'ocean';
+    else if (r < FLIP.lake + FLIP.bump) d = t === 'low' ? 'mid' : t === 'mid' ? 'high' : t === 'ice' ? 'mid' : 'mid';
+    else if (FLIP.pit && r < FLIP.lake + FLIP.bump + FLIP.pit) d = 'chasm';
+    dtype.push(d); }
+  const cls = new Uint8Array(N), owner = new Int16Array(N), slot = new Uint8Array(N), sub = new Int16Array(N), det = new Int16Array(N), amp = dh * 1.3, band = dh * 0.9, beach = dh * 0.35;
   const wrapDx = dx => { dx = Math.abs(dx); return Math.min(dx, W - dx); };
   const rank = t => t === 'ocean' ? 0 : t === 'chasm' ? 0 : t === 'low' ? 1 : t === 'ice' ? 1 : t === 'mid' ? 2 : 3;
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    const i = y * W + x, gi = Math.floor(x / sw), gj = Math.floor(y / sh);
-    const wob = fbm(n1, x / 110, y / 55) * amp, wob2 = fbm(n2, x / 70, y / 35, 3) * amp * 0.7;    // the border wobble (one field, so borders stay consistent)
-    const hill = fbm(n2, x / 60, y / 30, 3);                                                       // inner relief: patches of higher / lower ground inside a slot
+    const i = y * W + x, gi = Math.floor(x / dw), gj = Math.floor(y / dh);
+    const wob = fbm(n1, x / 80, y / 40) * amp, wob2 = fbm(n2, x / 50, y / 25, 3) * amp * 0.7;     // the border wobble (one field, so borders stay consistent)
+    const hill = fbm(n2, x / 60, y / 30, 3);                                                       // inner relief: patches of higher / lower ground
     let best = -1, bd = 1e18, tBest = -1, tbd = 1e18; const dists = [];
     for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
-      const cj = gj + dj; if (cj < 0 || cj >= h2) continue; const ci = (gi + di + w2) % w2, k = cj * w2 + ci;
+      const cj = gj + dj; if (cj < 0 || cj >= h4) continue; const ci = (gi + di + w4) % w4, k = cj * w4 + ci;
       const dx = wrapDx(x - seeds[k].x), dy = (y - seeds[k].y) * 2, d = Math.sqrt(dx * dx + dy * dy);
       if (d < bd) { bd = d; best = k; }
-      const dn = d + (rank(type[k]) === 0 ? wob : wob2) * (rank(type[k]) % 2 ? 1 : -1);            // noisy distance: the terrain's own ownership
+      const dn = d + (rank(dtype[k]) === 0 ? wob : wob2) * (rank(dtype[k]) % 2 ? 1 : -1);          // noisy distance: the terrain's own ownership
       dists.push([dn, k]); if (dn < tbd) { tbd = dn; tBest = k; }
     }
-    sub[i] = best; owner[i] = cellOf(best); slot[i] = slotOf(best);
-    const t = type[tBest]; let c;
-    const water = t === 'ocean', nearest = f => { let m = 1e18; for (const [dn, k] of dists) if (f(type[k])) m = Math.min(m, dn); return m - tbd; };
+    det[i] = best; sub[i] = parentOf(best); owner[i] = cellOf(sub[i]); slot[i] = slotOf(sub[i]);
+    const t = dtype[tBest]; let c;
+    const water = t === 'ocean', nearest = f => { let m = 1e18; for (const [dn, k] of dists) if (f(dtype[k])) m = Math.min(m, dn); return m - tbd; };
     if (water) { c = nearest(q => q !== 'ocean') < band || hill > 0.34 ? CLS.shallow : CLS.deep; }
     else if (t === 'chasm') c = CLS.chasm;
     else if (t === 'ice') c = CLS.ice;
@@ -89,7 +100,7 @@ export function terrain(seed, w, h, kind, { cellW = 140, cellH = 70, jitter = 0.
   for (let k = 0; k < w * h; k++) land[k] = area[k] ? land[k] / area[k] : 0;
   const slotType = Array.from({ length: w * h }, () => new Array(4)); for (let k = 0; k < type.length; k++) slotType[cellOf(k)][slotOf(k)] = type[k];
   const net = type.filter(USABLE).length;
-  return { w, h, W, H, cellW, cellH, kind, type, slotType, cls, owner, slot, sub, seeds, land, gross: w * h * 4, net };
+  return { w, h, W, H, cellW, cellH, kind, type, slotType, cls, owner, slot, sub, det, seeds, land, gross: w * h * 4, net };
 }
 // ---- paint into an RGBA buffer: flat classes, a darker coast, cell frames, slot lines ----
 export function paint(T, rgba, { frames = true, slots = true } = {}) {
