@@ -3,8 +3,20 @@
 // and the battle lab (lab.js, inside the arena) both use it, so one ship reads the same everywhere. Takes a designStats()
 // result; what only the game knows (the reach between stars, the people a habitat carries) comes in through `opts`. No DOM.
 import { fmt, esc } from '../util.js';
-import { PRESETS, CLASS_NAME } from './modules.js';
-import { vsLayers } from './chipeditor.js';
+import { PRESETS, CLASS_NAME, KINDS } from './modules.js';
+import { vsLayers, CHIPS, CIVIL, CHIPC } from './chipeditor.js';
+import { chipsOfDesign } from './shipcode.js';
+// a design AS DESIGNED (his ask, 2026-10-20: "I want to see the chips, the way it looked at the design table, compressed"): its chip
+// piles as the table shows them — then the ship's own systems (reactor, star drive, weapons computer), grey, as the table's auto chips.
+// Shared by the game's ship pop-up and the arena's right-click card (2026-10-21).
+export function chipStripHtml(d) {
+  const chips = d.chips && d.chips.length ? d.chips.filter(c => !c.off) : chipsOfDesign(d, 1);
+  const nameOf = c => c.kind === 'fast' ? 'Thrusters' : ([...CHIPS.weapon, ...CHIPS.trait, ...CIVIL.trait].find(x => x[0] === c.kind) || [])[1] || c.kind;
+  const roleOf = r => (PRESETS[r] && PRESETS[r].name) || r;
+  const piles = chips.map(c => `<span class="stack mini" style="--c:${CHIPC[c.kind] || '#ffd26a'}"><b>${esc(nameOf(c))}</b>${c.h > 1 ? `<i class="hh">×${c.h}</i>` : ''}${c.role ? `<small>${esc(roleOf(c.role))}</small>` : ''}${c.caps && c.caps.length ? `<span class="tuned" title="breakthrough capsules on it">✦${c.caps.length}</span>` : ''}</span>`);
+  const autos = (d.modules || []).filter(m => ['reactor', 'stardrive', 'weapon_system'].includes(m.kind)).map(m => `<span class="stack mini auto" style="--c:#9eb3d8" title="sized by the design table to what the chips need"><b>${esc(KINDS[m.kind].name)}</b>${m.k != null && m.k !== 1 ? `<small>size ${m.k}</small>` : ''}${(m.n || 1) > 1 ? `<i class="hh">×${m.n}</i>` : ''}</span>`);
+  return `<div class="cstrip">${piles.join('')}${autos.join('')}${!piles.length && !autos.length ? '<span class="tiny">nothing fitted</span>' : ''}</div>`;
+}
 
 export const ICON = { cost: '⚒', volume: '⬢', hp: '✚', shield: '⛨', cover: '◍', power: '⚡', runs: '▲', speed: '➶', evasion: '↯', drive: '✦', stars: '✧', dock: '▭', house: '⌂', research: '⚗', industry: '⛭', social: '☺', upkeep: '⟳', gantry: '▦', fire: '◎', reach: '⟶', damage: '✸' };
 const pct = v => Math.round(v * 100) + '%', num = (v, dec) => dec ? v.toFixed(dec) : fmt(v), plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;

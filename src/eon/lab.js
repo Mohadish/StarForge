@@ -11,7 +11,7 @@ loadFleets();                                                                   
 import { lookOf, spriteOf, lookFromColors } from './skins.js';
 import { buildPlan, planFromCode, planCode, plansLoad, exportAllText, shipLabel } from './fleetplan.js';
 import { mountNav } from './nav.js';
-import { designSpecHtml, modulesLine } from './spec.js';
+import { designSpecHtml, modulesLine, chipStripHtml } from './spec.js';
 const TCELL = { weapon_energy: 0, weapon_kinetic: 1, weapon_missile: 2 };   // a style's turret cells: beam, gun, missile
 const skinsOn = () => !!($('skins') && $('skins').checked);
 // DETAIL (his ask, 2026-10-16): full = the painted ships with the style's turrets; plain = the painted ships, no turrets (the shots
@@ -290,7 +290,7 @@ function buildFromChips() {
 
 // ---------------- replay ----------------
 function watch(i) {
-  cur = LAB.fights[i]; if (!cur) return; sel = null; showCard(null); clock = 0; playing = true; last = 0; cam = null; liveAcc = 0; armed = null; camUser = null; cur.tiers = null; $('camFit').hidden = true; hideMenu();
+  cur = LAB.fights[i]; if (!cur) return; sel = null; showCard(null); clock = 0; playing = true; last = 0; cam = null; liveAcc = 0; armed = null; camUser = null; cur.tiers = null; $('camFit').hidden = true; hideMenu(); shown.clear(); shownT = 0;
   SIDE = sidesOf(cur);                               // each side in its own colour
   const A = cur.A, Bs = cur.B; cur.ships = [...A.ships, ...Bs.ships];
   const side = (f, k) => `<b style="color:${SIDE[k]}">${esc(f.name)}</b> <small>${esc(f.arch.label)}${f.n > 1 ? ` · ${f.n} ships` : ''}</small>`;
@@ -380,11 +380,12 @@ function focusShip(j) {
 // it is doing, its guns, its stock; a second tap on the same ship (or 🎥 on the card) rides it. Inside the Fleet Generator's
 // frame the card goes to the page around us (under the fight, or floating over it in full screen); here it sits under the controls.
 let sel = null, infoT = 0;
+const shown = new Map(); let shownT = 0;                                       // the eased bar values per ship (the field and the card share them)
 const OUTSIDE = ARENA && window.parent !== window;
 const ibar = (frac, col, top = null) => `<span style="position:relative;display:inline-block;width:120px;height:8px;background:#1f2a44;border-radius:4px;overflow:hidden;vertical-align:middle;margin-right:6px"><i style="display:block;height:100%;width:${Math.round(100 * Math.max(0, Math.min(1, frac)))}%;background:${col}"></i>${top !== null ? `<b style="position:absolute;top:0;bottom:0;left:${Math.round(100 * Math.max(0, Math.min(1, top)))}%;right:0;background:rgba(120,130,150,.55)"></b>` : ''}</span>`;
 function shipCard(j) {
   const s = cur.ships[j], F = cur.frames, f = F[Math.max(0, Math.min(F.length - 1, Math.floor(clock)))], nA = cur.n ? cur.n[0] : 1, side = j < nA ? 0 : 1, fleet = side ? cur.B : cur.A;
-  const hp = Math.max(0, f.hp[j]), ar = f.ar[j] || 0, sh = f.sh[j] || 0, ht = f.ht ? f.ht[j] : 0, off = f.off ? f.off[j] : 0, en = f.en ? f.en[j] : 1, em = f.em ? f.em[j] : 1, br = f.br ? f.br[j] : 0;
+  const sv = shown.get(j) || {}, hp = Math.max(0, sv.hp ?? f.hp[j]), ar = sv.ar ?? (f.ar[j] || 0), sh = sv.sh ?? (f.sh[j] || 0), ht = sv.ht ?? (f.ht ? f.ht[j] : 0), off = f.off ? f.off[j] : 0, en = sv.en ?? (f.en ? f.en[j] : 1), em = f.em ? f.em[j] : 1, br = f.br ? f.br[j] : 0;   // the eased values the field shows
   const lim = Math.max(ENDURE.heatFloor, en), hot = ht >= 0.9 * lim;
   const state = hp <= 0 ? '<b style="color:#ff7979">SUNK</b>' : br ? '<b style="color:#7fb3ff">BROKEN</b> — the crew has had enough and falls back' : off === 2 ? '<b style="color:#ff3b3b">DARK</b> — reactor off, battery flat: a quarter speed, no beams, no shield' : off === 1 ? '<b style="color:#ffb347">SCRAM</b> — reactor off, on the battery: half speed and fire' : hot ? '<b style="color:#ff7a3b">running hot</b> — holding fire until it cools' : en <= 0 ? '<b style="color:#3b6fd6">spent</b> — fights on at ' + Math.round(ENDURE.floor * 100) + ' % of its peak' : en < ENDURE.peak ? 'tiring — past its peak, slowing down' : 'fighting fit';
   const row = (label, html) => `<div style="display:flex;align-items:center;gap:6px;white-space:nowrap"><span style="width:62px;color:#9eb3d8">${label}</span>${html}</div>`;
@@ -404,17 +405,20 @@ function shipCard(j) {
 // live card, what it came in with (its stamina at the start, the strain it carried), then the design as built in the game's own
 // figures (spec.js). The fight plays on underneath.
 let specOn = false;
+// (his ask 2026-10-21: "right-click on a ship — anywhere — the same card as God mode": the live card, then AS DESIGNED (the chip
+// strip) beside AS BUILT (modules + the design's figures), compact, two columns)
 function specCard(j) {
   const s = cur.ships[j]; if (!s.ds) return shipCard(j);
   const came = s.en0 != null && s.en0 < 0.995 ? `<div style="margin-top:4px;color:#ffb347">Came in at <b>${Math.round(s.en0 * 100)} %</b> stamina — fatigue from the voyage${s.strain > 0.05 ? `, ${s.strain.toFixed(1)} light years of strain` : ''}</div>` : s.strain > 0.05 ? `<div style="margin-top:4px;color:#9eb3d8">Came in fresh, carrying ${s.strain.toFixed(1)} light years of strain</div>` : '';
-  return shipCard(j) + came + `<div class="sec" style="margin-top:8px"><h3 style="margin:0 0 4px">As built</h3><div style="color:#9eb3d8;font-size:11px">${modulesLine(s.ds)}</div></div>` + designSpecHtml(s.ds);
+  const d = s.design || (s.plan && s.plan.design) || null, strip = d ? chipStripHtml(d) : '<span style="color:#6f83a8;font-size:11px">no chip record for this ship</span>';
+  return shipCard(j) + came + `<div class="spec2"><div class="sec chips"><h3 style="margin:0 0 4px">As designed</h3>${strip}</div><div class="nums"><div class="sec"><h3 style="margin:0 0 4px">As built</h3><div style="color:#9eb3d8;font-size:11px">${modulesLine(s.ds)}</div></div>${designSpecHtml(s.ds)}</div></div>`;
 }
 function showCard(html) {
   if (OUTSIDE) return tellParent({ type: 'ship', html });
   const el = $('shipInfo'); if (!el) return; if (!html) { el.hidden = true; el.innerHTML = ''; return; } el.innerHTML = html; el.hidden = false;
 }
 function updateCard(now = false) {
-  if (sel === null || !cur || !cur.ships[sel]) return; const t = performance.now(); if (!now && t - infoT < 200) return; infoT = t;
+  if (sel === null || !cur || !cur.ships[sel]) return; const t = performance.now(); if (!now && t - infoT < 50) return; infoT = t;   // 50 ms: the card's bars whoop with the field's (his ask: a hit shows at once)
   showCard(specOn ? specCard(sel) : shipCard(sel));
 }
 function selectShip(j) { if (sel === j) return focusShip(j); sel = j; specOn = false; updateCard(true); draw(); }
@@ -429,8 +433,13 @@ function draw() {
   const g = cv.getContext('2d'), F = cur.frames; if (!F.length) return;
   const i = Math.max(0, Math.min(F.length - 1, Math.floor(clock))), k = Math.max(0, Math.min(1, clock - i)), f0 = F[i], f1 = F[Math.min(F.length - 1, i + 1)];
   const lerp = (a, b) => a + (b - a) * k;
+  // THE BARS SNAP (his ask 2026-10-21: "a hit should register almost instantly, a quarter-second whoop at most"): positions glide
+  // between frames, but hull / armour / shield / heat / stamina ease toward the CURRENT frame's value with a ~80 ms time constant
+  // (settled in a quarter second) instead of sliding to the next frame over a whole frame's playback
+  const nowT = performance.now(), dtE = shownT ? Math.min(0.25, (nowT - shownT) / 1000) : 0; shownT = nowT; const easeK = 1 - Math.exp(-dtE / 0.08);
+  const eased = (j, key, target) => { let m = shown.get(j); if (!m) { m = {}; shown.set(j, m); } if (m[key] == null || Math.abs(target - m[key]) < 0.002) m[key] = target; else m[key] += (target - m[key]) * easeK; return m[key]; };
   const ships = cur.ships, nA = cur.n ? cur.n[0] : 1, nB = ships.length - nA, sideOf = j => j < nA ? 0 : 1;
-  const Wp = ships.map((s, j) => [lerp(f0.p[j][0], f1.p[j][0]), lerp(f0.p[j][1], f1.p[j][1])]), hpOf = j => lerp(f0.hp[j], f1.hp[j]);
+  const Wp = ships.map((s, j) => [lerp(f0.p[j][0], f1.p[j][0]), lerp(f0.p[j][1], f1.p[j][1])]), hpOf = j => eased(j, 'hp', f0.hp[j]);
   // the camera fits every living ship (everything, once a side is gone), whatever the frame's shape:
   // room across and room down separately, gliding there (faster at higher playback speed)
   let live = ships.map((_, j) => j).filter(j => hpOf(j) > 0); if (new Set(live.map(sideOf)).size < 2) live = ships.map((_, j) => j);
@@ -560,7 +569,7 @@ function draw() {
         if (scale >= 10) { g.strokeStyle = 'rgba(255,255,255,.12)'; g.lineWidth = 1; g.beginPath(); g.moveTo(-L / 2, 0); g.lineTo(L / 2, 0); g.stroke(); }   // the spine
       }
       if (s.shMax && hp > 0) {                                                        // the shield: a skin over the ship, solid at its rim and falling off fast inward (so the ship shows), brighter the fuller it is
-        const sh = lerp(f0.sh[j], f1.sh[j]), rx = L * 0.62, ry = L * 0.4, A = 0.18 + 0.72 * Math.max(0, sh);
+        const sh = eased(j, 'sh', f0.sh[j]), rx = L * 0.62, ry = L * 0.4, A = 0.18 + 0.72 * Math.max(0, sh);
         g.save(); g.scale(rx, ry); const gr = g.createRadialGradient(0, 0, 0, 0, 0, 1);
         gr.addColorStop(0, 'rgba(207,137,255,0)'); gr.addColorStop(0.62, 'rgba(207,137,255,0)'); gr.addColorStop(0.86, `rgba(207,137,255,${(0.22 * A).toFixed(3)})`); gr.addColorStop(1, `rgba(207,137,255,${(0.78 * A).toFixed(3)})`);
         g.fillStyle = gr; g.beginPath(); g.arc(0, 0, 1, 0, 7); g.fill(); g.restore();
@@ -604,8 +613,8 @@ function draw() {
       if (symA < 0.5) {
         // the bars: heat (amber → red, the reactor), shield (purple), armour (grey), hull (green) — narrower, with less text, when the field is crowded
         g.globalAlpha = 1 - 2 * symA;
-        const ht = f0.ht ? lerp(f0.ht[j], f1.ht[j]) : 0, off = f1.off ? f1.off[j] : 0, showHeat = !!s.heatCap && hp > 0;
-        const en = f0.en ? lerp(f0.en[j], f1.en[j]) : null, em = f1.em ? f1.em[j] : 1, br = f1.br ? f1.br[j] : 0, showEn = en !== null && hp > 0;
+        const ht = f0.ht ? eased(j, 'ht', f0.ht[j]) : 0, off = f0.off ? f0.off[j] : 0, showHeat = !!s.heatCap && hp > 0;
+        const en = f0.en ? eased(j, 'en', f0.en[j]) : null, em = f0.em ? f0.em[j] : 1, br = f0.br ? f0.br[j] : 0, showEn = en !== null && hp > 0;
         const crowded = !few, bw = crowded ? 40 : 72, bx = cx - bw / 2, rows = 1 + (s.arMax ? 1 : 0) + (s.shMax ? 1 : 0) + (showHeat || showEn ? 1 : 0), by = cy - L * 0.5 - 12 - rows * 7;
         let yy = by;
         // ONE bar for the ship's state (his call: heat fills the blue): BLUE = how much it has left (dimmer past the peak tick),
@@ -620,8 +629,8 @@ function draw() {
         }
         const status = hp <= 0 ? '' : br ? 'BROKEN — falling back' : off === 2 ? 'DARK — reactor down, battery flat' : off ? 'SCRAM — on the battery' : '';
         if (status) { g.fillStyle = br ? '#7fb3ff' : off === 2 ? '#ff3b3b' : '#ffb347'; g.font = 'bold 10px system-ui, sans-serif'; g.textAlign = 'center'; g.fillText(status, cx, cy + L * 0.5 + (crowded ? 28 : 32)); }
-        if (s.shMax) { g.fillStyle = 'rgba(255,255,255,.1)'; g.fillRect(bx, yy, bw, 4); g.fillStyle = '#cf89ff'; g.fillRect(bx, yy, bw * Math.max(0, lerp(f0.sh[j], f1.sh[j])), 4); yy += 7; }
-        if (s.arMax) { const ar = f0.ar ? lerp(f0.ar[j], f1.ar[j]) : 0; g.fillStyle = 'rgba(255,255,255,.1)'; g.fillRect(bx, yy, bw, 4); g.fillStyle = '#c9d4e8'; g.fillRect(bx, yy, bw * Math.max(0, ar), 4); yy += 7; }
+        if (s.shMax) { g.fillStyle = 'rgba(255,255,255,.1)'; g.fillRect(bx, yy, bw, 4); g.fillStyle = '#cf89ff'; g.fillRect(bx, yy, bw * Math.max(0, eased(j, 'sh', f0.sh[j])), 4); yy += 7; }
+        if (s.arMax) { const ar = f0.ar ? eased(j, 'ar', f0.ar[j]) : 0; g.fillStyle = 'rgba(255,255,255,.1)'; g.fillRect(bx, yy, bw, 4); g.fillStyle = '#c9d4e8'; g.fillRect(bx, yy, bw * Math.max(0, ar), 4); yy += 7; }
         g.fillStyle = 'rgba(255,255,255,.1)'; g.fillRect(bx, yy, bw, 5); g.fillStyle = '#7ef3b0'; g.fillRect(bx, yy, bw * Math.max(0, hp), 5);
         g.fillStyle = hp <= 0 ? '#7a4a4a' : SIDE[side]; g.font = `bold ${crowded ? 10 : 11}px system-ui, sans-serif`; g.textAlign = 'center'; g.fillText(s.name, cx, by - 5);
         const msl = f0.msl ? f0.msl[j] : 0, dr = f0.dr ? f0.dr[j] : 0, bays = f0.bays ? f0.bays[j] : 0, spent = f0.spent ? f0.spent[j] : 0, stock = f0.stock ? f0.stock[j] : 0;
@@ -633,8 +642,8 @@ function draw() {
     }
     if (symA > 0) {
       g.globalAlpha = symA;
-      drawSymbol(g, cx, cy, tiers[j], hp, side, s.shMax && hp > 0 ? lerp(f0.sh[j], f1.sh[j]) : null,
-        { ht: s.heatCap && f0.ht ? lerp(f0.ht[j], f1.ht[j]) : null, off: f1.off ? f1.off[j] : 0, en: f0.en ? lerp(f0.en[j], f1.en[j]) : null, br: f1.br ? f1.br[j] : 0 });
+      drawSymbol(g, cx, cy, tiers[j], hp, side, s.shMax && hp > 0 ? eased(j, 'sh', f0.sh[j]) : null,
+        { ht: s.heatCap && f0.ht ? eased(j, 'ht', f0.ht[j]) : null, off: f0.off ? f0.off[j] : 0, en: f0.en ? eased(j, 'en', f0.en[j]) : null, br: f0.br ? f0.br[j] : 0 });
       if (few && symA >= 0.5) { g.fillStyle = hp <= 0 ? '#7a4a4a' : SIDE[side]; g.font = 'bold 10px system-ui, sans-serif'; g.textAlign = 'center'; g.fillText(s.name, cx, cy - SYM.size[tiers[j]] - 6); }
       g.globalAlpha = 1;
     }

@@ -183,7 +183,13 @@
 #colPop .cpmain{min-width:0;display:grid;gap:12px}
 #colPop .cprow2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 #colPop .cpcard{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:10px}
-#colPop .cpcard h3{margin:0 0 6px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);text-align:center}
+#colPop .cpcard h3{margin:0 0 6px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);text-align:center;position:relative}
+#colPop .cpcard{position:relative}
+#colPop .cpi{font-size:12px;line-height:1;padding:1px 6px;margin-left:6px;vertical-align:middle;letter-spacing:0;text-transform:none}
+#colPop .cpi-map{position:absolute;top:6px;right:6px;z-index:2;opacity:.75}
+#colPop .cpi-map:hover{opacity:1}
+#colPop .cphelp{position:absolute;top:30px;left:8px;right:8px;z-index:3;background:#0b1224;border:1px solid var(--accent);border-radius:10px;padding:8px 10px;font-size:12px;line-height:1.55;color:var(--fg);text-transform:none;letter-spacing:0;text-align:left;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+#colPop .cpmapcard .cphelp{top:34px;right:40px;left:auto;max-width:420px}
 #colPop .cpwidget{display:grid;justify-items:center}
 #colPop .cpwidget canvas{width:100%;max-width:250px;height:auto;cursor:crosshair;background:#0a0f1c;border:1px solid var(--line);border-radius:8px;touch-action:none}
 #colPop #cpMap{display:block;width:100%;height:auto;cursor:pointer;background:#050811;border-radius:8px}
@@ -250,7 +256,8 @@
 #shipPop{width:640px}
 #shipPop .sec.head{display:flex;gap:12px;align-items:center;border-top:0;padding-top:0}
 #shipPop .sec.head canvas{width:180px;height:105px;border-radius:8px;background:#04070f;flex:none}
-#shipPop .spec2{display:grid;grid-template-columns:230px 1fr;gap:10px;align-items:start;margin-top:8px;padding-top:6px;border-top:1px dashed var(--line)}
+#shipPop .spec2,#arenaWrap .shipinfo .spec2{display:grid;grid-template-columns:230px 1fr;gap:10px;align-items:start;margin-top:8px;padding-top:6px;border-top:1px dashed var(--line)}
+#arenaWrap .shipinfo .spec2 .sec{border-top:0;padding-top:0;margin-top:0}
 #shipPop .spec2 .sec{border-top:0;padding-top:0;margin-top:0}
 #shipPop .spec2 .nums .sec:first-child{border-top:0;padding-top:0;margin-top:0}
 #shipPop .spec2 .nums .sum{grid-template-columns:1fr 1fr}

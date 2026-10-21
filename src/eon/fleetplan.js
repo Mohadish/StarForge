@@ -112,7 +112,7 @@ export function buildPlan(S, plan, letter = 'abcdefghijklmnopqrstuvwxy', num = '
     const rng = rng32(p.seed), d = p.design ? (p.keep ? p.design : designOf(p.design)) : p.chips ? designFromChips(S, p.chips.map(c => ({ kind: c.kind, h: c.h, role: c.role })), p.cost, rng) : designFromWords(S, p.words, p.cost, rng);
     if (!d) return null;
     if (p.hull && hullDef(p.hull)) d.hull = p.hull;                                // the silhouette the designer gave it (a custom one travels in plan.hulls and must be registered first)
-    const s = shipFromDesign(S, d); s.arch = archetype(s); s.name = p.name || `${num}${letter[i] || i + 1}`; if (p.en0 != null) s.en0 = p.en0; if (p.strain != null) s.strain = p.strain; s.plan = p; p.built = s;   // p.strain: the light years of strain it came in with (shown on its card, no effect in the fight)
+    const s = shipFromDesign(S, d); s.arch = archetype(s); s.name = p.name || `${num}${letter[i] || i + 1}`; if (p.en0 != null) s.en0 = p.en0; if (p.strain != null) s.strain = p.strain; s.plan = p; s.design = d; p.built = s;   // s.design: the arena's card shows it as designed (2026-10-21)   // p.strain: the light years of strain it came in with (shown on its card, no effect in the fight)
     s.resolve = (p.blend || []).reduce((a, b) => a + (TACTICS[b.id]?.resolve ?? 1) * b.share, 0) || 1;   // the doctrine's RESOLVE: how long its crews hold (battle.js ENDURE)
     return s;
   }).filter(Boolean);

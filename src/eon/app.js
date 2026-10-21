@@ -24,7 +24,7 @@ import { buildPlan, planCode } from './fleetplan.js';
 import { applyEon } from './replay.js';
 import { WORLD, MAX_EMPIRES, createWorld, worldEndEon, worldSnapshot, worldRestore, worldPlayEon, applyWorldEon, ownerOf, invade, invasionOdds, newLog, campaignEon, finishLog, HIGHLIGHT } from './world.js';
 import { makeBrain } from './ai.js';
-import { designSpecHtml, modulesLine } from './spec.js';
+import { designSpecHtml, modulesLine, chipStripHtml } from './spec.js';
 import { FACTORS, FACTOR_COLOR, SIZES, sizeClassOf, gridOf, habitabilityOf, habWord } from './districts.js';
 import { SLOT, DEV, TRAITS, TRAIT, KIND_WORD as SLOT_WORD, xy, filletWhy, isFull, counts } from './colony.js';
 import { drawSurface, focusTetra, drawTri as drawEffortTri, triFromPoint, triBall, toCanvas, cellAt as surfaceCellAt, mapSize, nextPlan } from './colonyview.js';
@@ -721,16 +721,7 @@ function renderShipPop() {
   const r = el.getBoundingClientRect();
   el.style.left = Math.max(12, Math.min(POP.x + 12, innerWidth - r.width - 12)) + 'px'; el.style.top = Math.max(60, Math.min(POP.y + 12, innerHeight - r.height - 12)) + 'px';
 }
-// a design AS DESIGNED (his ask, 2026-10-20: "I want to see the chips, the way it looked at the design table, compressed"): its chip
-// piles as the table shows them — then the ship's own systems (reactor, star drive, weapons computer), grey, as the table's auto chips
-function chipStripHtml(d) {
-  const chips = d.chips && d.chips.length ? d.chips.filter(c => !c.off) : chipsOfDesign(d, 1);
-  const nameOf = c => c.kind === 'fast' ? 'Thrusters' : ([...CHIPS.weapon, ...CHIPS.trait, ...CIVIL.trait].find(x => x[0] === c.kind) || [])[1] || c.kind;
-  const roleOf = r => (PRESETS[r] && PRESETS[r].name) || r;
-  const piles = chips.map(c => `<span class="stack mini" style="--c:${CHIPC[c.kind] || '#ffd26a'}"><b>${esc(nameOf(c))}</b>${c.h > 1 ? `<i class="hh">×${c.h}</i>` : ''}${c.role ? `<small>${esc(roleOf(c.role))}</small>` : ''}${c.caps && c.caps.length ? `<span class="tuned" title="breakthrough capsules on it">✦${c.caps.length}</span>` : ''}</span>`);
-  const autos = d.modules.filter(m => ['reactor', 'stardrive', 'weapon_system'].includes(m.kind)).map(m => `<span class="stack mini auto" style="--c:#9eb3d8" title="sized by the design table to what the chips need"><b>${esc(KINDS[m.kind].name)}</b>${m.k != null && m.k !== 1 ? `<small>size ${m.k}</small>` : ''}${(m.n || 1) > 1 ? `<i class="hh">×${m.n}</i>` : ''}</span>`);
-  return `<div class="cstrip">${piles.join('')}${autos.join('')}${!piles.length && !autos.length ? '<span class="tiny">nothing fitted</span>' : ''}</div>`;
-}
+// a design AS DESIGNED: chipStripHtml lives in spec.js now (2026-10-21), so the arena's card shows the same strip
 function specBlock(E, k, d, ships, c) {
   const ds = designStats(E, d, c.caps), t = ds.t, tid = (k == null ? 'p' : 'pg' + k) + '|' + d.id; thumbShips.set(tid, paintedShip(d, c.caps));
   const spec = designSpecHtml(ds, { reach: t.klass === 'starship' ? `reach ${shipRange(t, c.warp).toFixed(1)} light years · ${(VOY.speed * c.warp).toFixed(1)} ly a turn` : null, reachBad: !t.underDriven && shipRange(t, c.warp) < 3, shipHousing: SCALE.shipHousing, peopleWord });
@@ -1113,15 +1104,18 @@ const cpColony = () => { const c = cpC(); return colPop && c ? c.colonies.find(x
 const cpWhy = pc => ({ staffed: pc.staffed, fed: pc.fed, housing: pc.housing, people: pc.P.people, food: pc.food / T.foodPerHead, eat: pc.P.people });
 const cpSkeleton = () => `<div class="cpbox"><div class="cphead"><b id="cpName"></b><span id="cpMeta"></span><button class="go" data-cpend title="end the eon — the colony stays open">End eon ▸</button><button class="x" data-cpclose title="close (Esc, or click outside)">✕</button></div>
   <div class="cpgrid"><div class="cpmain">
-    <div class="cprow2"><div class="cpcard cpwidget"><h3>Colony development focus</h3><canvas id="cpRect" width="250" height="250" style="cursor:grab;touch-action:none"></canvas></div>
-      <div class="cpcard cpwidget"><h3>Effort — the people</h3><canvas id="cpTri" width="250" height="250"></canvas></div></div>
-    <div class="cpcard"><canvas id="cpMap"></canvas><div class="tiny" style="margin-top:4px">Drag the ball in the tetrahedron: the builders build toward it — click an edge for half and half of its two corners (the food–housing edge: 50 % food, 50 % housing), a corner's name to pull toward it, empty space to turn it; a corner the colony cannot use is cut off and holds the ball back (hover it: why). Click a cell to plan it (industry → food → housing → science → pairs → any): that kind goes there first. ⛏ deposits · 🌾 fertile · ☼ calm · ✦ anomaly: that kind yields ×${TRAIT.boost} there. ⚒ the next slot, ✕ a slot being torn down.</div></div>
+    <div class="cprow2"><div class="cpcard cpwidget"><h3>Colony development focus <button class="x cpi" data-cphelp="focus" title="how this works">ⓘ</button></h3><div class="cphelp" data-help="focus" hidden>Drag the ball in the tetrahedron: the builders build toward it. Click an edge for half and half of its two corners (the food–housing edge: 50 % food, 50 % housing), a corner's name to pull toward it, empty space to turn it. Double-click the ball: a quarter each. A corner the colony cannot use is cut off and holds the ball back (hover it: why).</div><canvas id="cpRect" width="250" height="250" style="cursor:grab;touch-action:none"></canvas></div>
+      <div class="cpcard cpwidget"><h3>Effort — the people <button class="x cpi" data-cphelp="effort" title="how this works">ⓘ</button></h3><div class="cphelp" data-help="effort" hidden>Drag the ball: how the people split their effort — industry (the works and the production line), research (the labs), development (the builders who raise the next slot). Double-click the ball: a third each.</div><canvas id="cpTri" width="250" height="250"></canvas></div></div>
+    <div class="cpcard cpmapcard"><button class="x cpi cpi-map" data-cphelp="map" title="how to read the planet">ⓘ</button><div class="cphelp" data-help="map" hidden>The planet: its districts fill up as the builders raise slots. Click a cell to plan it (industry → food → housing → science → pairs → any): that kind goes there first. ⛏ deposits · 🌾 fertile · ☼ calm · ✦ anomaly: that kind yields ×${TRAIT.boost} there. ⚒ the next slot, ✕ a slot being torn down, ○ the landing. Hover a cell for what it holds and gives.</div><canvas id="cpMap"></canvas></div>
     <div class="cpcard" id="cpOut"></div></div>
   <div class="cpcard cpqueue" id="cpQueue"></div></div></div>`;
 function openColPop(placeId, k = null) {
   colPop = placeId; colPopK = k; cpAdd = false; cpHover = -1;
   const el = $('colPop'); el.innerHTML = cpSkeleton(); el.hidden = false;
   [$('cpMap').width, $('cpMap').height] = mapSize();
+  el.addEventListener('click', e => {                                                   // ⓘ: the card's help as a pop-over (his ask 2026-10-21: the real estate is for the planet, not the text)
+    const b = e.target.closest('[data-cphelp]'); if (!b) { if (!e.target.closest('.cphelp')) el.querySelectorAll('.cphelp').forEach(h => { h.hidden = true; }); return; }
+    const h = el.querySelector(`.cphelp[data-help="${b.dataset.cphelp}"]`), open = h && h.hidden; el.querySelectorAll('.cphelp').forEach(x => { x.hidden = true; }); if (h && open) h.hidden = false; });
   const light = () => { LAST = compute(S); renderColPop(); };                        // while dragging: the pop-up alone (the rest on release)
   const dragOn = (cv, fn) => {
     cv.addEventListener('pointerdown', e => { if (cpRO()) return; cpDrag = cv.id; cv.setPointerCapture(e.pointerId); fn(...toCanvas(cv, e)); light(); });
