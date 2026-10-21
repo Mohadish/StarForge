@@ -8,7 +8,7 @@
 // detail cells too (a defined area). The terrain's own ownership is the same walk with a per-seed wobble at every level, so coasts
 // and contours wander across the exact borders; a fine noise then roughens the shoreline; the shallow band and the beach come from
 // a distance pass. A planet has a GROSS size (districts) and a NET size (habitable districts). Pure functions on arrays.
-export const KINDS = ['living', 'ocean', 'ice', 'rock'];
+export const KINDS = ['living', 'ocean', 'ice', 'rock', 'irradiated'];       // irradiated (his idea): a world under a violent star — only shelter is livable
 export const CLS = { deep: 0, shallow: 1, low: 2, mid: 3, high: 4, ice: 5, chasm: 6 };
 export const CELL_TYPES = ['ocean', 'low', 'mid', 'high', 'ice', 'chasm'];
 const SHARE = {                                                              // of the slots: water, highland (of the land), chasm
@@ -16,18 +16,42 @@ const SHARE = {                                                              // 
   ocean:  { water: 0.78, high: 0.3, chasm: 0 },
   ice:    { water: 0.3, high: 0.2, chasm: 0 },                               // its seas are frozen hundreds of km deep: buildable (his call)
   rock:   { water: 0, high: 0.3, chasm: 0 },                                 // a dead world is all surface — only tiny pits are lost (his call)
+  irradiated: { water: 0, high: 0.35, chasm: 0 },
 };
-const CAP = { living: 0.86, ocean: 0.88, ice: 0.7, rock: 2 };               // |latitude| of a detail seed beyond which it is polar ice (rock: never)
+const CAP = { living: 0.86, ocean: 0.88, ice: 0.7, rock: 2, irradiated: 2 };   // |latitude| of a detail seed beyond which it is polar ice (rock: never)
 export const PALETTE = {                                                     // per class, [r,g,b]: deep, shallow, low, mid, high, ice, chasm
   living: [[24, 58, 104], [52, 118, 160], [92, 140, 72], [132, 138, 88], [182, 176, 150], [232, 240, 246], [30, 26, 24]],
   ocean:  [[16, 48, 96], [40, 110, 160], [100, 146, 90], [146, 144, 100], [196, 190, 170], [232, 240, 246], [30, 26, 24]],
   ice:    [[34, 52, 76], [70, 98, 124], [210, 220, 228], [176, 190, 202], [120, 130, 142], [244, 247, 250], [40, 46, 56]],
   rock:   [[52, 44, 40], [70, 60, 54], [120, 98, 72], [152, 130, 96], [192, 172, 138], [222, 208, 184], [26, 22, 20]],
+  irradiated: [[40, 30, 34], [60, 44, 48], [128, 84, 76], [156, 108, 92], [188, 142, 118], [214, 180, 150], [22, 16, 18]],
 };
 export const USABLE = t => t !== 'ocean' && t !== 'chasm';
 // HABITABLE (his rule 2026-10-21): what a district can stand on. Only water forbids, and only on living and ocean worlds; an ice
 // world's frozen sea is ground; a dead world's few pits are the exception. Later: radiation and more.
 export const habitable = (kind, t) => t !== 'chasm' && (t !== 'ocean' || kind === 'ice');
+// THE GRADES (his table, 2026-10-21): what each district is good for, 0..1 per kind, from its features. COMFORT by latitude flips with
+// the world: living / ocean peak at the equator, ice too (a narrow warm belt), rock peaks in the temperate bands (the equator burns),
+// an irradiated world has no comfort at all — only SHELTER (a canyon, a basin ringed by mountains) counts there.
+export const DISTRICT_KINDS = ['housing', 'food', 'industry', 'science'];
+export const SPECIALS = ['none', 'crater', 'geyser', 'crystal', 'anomaly'];
+const comfort = (kind, lat) => kind === 'irradiated' ? 0 : kind === 'ice' ? Math.max(0, 1 - lat * 2.2) : kind === 'rock' ? Math.max(0, 1 - Math.abs(lat - 0.55) * 2.2) : 1 - Math.pow(lat, 1.5);
+const clamp01 = v => Math.max(0, Math.min(1, v));
+export function gradeOf(kind, f) {                   // f = one district's features (see features())
+  const c = comfort(kind, f.lat), coastal = f.coast >= 1 && f.coast <= 2 ? 1 : f.coast === 3 ? 0.5 : 0, shelter = f.canyon || f.basin ? 1 : 0, dry = kind === 'rock' || kind === 'irradiated';
+  const big = f.landmass >= 12 ? 1 : f.landmass >= 6 ? 0.5 : 0, lowland = f.relief === 'low' ? 1 : f.relief === 'mid' ? 0.5 : 0, high = f.relief === 'high' ? 1 : 0, polar = f.relief === 'ice' && kind !== 'ice' ? 1 : 0;
+  const frozenSea = kind === 'ice' && f.nature === 'ocean' ? 1 : 0, special = f.special ? 1 : 0;
+  let housing, food, industry, science;
+  if (kind === 'irradiated') { housing = shelter ? 0.6 + 0.2 * f.basin : 0.03; food = shelter ? 0.3 : 0.02; industry = 0.5 + 0.3 * high + 0.2 * (f.foothill ? 1 : 0); science = 0.45 + 0.5 * special + 0.2 * high; }
+  else {
+    housing = 0.12 + 0.35 * c + 0.25 * coastal + 0.15 * big + 0.1 * f.lake + (dry || kind === 'ice' ? 0.4 : 0.15) * shelter - 0.5 * polar - 0.3 * (f.island ? 1 : 0) - 0.25 * high;
+    if (kind === 'ice' && f.canyon) housing -= 0.5;                          // a crevice on an ice world is deadly (his call)
+    food = 0.08 + 0.4 * lowland + 0.3 * c + 0.2 * f.lake + (kind === 'ocean' ? 0.3 : 0.12) * coastal + (dry ? 0.25 : 0) * (f.canyon ? 1 : 0) - 0.5 * polar - 0.35 * high;
+    industry = 0.18 + 0.4 * (f.foothill ? 1 : 0) + 0.5 * high + 0.15 * (f.coast === 1 ? 1 : 0) + 0.3 * frozenSea + (dry ? 0.15 : 0) - 0.2 * polar;
+    science = 0.1 + 0.5 * (f.island ? 1 : 0) + 0.6 * special + 0.3 * polar + 0.2 * high + (kind === 'ice' && f.relief === 'ice' ? 0.2 : 0);
+  }
+  return { housing: clamp01(housing), food: clamp01(food), industry: clamp01(industry), science: clamp01(science) };
+}
 // ---- seeded noise ----
 function hash(s) { let h = 2166136261; for (const ch of String(s)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; }
 function mulberry(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
@@ -102,11 +126,11 @@ export function terrain(seed, w, h, kind, { cellW = 140, cellH = 70, jitter = 0.
     for (let q = 0; q < 4; q++) { const d = dist(detSeeds[k * 4 + q], x, y); if (d < bd) { bd = d; b = q; } const p = detSeeds[kN * 4 + q], dn = dist(p, x, y) + wob(p, 2, i); if (dn < bn) { bn = dn; bN = q; } }
     det[i] = k * 4 + b; detN[i] = kN * 4 + bN; }
   // the natures of the districts: the slot's, with a small seeded chance to flip; the polar caps are districts whose seed lies beyond CAP
-  const FLIP = { living: { island: 0.09, lake: 0.06, bump: 0.12 }, ocean: { island: 0.07, lake: 0.04, bump: 0.1 }, ice: { island: 0.05, lake: 0.05, bump: 0.1, pit: 0.02 }, rock: { island: 0, lake: 0, bump: 0.14, pit: 0.03 } }[kind];
+  const FLIP = { living: { island: 0.09, lake: 0.06, bump: 0.12 }, ocean: { island: 0.07, lake: 0.04, bump: 0.1 }, ice: { island: 0.05, lake: 0.05, bump: 0.1, pit: 0.02 }, rock: { island: 0, lake: 0, bump: 0.14, pit: 0.03 }, irradiated: { island: 0, lake: 0, bump: 0.16, pit: 0.04 } }[kind];
   const dtype = []; for (let k = 0; k < w * h * 16; k++) { const cell = k >> 4, sl = (k >> 2) & 3, t = type[subIndex(cell, sl)], r = rnd(); let d = t;
     if (t === 'ocean') { if (r < FLIP.island) d = 'low'; }
     else if (t === 'chasm') { if (r < 0.1) d = 'mid'; }
-    else if (r < FLIP.lake && t !== 'ice' && kind !== 'rock') d = 'ocean';
+    else if (r < FLIP.lake && t !== 'ice' && kind !== 'rock' && kind !== 'irradiated') d = 'ocean';
     else if (r < FLIP.lake + FLIP.bump) d = t === 'low' ? 'mid' : t === 'mid' ? 'high' : 'mid';
     else if (FLIP.pit && r < FLIP.lake + FLIP.bump + FLIP.pit) d = 'chasm';               // a dead or ice world's few lost spots
     if (kind === 'ice' && d === 'chasm' && t === 'ocean') d = t;
@@ -146,7 +170,30 @@ export function terrain(seed, w, h, kind, { cellW = 140, cellH = 70, jitter = 0.
   const dArea = new Uint32Array(dtype.length); for (let i = 0; i < N; i++) dArea[det[i]]++;
   const hab = new Uint8Array(dtype.length); for (let k = 0; k < dtype.length; k++) hab[k] = dArea[k] && habitable(kind, dtype[k]) ? 1 : 0;
   let gross = 0, net = 0; for (let k = 0; k < hab.length; k++) { if (dArea[k]) gross++; net += hab[k]; }
-  return { w, h, W, H, cellW, cellH, kind, type, slotType, dtype, habitable: hab, dArea, cls, owner, slot, sub, det, seeds, subSeeds, detSeeds, land, gross, net };
+  const T = { w, h, W, H, cellW, cellH, kind, type, slotType, dtype, habitable: hab, dArea, cls, owner, slot, sub, det, seeds, subSeeds, detSeeds, land, gross, net };
+  features(T, rnd); return T;
+}
+// ---- the districts' FEATURES and GRADES: the graph of districts from the pixels, then coast distance, landmasses, shelter, specials ----
+function features(T, rnd) {
+  const { W, H, det, dtype, kind, dArea } = T, n = dtype.length, nb = Array.from({ length: n }, () => new Set()), cx = new Float64Array(n), cy = new Float64Array(n);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const i = y * W + x, d = det[i], r = det[x + 1 < W ? i + 1 : i - x], dn = det[y + 1 < H ? i + W : i]; cx[d] += x; cy[d] += y; if (r !== d) { nb[d].add(r); nb[r].add(d); } if (dn !== d) { nb[d].add(dn); nb[dn].add(d); } }
+  const adj = nb.map(s => [...s]), water = k => dtype[k] === 'ocean' && kind !== 'ice', land = k => dArea[k] > 0 && !water(k) && dtype[k] !== 'chasm';
+  const comp = (ok) => { const id = new Int32Array(n).fill(-1), size = []; for (let s = 0; s < n; s++) { if (id[s] >= 0 || !ok(s) || !dArea[s]) continue; const c = size.length, st = [s]; id[s] = c; let m = 0; while (st.length) { const k = st.pop(); m++; for (const q of adj[k]) if (id[q] < 0 && ok(q) && dArea[q]) { id[q] = c; st.push(q); } } size.push(m); } return { id, size }; };
+  const wc = comp(water), lc = comp(land);
+  const coast = new Int16Array(n).fill(99); { const q = []; for (let k = 0; k < n; k++) if (water(k) && dArea[k]) { coast[k] = 0; q.push(k); } for (let h = 0; h < q.length; h++) { const k = q[h]; for (const m of adj[k]) if (coast[m] > coast[k] + 1) { coast[m] = coast[k] + 1; q.push(m); } } }
+  const f = [];
+  for (let k = 0; k < n; k++) {
+    const t = dtype[k], highNb = adj[k].filter(q => dtype[q] === 'high').length, lake = adj[k].some(q => water(q) && wc.size[wc.id[q]] <= 4) ? 1 : 0;
+    f.push({ nature: t, relief: t === 'ocean' ? 'water' : t, lat: dArea[k] ? Math.abs(cy[k] / dArea[k] / H * 2 - 1) : 1, coast: coast[k], lake, landmass: land(k) ? lc.size[lc.id[k]] : 0, island: land(k) && lc.size[lc.id[k]] <= 6 ? 1 : 0,
+      foothill: land(k) && t !== 'high' && highNb > 0 ? 1 : 0, basin: land(k) && t !== 'high' && highNb >= 3 ? 1 : 0, canyon: 0, special: 0, x: dArea[k] ? cx[k] / dArea[k] : 0, y: dArea[k] ? cy[k] / dArea[k] : 0 });
+  }
+  // CANYONS on dry worlds: 1–2 chains of districts walking through lowland (a crevice: shelter, shade, moisture)
+  if (kind === 'rock' || kind === 'irradiated') for (let c = 0, want = 1 + Math.floor(rnd() * 2); c < want; c++) { let k = Math.floor(rnd() * n), tries = 0; while ((!land(k) || dtype[k] === 'high') && tries++ < 50) k = Math.floor(rnd() * n); if (!land(k)) continue;
+    for (let step = 0, len = 3 + Math.floor(rnd() * 4); step < len; step++) { f[k].canyon = 1; const next = adj[k].filter(q => land(q) && !f[q].canyon && dtype[q] !== 'high'); if (!next.length) break; k = next[Math.floor(rnd() * next.length)]; } }
+  // SPECIALS: a few rare landmarks (science pulls toward them): craters on dead and ice worlds, geysers on living and ice, crystals on rock, an anomaly anywhere
+  const pool = { living: [2, 4], ocean: [4], ice: [1, 2, 4], rock: [1, 3, 4], irradiated: [1, 3, 4, 4] }[kind], want = 1 + Math.floor(rnd() * 3);
+  for (let s = 0, tries = 0; s < want && tries < 200; tries++) { const k = Math.floor(rnd() * n); if (!land(k) || f[k].special) continue; f[k].special = pool[Math.floor(rnd() * pool.length)]; s++; }
+  T.feat = f; T.adj = adj; T.grade = f.map(ff => gradeOf(kind, ff));
 }
 // ---- paint into an RGBA buffer: flat classes, a darker coast, cell frames, slot lines ----
 export function paint(T, rgba, { frames = true, slots = true } = {}) {
