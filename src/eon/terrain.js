@@ -102,12 +102,22 @@ export function terrain(seed, w, h, kind, { cellW = 140, cellH = 70, jitter = 0.
     if (lat > cap && c !== CLS.chasm && kind !== 'rock') { c = CLS.ice; water[i] = 0; }
     cls[i] = c;
   }
-  // the coast: distance to the other side (a chamfer pass, twice for the wrap) → a shallow band in the water, a beach on the land
-  const dc = new Float32Array(N).fill(1e9); for (let i = 0; i < N; i++) { const x = i % W, y = (i / W) | 0, r = x + 1 < W ? i + 1 : i - x, d = y + 1 < H ? i + W : i; if (water[i] !== water[r] || water[i] !== water[d]) dc[i] = 0; }
-  for (let pass = 0; pass < 2; pass++) {
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const i = y * W + x, l = x ? i - 1 : i + W - 1, u = y ? i - W : i; dc[i] = Math.min(dc[i], dc[l] + 1, dc[u] + 2); }
-    for (let y = H - 1; y >= 0; y--) for (let x = W - 1; x >= 0; x--) { const i = y * W + x, r = x + 1 < W ? i + 1 : i - x, d = y + 1 < H ? i + W : i; dc[i] = Math.min(dc[i], dc[r] + 1, dc[d] + 2); }
-  }
+  // the coast: distance to the other side (a chamfer pass, twice for the wrap)
+  const coastDistance = () => {
+    const dc = new Float32Array(N).fill(1e9); for (let i = 0; i < N; i++) { const x = i % W, y = (i / W) | 0, r = x + 1 < W ? i + 1 : i - x, d = y + 1 < H ? i + W : i; if (water[i] !== water[r] || water[i] !== water[d]) dc[i] = 0; }
+    for (let pass = 0; pass < 2; pass++) {
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const i = y * W + x, l = x ? i - 1 : i + W - 1, u = y ? i - W : i; dc[i] = Math.min(dc[i], dc[l] + 1, dc[u] + 2); }
+      for (let y = H - 1; y >= 0; y--) for (let x = W - 1; x >= 0; x--) { const i = y * W + x, r = x + 1 < W ? i + 1 : i - x, d = y + 1 < H ? i + W : i; dc[i] = Math.min(dc[i], dc[r] + 1, dc[d] + 2); }
+    }
+    return dc;
+  };
+  // ROUGH SHORELINES (his ask 2026-10-21): near the coast a fine noise bites into the land and pushes rocks and spits into the sea —
+  // fjords, inlets, skerries — strongest at the line itself, fading over ROUGH.r
+  const ROUGH = { r: cellH * 0.22, bite: 0.1 }, nR = perlin(s ^ 0x2545f491); let dc = coastDistance();
+  for (let i = 0; i < N; i++) { if (dc[i] >= ROUGH.r || cls[i] === CLS.ice || cls[i] === CLS.chasm) continue; const x = i % W, y = (i / W) | 0;
+    const v = fbm(nR, x / 11, y / 5.5, 3) + 0.5 * fbm(nR, x / 4, y / 2, 2), t = ROUGH.bite + 0.6 * dc[i] / ROUGH.r;
+    if (water[i] && v > t) { water[i] = 0; cls[i] = CLS.low; } else if (!water[i] && v < -t) { water[i] = 1; cls[i] = CLS.deep; } }
+  dc = coastDistance();
   const band = cellH * 0.2, beach = cellH * 0.1;
   for (let i = 0; i < N; i++) { if (water[i]) { if (dc[i] < band) cls[i] = CLS.shallow; } else if (dc[i] < beach && (cls[i] === CLS.mid || cls[i] === CLS.high)) cls[i] = CLS.low; }
   const land = new Float32Array(w * h), area = new Float32Array(w * h);                             // usable share of every CELL's area
