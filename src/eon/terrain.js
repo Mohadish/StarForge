@@ -10,9 +10,12 @@ export const CELL_TYPES = ['ocean', 'low', 'mid', 'high', 'ice', 'chasm'];
 const SHARE = {                                                              // of the cells: water, highland (of the land), chasm, polar ice chance
   living: { water: 0.42, high: 0.25, chasm: 0, polar: 0.8 },
   ocean:  { water: 0.78, high: 0.3, chasm: 0, polar: 0.6 },
-  ice:    { water: 0.3, high: 0.2, chasm: 0.05, polar: 1 },
-  rock:   { water: 0, high: 0.3, chasm: 0.15, polar: 0 },
+  ice:    { water: 0.3, high: 0.2, chasm: 0, polar: 1 },                     // its seas are frozen hundreds of km deep: buildable (his call)
+  rock:   { water: 0, high: 0.3, chasm: 0, polar: 0 },                       // a dead world is all surface — only tiny pits are lost (his call)
 };
+// HABITABLE (his rule 2026-10-21): what a district can stand on. Only water forbids, and only on living and ocean worlds; an ice
+// world's frozen sea is ground; a dead world's few pits are the exception. Later: radiation and more.
+export const habitable = (kind, t) => t !== 'chasm' && (t !== 'ocean' || kind === 'ice');
 export const PALETTE = {                                                     // per class, [r,g,b]: deep, shallow, low, mid, high, ice, chasm
   living: [[24, 58, 104], [52, 118, 160], [92, 140, 72], [132, 138, 88], [182, 176, 150], [232, 240, 246], [30, 26, 24]],
   ocean:  [[16, 48, 96], [40, 110, 160], [100, 146, 90], [146, 144, 100], [196, 190, 170], [232, 240, 246], [30, 26, 24]],
@@ -65,13 +68,14 @@ export function terrain(seed, w, h, kind, { cellW = 140, cellH = 70, jitter = 0.
   for (let k = 0; k < w * h; k++) for (let sl = 0; sl < 4; sl++) { const sx = (sl & 1 ? 1 : -1), sy = (sl & 2 ? 1 : -1);
     const p = { x: seeds[k].x + (sx * 0.25 + J() * 0.14) * cellW, y: seeds[k].y + (sy * 0.25 + J() * 0.14) * cellH, c1: Math.round(J()), c2: Math.round(J()) }; subSeeds.push(p);
     for (let d = 0; d < 4; d++) detSeeds.push({ x: p.x + ((d & 1 ? 1 : -1) * 0.12 + J() * 0.07) * cellW, y: p.y + ((d & 2 ? 1 : -1) * 0.12 + J() * 0.07) * cellH, c1: Math.round(J()), c2: Math.round(J()) }); }
-  const FLIP = { living: { island: 0.09, lake: 0.06, bump: 0.12 }, ocean: { island: 0.07, lake: 0.04, bump: 0.1 }, ice: { island: 0.05, lake: 0.05, bump: 0.1 }, rock: { island: 0, lake: 0, bump: 0.14, pit: 0.04 } }[kind];
+  const FLIP = { living: { island: 0.09, lake: 0.06, bump: 0.12 }, ocean: { island: 0.07, lake: 0.04, bump: 0.1 }, ice: { island: 0.05, lake: 0.05, bump: 0.1, pit: 0.02 }, rock: { island: 0, lake: 0, bump: 0.14, pit: 0.03 } }[kind];
   const dtype = []; for (let k = 0; k < w * h * 16; k++) { const cell = k >> 4, sl = (k >> 2) & 3, t = type[subIndex(cell, sl)], r = rnd(); let d = t;
     if (t === 'ocean') { if (r < FLIP.island) d = 'low'; }
     else if (t === 'chasm') { if (r < 0.1) d = 'mid'; }
     else if (r < FLIP.lake && t !== 'ice' && kind !== 'rock') d = 'ocean';
     else if (r < FLIP.lake + FLIP.bump) d = t === 'low' ? 'mid' : t === 'mid' ? 'high' : t === 'ice' ? 'mid' : 'mid';
-    else if (FLIP.pit && r < FLIP.lake + FLIP.bump + FLIP.pit) d = 'chasm';
+    else if (FLIP.pit && r < FLIP.lake + FLIP.bump + FLIP.pit) d = 'chasm';               // a dead or ice world's few lost spots
+    if (kind === 'ice' && d === 'chasm' && t === 'ocean') d = t;
     dtype.push(d); }
   const cls = new Uint8Array(N), owner = new Int16Array(N), slot = new Uint8Array(N), sub = new Int16Array(N), det = new Int16Array(N), water = new Uint8Array(N);
   const wrapDx = dx => { dx = Math.abs(dx); return Math.min(dx, W - dx); };
@@ -124,8 +128,12 @@ export function terrain(seed, w, h, kind, { cellW = 140, cellH = 70, jitter = 0.
   for (let i = 0; i < N; i++) { area[owner[i]]++; if (cls[i] >= CLS.low && cls[i] !== CLS.chasm) land[owner[i]]++; }
   for (let k = 0; k < w * h; k++) land[k] = area[k] ? land[k] / area[k] : 0;
   const slotType = Array.from({ length: w * h }, () => new Array(4)); for (let k = 0; k < type.length; k++) slotType[(Math.floor(k / w2) >> 1) * w + ((k % w2) >> 1)][((k % w2) & 1) + 2 * (Math.floor(k / w2) & 1)] = type[k];
-  const net = type.filter(USABLE).length;
-  return { w, h, W, H, cellW, cellH, kind, type, slotType, cls, owner, slot, sub, det, seeds, land, gross: w * h * 4, net };
+  // THE DISTRICTS (his call 2026-10-21): the smallest cells are the districts — one per detail cell, only on habitable ground; the
+  // gross is all of them (16 a cell), the net the habitable ones. (The 4-slot model still reads `slotType` until it is rebuilt.)
+  const dArea = new Uint32Array(dtype.length); for (let i = 0; i < N; i++) dArea[det[i]]++;      // a nested seed can own no pixels: then it is no district
+  const hab = new Uint8Array(dtype.length); for (let k = 0; k < dtype.length; k++) hab[k] = dArea[k] && habitable(kind, dtype[k]) ? 1 : 0;
+  let gross = 0, net = 0; for (let k = 0; k < hab.length; k++) { if (dArea[k]) gross++; net += hab[k]; }
+  return { w, h, W, H, cellW, cellH, kind, type, slotType, dtype, habitable: hab, dArea, cls, owner, slot, sub, det, seeds, subSeeds, detSeeds, land, gross, net };
 }
 // ---- paint into an RGBA buffer: flat classes, a darker coast, cell frames, slot lines ----
 export function paint(T, rgba, { frames = true, slots = true } = {}) {
