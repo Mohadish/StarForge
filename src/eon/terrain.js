@@ -48,57 +48,72 @@ function assignTypes(w, h, kind, rnd) {
   if (kind === 'ice') for (let k = 0; k < n; k++) if (type[k] === 'low') type[k] = 'ice';          // (polar caps are a latitude band, painted per pixel)
   return type;
 }
-// ---- the surface: ×2 RESOLUTION (his ask 2026-10-21) — every cell is 4 SLOTS, each slot its own jittered Voronoi region with its own
-// nature; a cell is the union of its 4 slots, so its frame is organic too. gross / net are counted in slots. ----
-export function terrain(seed, w, h, kind, { cellW = 140, cellH = 70, jitter = 0.25 } = {}) {
+// ---- the surface: THREE NESTED VORONOI LEVELS (his complaint 2026-10-21: "the more detail, the more it becomes a grid") ----
+// Level 1, the CELLS: a rough Voronoi of heavily jittered cell seeds — narrow, wide, oblique, odd shapes — this is the grid everything
+// else builds on. Level 2, the SLOTS: 4 sub-seeds around each cell seed, and a pixel picks among its OWN cell's 4 only, so the slots
+// subdivide the odd cell without changing its outline. Level 3, the DETAIL: 4 per slot, the same way (islands, lakes, bumps).
+// The terrain's own ownership is the same walk with a per-seed wobble added to the distances at every level, so coasts and
+// contours wander across the exact borders. The shallow band and the beach come from a distance pass over the coast afterwards.
+export function terrain(seed, w, h, kind, { cellW = 140, cellH = 70, jitter = 0.38 } = {}) {
   const W = w * cellW, H = h * cellH, N = W * H, s = hash(seed + '|' + kind), rnd = mulberry(s ^ 0x7f4a7c15), n1 = perlin(s), n2 = perlin(s ^ 0x9e3779b9);
-  const w2 = w * 2, h2 = h * 2, sw = cellW / 2, sh = cellH / 2;                                    // the slot grid
-  const type = assignTypes(w2, h2, kind, rnd);                                                     // a nature per SLOT
-  const cellOf = k => (Math.floor(k / w2) >> 1) * w + ((k % w2) >> 1), slotOf = k => ((k % w2) & 1) + 2 * (Math.floor(k / w2) & 1);
-  // ONE MORE LEVEL (his ask 2026-10-21, "small islands inside oceans"): a DETAIL Voronoi, 4 per slot, not part of the district logic —
-  // every detail cell inherits its slot's nature with a small chance to flip: an island in an ocean slot, a lake or a bump on land
-  const w4 = w * 4, h4 = h * 4, dw = cellW / 4, dh = cellH / 4, parentOf = k => (Math.floor(k / w4) >> 1) * w2 + ((k % w4) >> 1);
-  const seeds = []; for (let j = 0; j < h4; j++) for (let i = 0; i < w4; i++) seeds.push({ x: (i + 0.5 + (rnd() - 0.5) * 2 * jitter) * dw, y: (j + 0.5 + (rnd() - 0.5) * 2 * jitter) * dh });
+  const w2 = w * 2, h2 = h * 2;
+  const type = assignTypes(w2, h2, kind, rnd);                                                     // a nature per SLOT (on the 2w × 2h slot grid)
+  const subIndex = (cell, sl) => (2 * Math.floor(cell / w) + (sl >> 1)) * w2 + 2 * (cell % w) + (sl & 1);
+  const J = () => (rnd() - 0.5) * 2;
+  const seeds = []; for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) seeds.push({ x: (i + 0.5 + J() * jitter) * cellW, y: (j + 0.5 + J() * jitter * 0.8) * cellH, c1: Math.round(J()), c2: Math.round(J()) });
+  const subSeeds = [], detSeeds = [];                                                              // per cell: 4 slot seeds; per slot: 4 detail seeds
+  for (let k = 0; k < w * h; k++) for (let sl = 0; sl < 4; sl++) { const sx = (sl & 1 ? 1 : -1), sy = (sl & 2 ? 1 : -1);
+    const p = { x: seeds[k].x + (sx * 0.25 + J() * 0.14) * cellW, y: seeds[k].y + (sy * 0.25 + J() * 0.14) * cellH, c1: Math.round(J()), c2: Math.round(J()) }; subSeeds.push(p);
+    for (let d = 0; d < 4; d++) detSeeds.push({ x: p.x + ((d & 1 ? 1 : -1) * 0.12 + J() * 0.07) * cellW, y: p.y + ((d & 2 ? 1 : -1) * 0.12 + J() * 0.07) * cellH, c1: Math.round(J()), c2: Math.round(J()) }); }
   const FLIP = { living: { island: 0.09, lake: 0.06, bump: 0.12 }, ocean: { island: 0.07, lake: 0.04, bump: 0.1 }, ice: { island: 0.05, lake: 0.05, bump: 0.1 }, rock: { island: 0, lake: 0, bump: 0.14, pit: 0.04 } }[kind];
-  const dtype = []; for (let k = 0; k < w4 * h4; k++) { const t = type[parentOf(k)], r = rnd(); let d = t;
+  const dtype = []; for (let k = 0; k < w * h * 16; k++) { const cell = k >> 4, sl = (k >> 2) & 3, t = type[subIndex(cell, sl)], r = rnd(); let d = t;
     if (t === 'ocean') { if (r < FLIP.island) d = 'low'; }
     else if (t === 'chasm') { if (r < 0.1) d = 'mid'; }
     else if (r < FLIP.lake && t !== 'ice' && kind !== 'rock') d = 'ocean';
     else if (r < FLIP.lake + FLIP.bump) d = t === 'low' ? 'mid' : t === 'mid' ? 'high' : t === 'ice' ? 'mid' : 'mid';
     else if (FLIP.pit && r < FLIP.lake + FLIP.bump + FLIP.pit) d = 'chasm';
     dtype.push(d); }
-  const cls = new Uint8Array(N), owner = new Int16Array(N), slot = new Uint8Array(N), sub = new Int16Array(N), det = new Int16Array(N), amp = dh * 1.3, band = dh * 0.9, beach = dh * 0.35;
+  const cls = new Uint8Array(N), owner = new Int16Array(N), slot = new Uint8Array(N), sub = new Int16Array(N), det = new Int16Array(N), water = new Uint8Array(N);
   const wrapDx = dx => { dx = Math.abs(dx); return Math.min(dx, W - dx); };
-  const rank = t => t === 'ocean' ? 0 : t === 'chasm' ? 0 : t === 'low' ? 1 : t === 'ice' ? 1 : t === 'mid' ? 2 : 3;
+  const dist = (p, x, y) => { const dx = wrapDx(x - p.x), dy = (y - p.y) * 2; return Math.sqrt(dx * dx + dy * dy); };
+  const AMP = [cellH * 0.55, cellH * 0.3, cellH * 0.16];                                           // the wobble at each level
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-    const i = y * W + x, gi = Math.floor(x / dw), gj = Math.floor(y / dh);
-    const wob = fbm(n1, x / 120, y / 60) * amp, wob2 = fbm(n2, x / 80, y / 40, 3) * amp * 0.7;    // the border wobble, soft and slow (his "soften the coasts")
-    const hill = fbm(n2, x / 70, y / 35, 3);                                                       // inner relief: patches of higher / lower ground
-    let best = -1, bd = 1e18, tBest = -1, tbd = 1e18; const dists = [];
-    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
-      const cj = gj + dj; if (cj < 0 || cj >= h4) continue; const ci = (gi + di + w4) % w4, k = cj * w4 + ci;
-      const dx = wrapDx(x - seeds[k].x), dy = (y - seeds[k].y) * 2, d = Math.sqrt(dx * dx + dy * dy);
-      if (d < bd) { bd = d; best = k; }
-      const dn = d + (rank(dtype[k]) === 0 ? wob : wob2) * (rank(dtype[k]) % 2 ? 1 : -1);          // noisy distance: the terrain's own ownership
-      dists.push([dn, k]); if (dn < tbd) { tbd = dn; tBest = k; }
-    }
-    det[i] = best; sub[i] = parentOf(best); owner[i] = cellOf(sub[i]); slot[i] = slotOf(sub[i]);
-    const t = dtype[tBest]; let c;
-    const water = t === 'ocean', nearest = f => { let m = 1e18; for (const [dn, k] of dists) if (f(dtype[k])) m = Math.min(m, dn); return m - tbd; };
-    if (water) { c = nearest(q => q !== 'ocean') < band || hill > 0.34 ? CLS.shallow : CLS.deep; }
+    const i = y * W + x, gi = Math.floor(x / cellW), gj = Math.floor(y / cellH);
+    const w1 = fbm(n1, x / 150, y / 75), w2n = fbm(n2, x / 70, y / 35, 3), hill = fbm(n2, x / 60, y / 30, 3);
+    const wob = (p, L) => (p.c1 * w1 + p.c2 * w2n) * AMP[L];
+    // level 1: the cell (exact and noisy), over the 5 × 5 neighbourhood (the jitter is big)
+    let cell = -1, bd = 1e18, cellN = -1, bn = 1e18;
+    for (let dj = -2; dj <= 2; dj++) { const cj = gj + dj; if (cj < 0 || cj >= h) continue; for (let di = -2; di <= 2; di++) { const k = cj * w + ((gi + di + w * 2) % w), d = dist(seeds[k], x, y); if (d < bd) { bd = d; cell = k; } const dn = d + wob(seeds[k], 0); if (dn < bn) { bn = dn; cellN = k; } } }
+    // level 2: the slot, among the cell's own 4
+    let sl = 0, slN = 0; bd = 1e18; bn = 1e18;
+    for (let q = 0; q < 4; q++) { const d = dist(subSeeds[cell * 4 + q], x, y); if (d < bd) { bd = d; sl = q; } }
+    for (let q = 0; q < 4; q++) { const p = subSeeds[cellN * 4 + q], dn = dist(p, x, y) + wob(p, 1); if (dn < bn) { bn = dn; slN = q; } }
+    // level 3: the detail, among the slot's own 4
+    let dt = 0, dtN = 0; bd = 1e18; bn = 1e18;
+    for (let q = 0; q < 4; q++) { const d = dist(detSeeds[(cell * 4 + sl) * 4 + q], x, y); if (d < bd) { bd = d; dt = q; } }
+    for (let q = 0; q < 4; q++) { const p = detSeeds[(cellN * 4 + slN) * 4 + q], dn = dist(p, x, y) + wob(p, 2); if (dn < bn) { bn = dn; dtN = q; } }
+    owner[i] = cell; slot[i] = sl; sub[i] = subIndex(cell, sl); det[i] = (cell * 4 + sl) * 4 + dt;
+    const t = dtype[(cellN * 4 + slN) * 4 + dtN]; let c;
+    if (t === 'ocean') { c = hill > 0.34 ? CLS.shallow : CLS.deep; water[i] = 1; }
     else if (t === 'chasm') c = CLS.chasm;
     else if (t === 'ice') c = CLS.ice;
-    else { c = t === 'low' ? CLS.low : t === 'mid' ? CLS.mid : CLS.high;
-      if (hill > 0.2 && c < CLS.high) c++; else if (hill < -0.22 && c > CLS.low) c--;
-      if (c !== CLS.low && nearest(q => q === 'ocean') < beach) c = CLS.low; }
-    const lat = Math.abs(y / H * 2 - 1) + wob2 / cellH * 0.25, cap = kind === 'ice' ? 0.72 : 0.9;      // the polar caps: a wobbly latitude band
-    if (lat > cap && c !== CLS.chasm && (kind !== 'rock')) c = CLS.ice;
+    else { c = t === 'low' ? CLS.low : t === 'mid' ? CLS.mid : CLS.high; if (hill > 0.2 && c < CLS.high) c++; else if (hill < -0.22 && c > CLS.low) c--; }
+    const lat = Math.abs(y / H * 2 - 1) + w2n * 0.08, cap = kind === 'ice' ? 0.72 : 0.9;           // the polar caps: a wobbly latitude band
+    if (lat > cap && c !== CLS.chasm && kind !== 'rock') { c = CLS.ice; water[i] = 0; }
     cls[i] = c;
   }
+  // the coast: distance to the other side (a chamfer pass, twice for the wrap) → a shallow band in the water, a beach on the land
+  const dc = new Float32Array(N).fill(1e9); for (let i = 0; i < N; i++) { const x = i % W, y = (i / W) | 0, r = x + 1 < W ? i + 1 : i - x, d = y + 1 < H ? i + W : i; if (water[i] !== water[r] || water[i] !== water[d]) dc[i] = 0; }
+  for (let pass = 0; pass < 2; pass++) {
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const i = y * W + x, l = x ? i - 1 : i + W - 1, u = y ? i - W : i; dc[i] = Math.min(dc[i], dc[l] + 1, dc[u] + 2); }
+    for (let y = H - 1; y >= 0; y--) for (let x = W - 1; x >= 0; x--) { const i = y * W + x, r = x + 1 < W ? i + 1 : i - x, d = y + 1 < H ? i + W : i; dc[i] = Math.min(dc[i], dc[r] + 1, dc[d] + 2); }
+  }
+  const band = cellH * 0.2, beach = cellH * 0.1;
+  for (let i = 0; i < N; i++) { if (water[i]) { if (dc[i] < band) cls[i] = CLS.shallow; } else if (dc[i] < beach && (cls[i] === CLS.mid || cls[i] === CLS.high)) cls[i] = CLS.low; }
   const land = new Float32Array(w * h), area = new Float32Array(w * h);                             // usable share of every CELL's area
   for (let i = 0; i < N; i++) { area[owner[i]]++; if (cls[i] >= CLS.low && cls[i] !== CLS.chasm) land[owner[i]]++; }
   for (let k = 0; k < w * h; k++) land[k] = area[k] ? land[k] / area[k] : 0;
-  const slotType = Array.from({ length: w * h }, () => new Array(4)); for (let k = 0; k < type.length; k++) slotType[cellOf(k)][slotOf(k)] = type[k];
+  const slotType = Array.from({ length: w * h }, () => new Array(4)); for (let k = 0; k < type.length; k++) slotType[(Math.floor(k / w2) >> 1) * w + ((k % w2) >> 1)][((k % w2) & 1) + 2 * (Math.floor(k / w2) & 1)] = type[k];
   const net = type.filter(USABLE).length;
   return { w, h, W, H, cellW, cellH, kind, type, slotType, cls, owner, slot, sub, det, seeds, land, gross: w * h * 4, net };
 }
