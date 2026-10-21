@@ -171,7 +171,15 @@ export function terrain(seed, w, h, kind, { cellW = 140, cellH = 70, jitter = 0.
   const hab = new Uint8Array(dtype.length); for (let k = 0; k < dtype.length; k++) hab[k] = dArea[k] && !polar[k] && habitable(kind, dtype[k]) ? 1 : 0;
   let gross = 0, net = 0; for (let k = 0; k < hab.length; k++) { if (dArea[k]) gross++; net += hab[k]; }
   const fine = new Float32Array(N); for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) fine[y * W + x] = fbm(n2, x / 9, y / 4.5, 2);   // a fine noise: ragged band edges
-  const T = { w, h, W, H, cellW, cellH, kind, type, slotType, dtype, polar, habitable: hab, dArea, cls, owner, slot, sub, det, seeds, subSeeds, detSeeds, land, gross, net, hill, fine };
+  // JAGGED DISTRICT OUTLINES for drawing (his ask 2026-10-21: "like the shorelines, more pronounced"): every land pixel takes the
+  // district found at a spot displaced by a strong torn noise, so the straight Voronoi borders become ragged edges; water, chasm and
+  // ice pixels keep their own district, so the coast and the cap edge stay where they are. The model's `det` is untouched.
+  const detJ = new Int16Array(det), nJ = perlin(s ^ 0x3c6ef372);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const i = y * W + x, c0 = cls[i]; if (c0 <= CLS.shallow || c0 === CLS.chasm) continue;
+    const jx = fbm(nJ, x / 10, y / 5, 3) * 9 + fbm(nJ, x / 3.5 + 50, y / 1.75, 2) * 3, jy = fbm(nJ, x / 10 + 90, y / 5 + 90, 3) * 4.5 + fbm(nJ, x / 3.5 + 140, y / 1.75, 2) * 1.5;
+    const sx = (((x + Math.round(jx)) % W) + W) % W, sy = Math.max(0, Math.min(H - 1, y + Math.round(jy))), j = sy * W + sx, c1 = cls[j];
+    if (c1 <= CLS.shallow || c1 === CLS.chasm || (c1 === CLS.ice) !== (c0 === CLS.ice)) continue; detJ[i] = det[j]; }
+  const T = { w, h, W, H, cellW, cellH, kind, type, slotType, dtype, polar, habitable: hab, dArea, cls, owner, slot, sub, det, detJ, seeds, subSeeds, detSeeds, land, gross, net, hill, fine };
   features(T, rnd); return T;
 }
 // ---- the districts' FEATURES and GRADES: the graph of districts from the pixels, then coast distance, landmasses, shelter, specials ----

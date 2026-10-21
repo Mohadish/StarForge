@@ -57,7 +57,7 @@ function edgeDistance(T, key) { const { W, H } = T, N = W * H, d = new Float32Ar
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const i = y * W + x, l = x ? i - 1 : i, u = y ? i - W : i; d[i] = Math.min(d[i], d[l] + 1, d[u] + 2); }
   for (let y = H - 1; y >= 0; y--) for (let x = W - 1; x >= 0; x--) { const i = y * W + x, r = x + 1 < W ? i + 1 : i, dn = y + 1 < H ? i + W : i; d[i] = Math.min(d[i], d[r] + 1, d[dn] + 2); } return d; }
 function render(cv, T, scale, col) {
-  const g = cv.getContext('2d'), { built, level } = col, { W, H, det } = T, foodId = DISTRICT_KINDS.indexOf('food');
+  const g = cv.getContext('2d'), { built, level } = col, { W, H } = T, det = T.detJ, foodId = DISTRICT_KINDS.indexOf('food');   // det = the JAGGED outlines (drawing only)
   // the ground
   const img = g.createImageData(W, H); paint(T, img.data, { frames: false, slots: false });
   const off = document.createElement('canvas'); off.width = W; off.height = H; off.getContext('2d').putImageData(img, 0, 0); g.imageSmoothingEnabled = true; g.drawImage(off, 0, 0, W * scale, H * scale);
