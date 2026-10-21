@@ -118,41 +118,53 @@ export function drawChip(g, chip, cx, cy, s, { tint = null } = {}) {
 // ---- THE FIELDS (his reference picture): a patchwork of small plots along the iso axes, many greens and yellows, a few browns and
 // rare purples and paddies, thin pale tracks between them, a pivot circle here and there — drawn in code into a tile that repeats
 // (periodic in ground space, so the screen tile is 2L × L). Used as a canvas pattern clipped to the food districts. ----
-const PLOTS = [['#6f9a3c', 5], ['#86b14a', 5], ['#5e8a36', 4], ['#9cb84f', 3], ['#c9b64b', 3], ['#d7c35e', 2], ['#a6894a', 2], ['#8b6a3f', 1.5], ['#b7a24e', 2], ['#7fa36c', 2], ['#7b5fa6', 0.4], ['#5a7fb3', 0.6]];
+const PLOTS = [['#6f9a3c', 5], ['#86b14a', 5], ['#5e8a36', 4], ['#9cb84f', 3], ['#c9b64b', 3], ['#d7c35e', 2], ['#a6894a', 2], ['#8b6a3f', 1.5], ['#b7a24e', 2], ['#7fa36c', 2], ['#a39a7a', 1.2]];   // greens, yellows, fallow browns (the purple and blue plots confused him — gone)
+const FARM = { top: '#ebe4d0', left: '#b4875a', right: '#7d5a3b', bale: '#d9c57a', dots: 'rgba(0,0,0,.14)' };
+// the CROPS tile for the food districts (his ask: "its own sub-dribbly texture, open gaps"): crop-row dots, a farm building or two on
+// some plots, hay bales in the open gaps — and GAPS: plots left unplanted (transparent, the ground shows through)
+export const cropTile = (seed = 1, s = 1) => fieldsTile(seed, s, 48, { gaps: 0.18, farm: true, pivots: 0.08 });
 // the URBAN grid (his idea: the same patchwork, as a sub-layer under the cities and the industry): concrete greys, dark yards, small blocks
 const URBAN = [['#a9a8a2', 4], ['#bdbbb4', 3], ['#8f9194', 4], ['#777a7e', 3], ['#c9c6bd', 2], ['#636669', 2], ['#9b968c', 2], ['#575a5e', 1]];
 export const urbanTile = (seed = 1, s = 1) => fieldsTile(seed, s, 48, { plots: URBAN, track: 'rgba(52,54,58,.75)', size: 4, stripes: 0, pivots: 0, gribble: true, parks: 0.14 });
 const GRIB = { top: '#d4d3cd', left: '#a6a6a1', right: '#7e7f7c', park: ['#5f8f4a', '#6e9c52', '#578a44'], tree: '#3b7236' };
-export function fieldsTile(seed = 1, s = 1, L = 48, { plots: PL = PLOTS, track = 'rgba(226,214,170,.75)', size = 6, stripes = 0.5, pivots = 0.12, gribble = false, parks = 0 } = {}) {
+export function fieldsTile(seed = 1, s = 1, L = 48, { plots: PL = PLOTS, track = 'rgba(226,214,170,.75)', size = 6, stripes = 0.5, pivots = 0.12, gribble = false, parks = 0, gaps = 0, farm = false } = {}) {
   const rnd = mulberry(seed * 977 + 3), leaves = [], split = (u0, v0, u1, v1, depth) => { const du = u1 - u0, dv = v1 - v0; if ((Math.max(du, dv) < size + rnd() * 3 && depth > 1) || depth > 10) { leaves.push([u0, v0, u1, v1]); return; }
     const t = 0.32 + rnd() * 0.36; if (du >= dv) { split(u0, v0, u0 + du * t, v1, depth + 1); split(u0 + du * t, v0, u1, v1, depth + 1); } else { split(u0, v0, u1, v0 + dv * t, depth + 1); split(u0, v0 + dv * t, u1, v1, depth + 1); } };
   split(0, 0, L, L, 0);
   const tot = PL.reduce((a, p) => a + p[1], 0), pick = () => { let r = rnd() * tot; for (const [c, w] of PL) { r -= w; if (r <= 0) return c; } return PL[0][0]; };
-  const plots = leaves.map(([u0, v0, u1, v1]) => { const park = rnd() < parks; return { u0, v0, u1, v1, c: park ? GRIB.park[Math.floor(rnd() * 3)] : pick(), park, pivot: Math.min(u1 - u0, v1 - v0) > 5 && rnd() < pivots, stripes: rnd() < stripes,
+  const plots = leaves.map(([u0, v0, u1, v1]) => { const park = rnd() < parks, gap = !park && rnd() < gaps, m = 0.7, rp = () => [u0 + m + rnd() * (u1 - u0 - 2 * m), v0 + m + rnd() * (v1 - v0 - 2 * m)];
+    let bits = [];
     // the GRIBBLE (his ask): tiny blocks on a lattice inside the plot, way smaller than the chips; a park gets a few tiny trees instead
-    bits: gribble ? (() => { const out = [], m = 0.7; if (park) { for (let k = 0; k < 1 + Math.floor(rnd() * 3); k++) out.push({ u: u0 + m + rnd() * (u1 - u0 - 2 * m), v: v0 + m + rnd() * (v1 - v0 - 2 * m), tree: 0.35 + rnd() * 0.3 }); return out; }
-      for (let u = u0 + m + 0.4; u < u1 - m; u += 1.25) for (let v = v0 + m + 0.4; v < v1 - m; v += 1.25) if (rnd() < 0.75) out.push({ u: u + (rnd() - 0.5) * 0.3, v: v + (rnd() - 0.5) * 0.3, a: 0.3 + rnd() * 0.25, h: 0.35 + rnd() * 1.1 }); return out; })() : [] }; });
+    if (gribble) { if (park) { for (let k = 0; k < 1 + Math.floor(rnd() * 3); k++) { const [u, v] = rp(); bits.push({ u, v, tree: 0.35 + rnd() * 0.3 }); } }
+      else for (let u = u0 + m + 0.4; u < u1 - m; u += 1.25) for (let v = v0 + m + 0.4; v < v1 - m; v += 1.25) if (rnd() < 0.75) bits.push({ u: u + (rnd() - 0.5) * 0.3, v: v + (rnd() - 0.5) * 0.3, a: 0.3 + rnd() * 0.25, h: 0.35 + rnd() * 1.1 }); }
+    // the FARM bits: a building or two on a quarter of the plots, hay bales in the open gaps
+    if (farm) { if (gap) { for (let k = 0, n = Math.floor(rnd() * 4); k < n; k++) { const [u, v] = rp(); bits.push({ u, v, bale: 0.18 + rnd() * 0.12 }); } }
+      else if (rnd() < 0.25) for (let k = 0, n = 1 + (rnd() < 0.3 ? 1 : 0); k < n; k++) { const [u, v] = rp(); bits.push({ u, v, a: 0.28 + rnd() * 0.2, h: 0.4 + rnd() * 0.5, farm: true }); } }
+    return { u0, v0, u1, v1, c: gap ? null : park ? GRIB.park[Math.floor(rnd() * 3)] : pick(), park, gap, pivot: !gap && Math.min(u1 - u0, v1 - v0) > 5 && rnd() < pivots, stripes: !gap && rnd() < stripes, rows: farm && !gap && rnd() < 0.55, bits }; });
   const cv = typeof document !== 'undefined' ? document.createElement('canvas') : null; if (!cv) return { plots, L };
   cv.width = Math.round(2 * L * s); cv.height = Math.round(L * s); const g = cv.getContext('2d');
   for (const [ou, ov] of [[0, 0], [-L, 0], [L, 0], [0, -L], [0, L], [-L, -L], [L, L], [-L, L], [L, -L]]) {
     g.setTransform(s, 0.5 * s, -s, 0.5 * s, L * s, 0);
     for (const p of plots) { const u0 = p.u0 + ou, v0 = p.v0 + ov, u1 = p.u1 + ou, v1 = p.v1 + ov;
+      if (p.gap) { g.strokeStyle = track; g.lineWidth = 0.3; g.globalAlpha = 0.5; g.strokeRect(u0, v0, u1 - u0, v1 - v0); g.globalAlpha = 1; continue; }   // an open gap: the ground shows through
       g.fillStyle = p.c; g.fillRect(u0, v0, u1 - u0, v1 - v0);
       if (p.stripes) { g.strokeStyle = 'rgba(0,0,0,.08)'; g.lineWidth = 0.35; g.beginPath(); for (let t = u0 + 1; t < u1; t += 1.2) { g.moveTo(t, v0); g.lineTo(t, v1); } g.stroke(); }
+      if (p.rows) { g.fillStyle = FARM.dots; for (let t = u0 + 0.9; t < u1 - 0.4; t += 1.3) for (let q = v0 + 0.7; q < v1 - 0.4; q += 0.95) g.fillRect(t - 0.16, q - 0.16, 0.32, 0.32); }   // crop rows as dots
       if (p.pivot) { const cu = (u0 + u1) / 2, cv2 = (v0 + v1) / 2, rr = Math.min(u1 - u0, v1 - v0) * 0.42; g.fillStyle = 'rgba(40,80,30,.55)'; g.beginPath(); g.arc(cu, cv2, rr, 0, 6.283); g.fill(); g.strokeStyle = 'rgba(230,220,170,.7)'; g.lineWidth = 0.4; g.beginPath(); g.arc(cu, cv2, rr * 0.55, 0, 6.283); g.stroke(); }
       g.strokeStyle = track; g.lineWidth = 0.45; g.strokeRect(u0, v0, u1 - u0, v1 - v0); }
   }
   g.setTransform(1, 0, 0, 1, 0, 0);
-  if (gribble) {                                          // the bits in screen space (tiny iso boxes need a vertical), for every offset copy, sorted back to front
+  if (gribble || farm) {                                  // the bits in screen space (tiny iso boxes need a vertical), for every offset copy, sorted back to front
     const M = (u, v) => [s * u - s * v + L * s, 0.5 * s * u + 0.5 * s * v], bits = [];
     for (const [ou, ov] of [[0, 0], [-L, 0], [L, 0], [0, -L], [0, L], [-L, -L], [L, L], [-L, L], [L, -L]]) for (const p of plots) for (const b of p.bits) { const [x, y] = M(b.u + ou, b.v + ov); if (x < -4 * s || y < -4 * s || x > cv.width + 4 * s || y > cv.height + 4 * s) continue; bits.push({ ...b, x, y }); }
     bits.sort((p, q) => p.y - q.y);
     for (const b of bits) {
       if (b.tree) { g.fillStyle = GRIB.tree; g.beginPath(); g.arc(b.x, b.y - b.tree * s * 0.5, b.tree * s, 0, 6.283); g.fill(); continue; }
-      const A = b.a * s, H = b.h * s, L0 = [b.x - 2 * A, b.y], Bt = [b.x, b.y + A], R = [b.x + 2 * A, b.y], T = [b.x, b.y - A];
-      g.fillStyle = GRIB.left; g.beginPath(); g.moveTo(...L0); g.lineTo(...Bt); g.lineTo(Bt[0], Bt[1] - H); g.lineTo(L0[0], L0[1] - H); g.closePath(); g.fill();
-      g.fillStyle = GRIB.right; g.beginPath(); g.moveTo(...Bt); g.lineTo(...R); g.lineTo(R[0], R[1] - H); g.lineTo(Bt[0], Bt[1] - H); g.closePath(); g.fill();
-      g.fillStyle = GRIB.top; g.beginPath(); g.moveTo(L0[0], L0[1] - H); g.lineTo(Bt[0], Bt[1] - H); g.lineTo(R[0], R[1] - H); g.lineTo(T[0], T[1] - H); g.closePath(); g.fill();
+      if (b.bale) { g.fillStyle = FARM.bale; g.beginPath(); g.ellipse(b.x, b.y, b.bale * s, b.bale * s * 0.6, 0, 0, 6.283); g.fill(); continue; }
+      const C = b.farm ? FARM : GRIB, A = b.a * s, H = b.h * s, L0 = [b.x - 2 * A, b.y], Bt = [b.x, b.y + A], R = [b.x + 2 * A, b.y], T = [b.x, b.y - A];
+      g.fillStyle = C.left; g.beginPath(); g.moveTo(...L0); g.lineTo(...Bt); g.lineTo(Bt[0], Bt[1] - H); g.lineTo(L0[0], L0[1] - H); g.closePath(); g.fill();
+      g.fillStyle = C.right; g.beginPath(); g.moveTo(...Bt); g.lineTo(...R); g.lineTo(R[0], R[1] - H); g.lineTo(Bt[0], Bt[1] - H); g.closePath(); g.fill();
+      g.fillStyle = C.top; g.beginPath(); g.moveTo(L0[0], L0[1] - H); g.lineTo(Bt[0], Bt[1] - H); g.lineTo(R[0], R[1] - H); g.lineTo(T[0], T[1] - H); g.closePath(); g.fill();
     }
   }
   return cv;
