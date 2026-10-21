@@ -157,6 +157,27 @@ export function fieldsTile(seed = 1, s = 1, L = 48, { plots: PL = PLOTS, track =
   }
   return cv;
 }
+// ---- THE GROUND TEXTURE (his ask 2026-10-21, from the urban grid's look: "a rocky surface with green patches"): a periodic tile of
+// small irregular plots in a bias colour with patches of an accent colour and tiny lumps (rocks / tufts) — no tracks, no roads. One
+// tile per band (bias = the band's colour, paler), laid per district, rotated, extended past the district and faded (see the mock). ----
+const hex = c => [parseInt(c.slice(1, 3), 16), parseInt(c.slice(3, 5), 16), parseInt(c.slice(5, 7), 16)];
+const rgb = (c, k = 1, add = 0) => `rgb(${c.map(v => Math.max(0, Math.min(255, Math.round(v * k + add)))).join(',')})`;
+export function surfaceTile(seed = 1, s = 1, bias = [120, 150, 90], accent = [100, 140, 70], { L = 40, size = 3.5, patches = 0.2, lumps = 1.2 } = {}) {
+  const rnd = mulberry(seed * 613 + 11), leaves = [], split = (u0, v0, u1, v1, depth) => { const du = u1 - u0, dv = v1 - v0; if ((Math.max(du, dv) < size + rnd() * 2.5 && depth > 1) || depth > 11) { leaves.push([u0, v0, u1, v1]); return; }
+    const t = 0.3 + rnd() * 0.4; if (du >= dv) { split(u0, v0, u0 + du * t, v1, depth + 1); split(u0 + du * t, v0, u1, v1, depth + 1); } else { split(u0, v0, u1, v0 + dv * t, depth + 1); split(u0, v0 + dv * t, u1, v1, depth + 1); } };
+  split(0, 0, L, L, 0);
+  const plots = leaves.map(([u0, v0, u1, v1]) => { const patch = rnd() < patches, k = 0.9 + rnd() * 0.2, bits = []; for (let i = 0, n = Math.round(lumps * (u1 - u0) * (v1 - v0) / 8); i < n; i++) bits.push({ u: u0 + 0.5 + rnd() * (u1 - u0 - 1), v: v0 + 0.5 + rnd() * (v1 - v0 - 1), r: 0.3 + rnd() * 0.45 }); return { u0, v0, u1, v1, c: patch ? rgb(accent, k) : rgb(bias, k), dark: patch ? rgb(accent, 0.72) : rgb(bias, 0.72), light: patch ? rgb(accent, 1.18) : rgb(bias, 1.18), bits }; });
+  const cv = typeof document !== 'undefined' ? document.createElement('canvas') : null; if (!cv) return { plots, L };
+  cv.width = Math.round(2 * L * s); cv.height = Math.round(L * s); const g = cv.getContext('2d'), offs = [[0, 0], [-L, 0], [L, 0], [0, -L], [0, L], [-L, -L], [L, L], [-L, L], [L, -L]];
+  for (const [ou, ov] of offs) { g.setTransform(s, 0.5 * s, -s, 0.5 * s, L * s, 0); for (const p of plots) g.fillStyle = p.c, g.fillRect(p.u0 + ou, p.v0 + ov, p.u1 - p.u0, p.v1 - p.v0); }
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  const M = (u, v) => [s * u - s * v + L * s, 0.5 * s * u + 0.5 * s * v], lumpsAll = [];
+  for (const [ou, ov] of offs) for (const p of plots) for (const b of p.bits) { const [x, y] = M(b.u + ou, b.v + ov); if (x < -3 * s || y < -3 * s || x > cv.width + 3 * s || y > cv.height + 3 * s) continue; lumpsAll.push({ x, y, r: b.r * s, dark: p.dark, light: p.light }); }
+  lumpsAll.sort((p, q) => p.y - q.y);
+  for (const b of lumpsAll) { g.fillStyle = b.dark; g.beginPath(); g.ellipse(b.x, b.y, b.r, b.r * 0.55, 0, 0, 6.283); g.fill(); g.fillStyle = b.light; g.beginPath(); g.ellipse(b.x - b.r * 0.25, b.y - b.r * 0.3, b.r * 0.55, b.r * 0.3, 0, 0, 6.283); g.fill(); }
+  return cv;
+}
+export const paler = (c, k = 0.35) => c.map(v => Math.round(v + (235 - v) * k));
 // ---- a district FILLS UP (his direction): its chips by how built it is (fill 0..1) — one small chip first, then more and bigger
 // ones packed from the district's heart outward, the biggest at the heart, smaller toward the edge; a full district holds `cap` ----
 export function layout(spots, centre, fill, { cap = 8, gap = 4 } = {}) {   // spots: candidate [x, y] on the ground inside the district; gap: px between chips

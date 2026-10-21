@@ -127,14 +127,14 @@ export function terrain(seed, w, h, kind, { cellW = 140, cellH = 70, jitter = 0.
     det[i] = k * 4 + b; detN[i] = kN * 4 + bN; }
   // the natures of the districts: the slot's, with a small seeded chance to flip; the polar caps are districts whose seed lies beyond CAP
   const FLIP = { living: { island: 0.09, lake: 0.06, bump: 0.12 }, ocean: { island: 0.07, lake: 0.04, bump: 0.1 }, ice: { island: 0.05, lake: 0.05, bump: 0.1, pit: 0.02 }, rock: { island: 0, lake: 0, bump: 0.14, pit: 0.03 }, irradiated: { island: 0, lake: 0, bump: 0.16, pit: 0.04 } }[kind];
-  const dtype = []; for (let k = 0; k < w * h * 16; k++) { const cell = k >> 4, sl = (k >> 2) & 3, t = type[subIndex(cell, sl)], r = rnd(); let d = t;
+  const dtype = [], polar = new Uint8Array(w * h * 16); for (let k = 0; k < w * h * 16; k++) { const cell = k >> 4, sl = (k >> 2) & 3, t = type[subIndex(cell, sl)], r = rnd(); let d = t;
     if (t === 'ocean') { if (r < FLIP.island) d = 'low'; }
     else if (t === 'chasm') { if (r < 0.1) d = 'mid'; }
     else if (r < FLIP.lake && t !== 'ice' && kind !== 'rock' && kind !== 'irradiated') d = 'ocean';
     else if (r < FLIP.lake + FLIP.bump) d = t === 'low' ? 'mid' : t === 'mid' ? 'high' : 'mid';
     else if (FLIP.pit && r < FLIP.lake + FLIP.bump + FLIP.pit) d = 'chasm';               // a dead or ice world's few lost spots
     if (kind === 'ice' && d === 'chasm' && t === 'ocean') d = t;
-    const lat = Math.abs(detSeeds[k].y / H * 2 - 1) + J() * 0.04; if (lat > CAP[kind] && d !== 'chasm') d = 'ice';   // the cap: a defined area of districts
+    const lat = Math.abs(detSeeds[k].y / H * 2 - 1) + J() * 0.04; if (lat > CAP[kind] && d !== 'chasm') { d = 'ice'; polar[k] = 1; }   // the cap: a defined area of districts, closed to building (his call)
     dtype.push(d); }
   // the classes per pixel from the noisy district
   const cls = new Uint8Array(N), water = new Uint8Array(N);
@@ -168,10 +168,10 @@ export function terrain(seed, w, h, kind, { cellW = 140, cellH = 70, jitter = 0.
   for (let k = 0; k < w * h; k++) land[k] = area[k] ? land[k] / area[k] : 0;
   const slotType = Array.from({ length: w * h }, () => new Array(4)); for (let k = 0; k < type.length; k++) slotType[(Math.floor(k / w2) >> 1) * w + ((k % w2) >> 1)][((k % w2) & 1) + 2 * (Math.floor(k / w2) & 1)] = type[k];
   const dArea = new Uint32Array(dtype.length); for (let i = 0; i < N; i++) dArea[det[i]]++;
-  const hab = new Uint8Array(dtype.length); for (let k = 0; k < dtype.length; k++) hab[k] = dArea[k] && habitable(kind, dtype[k]) ? 1 : 0;
+  const hab = new Uint8Array(dtype.length); for (let k = 0; k < dtype.length; k++) hab[k] = dArea[k] && !polar[k] && habitable(kind, dtype[k]) ? 1 : 0;
   let gross = 0, net = 0; for (let k = 0; k < hab.length; k++) { if (dArea[k]) gross++; net += hab[k]; }
   const fine = new Float32Array(N); for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) fine[y * W + x] = fbm(n2, x / 9, y / 4.5, 2);   // a fine noise: ragged band edges
-  const T = { w, h, W, H, cellW, cellH, kind, type, slotType, dtype, habitable: hab, dArea, cls, owner, slot, sub, det, seeds, subSeeds, detSeeds, land, gross, net, hill, fine };
+  const T = { w, h, W, H, cellW, cellH, kind, type, slotType, dtype, polar, habitable: hab, dArea, cls, owner, slot, sub, det, seeds, subSeeds, detSeeds, land, gross, net, hill, fine };
   features(T, rnd); return T;
 }
 // ---- the districts' FEATURES and GRADES: the graph of districts from the pixels, then coast distance, landmasses, shelter, specials ----
