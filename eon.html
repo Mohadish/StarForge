@@ -15,6 +15,9 @@
     <button data-tab="empire" class="on">Empire</button>
     <button data-tab="galaxy">Galaxy</button>
     <button data-tab="system">Star system</button>
+    <button data-tab="colonies">Colonies</button>
+    <button data-tab="research">Research</button>
+    <button data-tab="economy">Economy</button>
     <button data-tab="design">Design</button>
   </nav>
   <div id="eStats"></div>
@@ -31,12 +34,8 @@
 <!-- WHAT HAPPENED (app.js renderNotes): the eon's events worth a look — click one to go there -->
 <div id="notes" hidden></div>
 
-<!-- EMPIRE: focus and research belong to the whole empire -->
-<main id="tab-empire" class="eon-grid">
-  <section>
-    <h2>Research — where the attention goes</h2>
-    <div id="eFields"></div>
-  </section>
+<!-- EMPIRE: the focus and the eon (his reshuffle 2026-10-22: research and the breakthroughs moved to their own tab) -->
+<main id="tab-empire" class="eon-one">
   <section>
     <h2>Focus — what the empire is for <span class="tiny" style="text-transform:none;letter-spacing:0">· drag the ball · click a corner name to pull toward it · drag empty space to turn the pyramid</span></h2>
     <canvas id="eTetra" width="620" height="420" style="display:block;margin:0 auto;max-width:100%;touch-action:none"></canvas>
@@ -46,11 +45,25 @@
     <h2 style="margin-top:12px">Last eon</h2>
     <div id="eReport" class="tiny">Nothing yet.</div>
   </section>
+</main>
+
+<!-- COLONIES: every colony in one table — sort, filter, pick several and give them the same construction project -->
+<main id="tab-colonies" class="eon-one hidden"><section id="colTab"></section></main>
+
+<!-- RESEARCH: where the attention goes, and what it found -->
+<main id="tab-research" class="eon-two hidden">
+  <section>
+    <h2>Research — where the attention goes</h2>
+    <div id="eFields"></div>
+  </section>
   <section>
     <h2>Breakthroughs found</h2>
     <div id="eBreaks"></div>
   </section>
 </main>
+
+<!-- ECONOMY: the ledger — every colony's excess against every cost -->
+<main id="tab-economy" class="eon-one hidden"><section id="ecoTab"></section></main>
 
 <!-- GALAXY: every star system, grown from one seed; click a star to see what is there -->
 <main id="tab-galaxy" class="eon-sys hidden">

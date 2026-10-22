@@ -1,6 +1,26 @@
 .hidden{display:none !important}
 .eon-grid{display:grid;grid-template-columns:390px 1fr 430px;gap:10px;padding:10px;height:calc(100% - 54px)}
 .eon-sys{display:grid;grid-template-columns:1fr 470px;gap:10px;padding:10px;height:calc(100% - 54px)}
+.eon-one{display:grid;grid-template-columns:minmax(0,1100px);justify-content:center;gap:10px;padding:10px;height:calc(100% - 54px)}
+.eon-two{display:grid;grid-template-columns:420px 1fr;gap:10px;padding:10px;height:calc(100% - 54px)}
+#colTab table.col{width:100%;border-collapse:collapse;font-size:12px}
+#colTab table.col th{text-align:left;color:var(--muted);font-weight:600;padding:4px 6px;border-bottom:1px solid var(--line);cursor:pointer;white-space:nowrap;user-select:none}
+#colTab table.col th.on{color:var(--accent)}
+#colTab table.col td{padding:4px 6px;border-bottom:1px solid rgba(255,255,255,.05);vertical-align:middle;white-space:nowrap}
+#colTab table.col tr.sel td{background:rgba(126,243,176,.08)}
+#colTab table.col td.name{cursor:pointer}
+#colTab table.col td.name:hover b{text-decoration:underline}
+#colTab .colbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0 10px}
+#ecoTab .ecorow{display:grid;grid-template-columns:220px 1fr 100px;gap:10px;align-items:center;padding:7px 10px;border:1px solid var(--line);border-radius:8px;margin:4px 0;cursor:pointer;background:var(--panel2)}
+#ecoTab .ecorow:hover{border-color:var(--accent)}
+#ecoTab .ecorow.on{border-color:var(--accent);background:#0f1a30}
+#ecoTab .ecorow.total{cursor:default;border-style:dashed;font-weight:700}
+#ecoTab .ecorow b{text-align:right;font-variant-numeric:tabular-nums}
+#ecoTab .ecodetail{margin:6px 0 2px;padding:6px 8px;border:1px dashed var(--line);border-radius:8px}
+#ecoTab table.eco{width:100%;border-collapse:collapse;font-size:12px}
+#ecoTab table.eco th{text-align:left;color:var(--muted);font-weight:600;padding:3px 6px;border-bottom:1px solid var(--line)}
+#ecoTab table.eco td{padding:3px 6px;border-bottom:1px solid rgba(255,255,255,.05);vertical-align:top}
+#ecoTab table.eco tr[data-shipctx]{cursor:context-menu}
 .eon-des{display:grid;grid-template-columns:300px 1fr 320px;gap:10px;padding:10px;height:calc(100% - 54px)}
 .palette{display:grid;grid-template-columns:1fr 1fr;gap:4px}
 .palette button{text-align:left;padding:4px 7px;font-size:11px;border-left:4px solid var(--c);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

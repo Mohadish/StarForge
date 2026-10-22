@@ -333,7 +333,7 @@ function renderEmpire(c, skipTetra) {
     ${row('Built this eon', builds.length ? builds.join(', ') : 'nothing finishes')}
     ${row('Integration', `${c.speed.toFixed(1)}% per eon${c.moved ? ' — the focus moved' : ''}`)}
     ${row('Cohesion', `+${c.cohesionGain.toFixed(1)} earned${c.moveCost > 0.05 ? `, −${c.moveCost.toFixed(1)} spent on the focus` : ''}`)}
-    ${row('Reserves', `<button class="x" data-eco title="the economy: every colony's excess, every cost, line by line">💰 Economy</button> ${fmt(S.reserves || 0)} · excess +${fmt(c.income)} − upkeep ${fmt(c.upkeep.total)} <span class="tiny">(military ${fmt(c.upkeep.military)} · social ${fmt(c.upkeep.social)} · research ${fmt(c.upkeep.research)}${c.upkeep.water > 0.005 ? ` · water ${fmt(c.upkeep.water)}` : ''})</span> = <b class="${c.net < 0 ? 'up' : 'down'}">${c.net < 0 ? '−' : '+'}${fmt(Math.abs(c.net))}</b>${c.shortNext > 0.005 ? ` · <b class="up">${Math.round(c.shortNext * 100)} % will go unpaid</b>` : ''}${c.unpaid > 0.005 ? ` · <b class="up">last eon ${Math.round(c.unpaid * 100)} % unpaid: the fleet wears, people grumble, research slows</b>` : ''}`, c.net < 0 ? 'up' : '')}</div>`;
+    ${row('Reserves', `<button class="x" data-eco title="the Economy tab: every colony's excess, every cost, line by line">💰 Economy</button> ${fmt(S.reserves || 0)} · excess +${fmt(c.income)} − upkeep ${fmt(c.upkeep.total)} <span class="tiny">(military ${fmt(c.upkeep.military)} · social ${fmt(c.upkeep.social)} · research ${fmt(c.upkeep.research)}${c.upkeep.water > 0.005 ? ` · water ${fmt(c.upkeep.water)}` : ''})</span> = <b class="${c.net < 0 ? 'up' : 'down'}">${c.net < 0 ? '−' : '+'}${fmt(Math.abs(c.net))}</b>${c.shortNext > 0.005 ? ` · <b class="up">${Math.round(c.shortNext * 100)} % will go unpaid</b>` : ''}${c.unpaid > 0.005 ? ` · <b class="up">last eon ${Math.round(c.unpaid * 100)} % unpaid: the fleet wears, people grumble, research slows</b>` : ''}`, c.net < 0 ? 'up' : '')}</div>`;
 
   $('eFields').innerHTML = `<div class="tiny" style="margin-bottom:8px">You have <b>${T.attention}</b> points of attention; <b>${c.free}</b> ${c.free === 1 ? 'is' : 'are'} unspent. Giving a field one more takes it from the spare ones, then from the field that has the most.
       The stars are how much there is to find — they come from the places you are studying, not from how hard you look.</div>`
@@ -726,12 +726,9 @@ function renderShipPop() {
 // everything costs — click a row for the details"): the eon's excess per colony against every upkeep line (military, social,
 // research, water), the net and the reserves. Click a row: its details — the military row lists every ship with its share and where
 // it is; water lists the hauls; research the labs; social the people. Read-only: it shows what compute() already figures.
-let ECO = null;                                       // { detail: 'income' | 'military' | 'social' | 'research' | 'water' | null }
-function openEcoPop() { ECO = { detail: null }; renderEcoPop(); }
-function closeEcoPop() { ECO = null; const el = $('ecoPop'); if (el) el.hidden = true; }
-function renderEcoPop() {
-  let el = $('ecoPop'); if (!el) { el = document.createElement('div'); el.id = 'ecoPop'; el.hidden = true; document.body.appendChild(el); }
-  if (!ECO || !LAST) { el.hidden = true; return; } const c = LAST, U = T.upkeep;
+const ECO = { detail: null };                         // detail: 'income' | 'military' | 'social' | 'research' | 'water' | null — the open line
+function renderEcoTab(c) {                            // the Economy TAB (his reshuffle 2026-10-22)
+  const el = $('ecoTab'); if (!el || !c) return; const U = T.upkeep;
   const cols = c.colonies.slice().sort((a, b) => b.toReserves - a.toReserves), place = id => placeOf(id), sysN = id => (S.systems.find(x => x.id === id) || {}).name || '?';
   const line = (key, label, amount, note, sign) => `<div class="ecorow ${ECO.detail === key ? 'on' : ''}" data-ecorow="${key}"><span>${label}</span><span class="tiny">${note || ''}</span><b class="${sign}">${sign === 'up' ? '−' : '+'}${fmt(amount)}</b></div>`;
   const whereOf = u => { if (u.dest) { const to = place(u.dest); return `under way to ${esc(to ? to.name : '?')} · ${plural(u.eta, 'eon')}`; } const pl = place(u.at), z = pl ? zoneOfSys(S, pl.sys) : 5; return `at ${esc(pl ? pl.name : '?')} (${esc(pl ? sysN(pl.sys) : '?')}, ${ZONE.names[z]})`; };
@@ -741,23 +738,62 @@ function renderEcoPop() {
   if (ECO.detail === 'social') detail = `<div class="tiny" style="margin:4px 0">Every million people costs ${U.social} an eon.</div><table class="eco"><tr><th>colony</th><th>people</th><th>upkeep</th></tr>${cols.slice().sort((a, b) => b.P.people - a.P.people).map(p => `<tr><td><b>${esc(p.pl.name)}</b></td><td>${peopleWord(p.P.people)}</td><td><b>${fmt(p.P.people * U.social)}</b></td></tr>`).join('')}</table>`;
   if (ECO.detail === 'research') detail = `<div class="tiny" style="margin:4px 0">Every point of research costs ${U.research} an eon${c.unpaid > 0.005 ? ` (slowed ${Math.round(c.unpaid * T.upkeep.slow * 100)} % by last eon's unpaid share)` : ''}.</div><table class="eco"><tr><th>source</th><th>research</th><th>upkeep</th></tr>${[...cols.filter(p => p.research > 0.05).map(p => [`${esc(p.pl.name)} <span class="tiny">labs on the ground</span>`, p.research]), ...c.ships.filter(s => !s.u.dest && s.t.research > 0).map(s => [`${esc(s.u.name)} <span class="tiny">labs in orbit, ${whereOf(s.u)}</span>`, s.t.research])].sort((a, b) => b[1] - a[1]).map(([n, v]) => `<tr><td>${n}</td><td>${fmt(v)}</td><td><b>${fmt(v * U.research)}</b></td></tr>`).join('')}</table>`;
   if (ECO.detail === 'water') detail = `<table class="eco"><tr><th>to</th><th>from</th><th>M fed</th><th>chance</th><th>cost</th></tr>${cols.filter(p => p.waterRoutes && p.waterRoutes.length).flatMap(p => p.waterRoutes.map(r => `<tr><td><b>${esc(p.pl.name)}</b></td><td>${esc(r.name)} <span class="tiny">${r.kind}${r.ly ? ` · ${r.ly.toFixed(1)} ly` : ' · in-system'}</span></td><td>${fmt(r.amount)}</td><td>${Math.round((r.chance ?? 1) * 100)} %</td><td><b>${fmt((p.waterCost || 0) * (r.amount / Math.max(1e-9, p.waterRoutes.reduce((a, q) => a + q.amount, 0))))}</b></td></tr>`)).join('') || '<tr><td colspan="5" class="tiny">no water is hauled — every colony drinks its own</td></tr>'}</table>`;
-  el.innerHTML = `<h2>💰 The economy — eon ${S.eon}<button class="x" data-ecoclose title="close (Esc)">✕</button></h2>
+  el.innerHTML = `<h2>The economy — eon ${S.eon}</h2>
     <div class="tiny" style="margin-bottom:6px">What flows into the reserves this eon against what it costs to run the empire. Click a line for its details.</div>
-    ${line('income', 'Excess from the colonies', c.income, `${plural(c.colonies.length, 'colony')} · ${cols.slice(0, 3).map(p => `${esc(p.pl.name)} ${fmt(p.toReserves)}`).join(' · ')}${cols.length > 3 ? ' · …' : ''}`, 'down')}
+    ${line('income', 'Excess from the colonies', c.income, `${c.colonies.length} ${c.colonies.length === 1 ? 'colony' : 'colonies'} ·${cols.slice(0, 3).map(p => `${esc(p.pl.name)} ${fmt(p.toReserves)}`).join(' · ')}${cols.length > 3 ? ' · …' : ''}`, 'down')}
     ${line('military', 'Military upkeep', c.upkeep.military, `${plural(c.ships.length, 'ship')} worth ${fmt(c.ships.reduce((a, s) => a + s.t.cost, 0))}`, 'up')}
     ${line('social', 'Social upkeep', c.upkeep.social, `${peopleWord(c.colonies.reduce((a, p) => a + p.P.people, 0))} people`, 'up')}
     ${line('research', 'Research upkeep', c.upkeep.research, `${fmt(c.research)} points`, 'up')}
     ${line('water', 'Water hauls', c.upkeep.water, `${cols.reduce((a, p) => a + ((p.waterRoutes || []).length), 0)} routes`, 'up')}
     <div class="ecorow total"><span>Net</span><span class="tiny">reserves ${fmt(S.reserves || 0)} → ${fmt(Math.max(0, (S.reserves || 0) + c.net))}${c.shortNext > 0.005 ? ` · <b class="up">${Math.round(c.shortNext * 100)} % of the upkeep will go unpaid</b>` : ''}</span><b class="${c.net < 0 ? 'up' : 'down'}">${c.net < 0 ? '−' : '+'}${fmt(Math.abs(c.net))}</b></div>
     ${detail ? `<div class="ecodetail">${detail}</div>` : ''}`;
-  el.hidden = false;
 }
 document.addEventListener('click', e => {
-  if (e.target.closest('[data-eco]')) { if (ECO) closeEcoPop(); else openEcoPop(); return; }
-  if (!ECO) return; const row = e.target.closest('[data-ecorow]'); if (row) { ECO.detail = ECO.detail === row.dataset.ecorow ? null : row.dataset.ecorow; return renderEcoPop(); }
-  if (e.target.closest('[data-ecoclose]')) return closeEcoPop();
+  if (e.target.closest('[data-eco]')) return go('economy');
+  const row = e.target.closest('[data-ecorow]'); if (row) { ECO.detail = ECO.detail === row.dataset.ecorow ? null : row.dataset.ecorow; return renderEcoTab(LAST); }
 });
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && ECO) closeEcoPop(); });
+// THE COLONIES TAB (his ask 2026-10-22: "see all the colonies, filter them by size and production, multi-select and issue
+// construction projects to them"): one table, sortable by any column, filtered by world and size; tick several and give them the
+// same project (the design and how many) — it goes to each one's production line, as if queued in its own pop-up.
+const COL = { sort: 'people', dir: -1, kind: 'all', size: 'all', sel: new Set(), design: null, n: 1 };
+function renderColonies(c) {
+  const el = $('colTab'); if (!el || !c) return;
+  const rows = c.colonies.map(p => ({ p, id: p.pl.id, name: p.pl.name, sys: (S.systems.find(x => x.id === p.pl.sys) || {}).name || '?', kind: worldOf(p.pl), sizeKey: sizeClassOf(p.pl), size: SIZES[sizeClassOf(p.pl)], people: p.P.people, fed: p.food / T.foodPerHead, eat: p.P.people, industry: p.industry, research: p.research, line: p.queue.reduce((a, q) => a + (q.spend || 0), 0), excess: p.toReserves, water: p.water ? 1 : p.waterNeed > 0 ? p.waterIn / p.waterNeed : 0, queue: p.queue.filter(q => !q.gone), slots: p.G ? p.G.cells.reduce((a, x) => a + x.slots.length, 0) : 0 }))
+    .filter(r => (COL.kind === 'all' || r.kind === COL.kind) && (COL.size === 'all' || r.sizeKey === COL.size));
+  const key = r => COL.sort === 'name' ? r.name : COL.sort === 'size' ? r.size.w * r.size.h : COL.sort === 'food' ? r.fed - r.eat : r[COL.sort];
+  rows.sort((a, b) => { const x = key(a), y = key(b); return (typeof x === 'string' ? x.localeCompare(y) : x - y) * COL.dir; });
+  for (const id of [...COL.sel]) if (!c.colonies.some(p => p.pl.id === id)) COL.sel.delete(id);
+  const caps = c.caps, designs = S.designs.filter(d => cpBuildable(d, caps)); if (!COL.design || !designs.some(d => d.id === COL.design)) COL.design = designs[0] ? designs[0].id : null;
+  const th = (k, label, title = '') => `<th data-colsort="${k}" class="${COL.sort === k ? 'on' : ''}" title="${title}">${label}${COL.sort === k ? (COL.dir < 0 ? ' ▾' : ' ▴') : ''}</th>`;
+  const kinds = [...new Set(c.colonies.map(p => worldOf(p.pl)))], sizes = [...new Set(c.colonies.map(p => sizeClassOf(p.pl)))];
+  const colonies = n => `${n} ${n === 1 ? 'colony' : 'colonies'}`;
+  el.innerHTML = `<h2>Colonies — ${colonies(c.colonies.length)}${rows.length !== c.colonies.length ? ` · ${rows.length} shown` : ''}</h2>
+    <div class="colbar"><span class="tiny">world</span><select data-colkind><option value="all">all</option>${kinds.map(k => `<option value="${k}" ${COL.kind === k ? 'selected' : ''}>${WORLD_KIND[k] || k}</option>`).join('')}</select>
+      <span class="tiny">size</span><select data-colsize><option value="all">all</option>${sizes.map(k => `<option value="${k}" ${COL.size === k ? 'selected' : ''}>${SIZES[k].name} ${SIZES[k].w} × ${SIZES[k].h}</option>`).join('')}</select>
+      <span style="flex:1"></span><button class="x" data-colall>select all shown</button><button class="x" data-colnone>none</button></div>
+    <table class="col"><tr><th></th>${th('name', 'colony')}${th('sys', 'system')}${th('kind', 'world')}${th('size', 'size')}${th('slots', 'built', 'slots raised')}${th('people', 'people')}${th('food', 'food', 'fed − eating (M)')}${th('industry', 'industry')}${th('research', 'research')}${th('line', 'to the line')}${th('excess', 'excess', 'to the reserves')}${th('water', 'water')}<th>building</th></tr>
+    ${rows.map(r => `<tr class="${COL.sel.has(r.id) ? 'sel' : ''}"><td><input type="checkbox" data-colsel="${r.id}" ${COL.sel.has(r.id) ? 'checked' : ''}></td><td class="name" data-colopen="${r.id}"><b>${esc(r.name)}</b>${r.id === (S.homePlace || 'home') ? ' <span class="tiny">home</span>' : ''}</td><td class="tiny">${esc(r.sys)}</td><td>${WORLD_KIND[r.kind] || r.kind}</td><td>${r.size.w} × ${r.size.h}</td><td>${r.slots}</td><td>${peopleWord(r.people)}</td><td class="${r.fed < r.eat ? 'up' : ''}">${fmt(r.fed)} / ${fmt(r.eat)}</td><td>${fmt(r.industry)}</td><td>${fmt(r.research)}</td><td>${fmt(r.line)}</td><td><b>${fmt(r.excess)}</b></td><td>${r.p.water ? 'own' : r.p.waterNeed > 0 ? `${Math.round(r.water * 100)} %` : '—'}</td><td class="tiny">${r.queue.length ? `${esc(r.queue[0].d.name)}${r.queue[0].count > 1 ? ` ×${r.queue[0].count}` : ''}${r.queue.length > 1 ? ` +${r.queue.length - 1}` : ''}` : '—'}</td></tr>`).join('')}</table>
+    <div class="colbar" style="margin-top:12px"><b>${colonies(COL.sel.size)} selected</b><span class="tiny">· give them a construction project:</span>
+      <select data-colq ${designs.length ? '' : 'disabled'}>${designs.map(d => { const t = designStats(S, d, caps).t; return `<option value="${d.id}" ${COL.design === d.id ? 'selected' : ''}>${esc(d.name)} — ${CLASS_NAME[t.klass].toLowerCase()} · ${fmt(t.cost)} ⚙</option>`; }).join('')}</select>
+      <input type="number" data-coln min="1" max="99" value="${COL.n}" style="width:56px" title="how many at each"><button class="go" data-colqueue ${COL.sel.size && COL.design ? '' : 'disabled'}>＋ Queue at ${colonies(COL.sel.size)}</button>
+      <span class="tiny">each colony builds its own; a ship needs a dock where it is built</span></div>`;
+}
+document.addEventListener('click', e => {
+  const q = s => e.target.closest(s); let t;
+  if ((t = q('[data-colsort]'))) { const k = t.dataset.colsort; if (COL.sort === k) COL.dir = -COL.dir; else { COL.sort = k; COL.dir = k === 'name' || k === 'sys' || k === 'kind' ? 1 : -1; } return renderColonies(LAST); }
+  if ((t = q('[data-colopen]'))) return openColPop(t.dataset.colopen);
+  if (q('[data-colall]')) { for (const tr of $('colTab').querySelectorAll('[data-colsel]')) COL.sel.add(tr.dataset.colsel); return renderColonies(LAST); }
+  if (q('[data-colnone]')) { COL.sel.clear(); return renderColonies(LAST); }
+  if (q('[data-colqueue]')) { let bad = null; for (const id of COL.sel) { const err = queueAdd(S, id, COL.design, COL.n); if (err) bad = err; } toastErr(bad); say(`${COL.n > 1 ? COL.n + ' × ' : ''}${esc((S.designs.find(d => d.id === COL.design) || {}).name || '?')} queued at ${COL.sel.size} ${COL.sel.size === 1 ? 'colony' : 'colonies'}`); save(); return refresh(); }
+});
+document.addEventListener('change', e => {
+  const t = e.target; if (!t.closest || !t.closest('#colTab')) return;
+  if (t.dataset.colsel != null) { if (t.checked) COL.sel.add(t.dataset.colsel); else COL.sel.delete(t.dataset.colsel); return renderColonies(LAST); }
+  if (t.hasAttribute('data-colkind')) { COL.kind = t.value; return renderColonies(LAST); }
+  if (t.hasAttribute('data-colsize')) { COL.size = t.value; return renderColonies(LAST); }
+  if (t.hasAttribute('data-colq')) { COL.design = t.value; return; }
+  if (t.hasAttribute('data-coln')) { COL.n = Math.max(1, Math.min(99, Math.round(+t.value) || 1)); return; }
+});
 // a design AS DESIGNED: chipStripHtml lives in spec.js now (2026-10-21), so the arena's card shows the same strip
 function specBlock(E, k, d, ships, c) {
   const ds = designStats(E, d, c.caps), t = ds.t, tid = (k == null ? 'p' : 'pg' + k) + '|' + d.id; thumbShips.set(tid, paintedShip(d, c.caps));
@@ -1626,7 +1662,7 @@ function removeModule(modId) {
 // =====================================================================
 // events
 // =====================================================================
-const TABS = ['empire', 'galaxy', 'system', 'design'];
+const TABS = ['empire', 'galaxy', 'system', 'colonies', 'research', 'economy', 'design'];
 function refresh() {
   const c = LAST = compute(S);
   GODC = W ? W.empires.map(E => E.dead ? null : compute(E)) : null;   // every empire's figures: God mode, and the other empires' ships in your star systems
@@ -1635,8 +1671,10 @@ function refresh() {
   if (tab === 'galaxy') renderGalaxy(c);
   if (tab === 'system') renderSystem(c);
   if (tab === 'design') renderDesign(c);
+  if (tab === 'research') renderEmpire(c, true);    // the research panels live on their own tab now (the empire's renderer fills them)
+  if (tab === 'colonies') renderColonies(c);
+  if (tab === 'economy') renderEcoTab(c);
   renderShipPop();                                   // the spec pop-up follows the state (an eon ended, a ship moved)
-  renderEcoPop();                                    // the ledger too
   renderColPop();                                    // the colony pop-up too
   renderFleetPop(true); renderSendBadge(); renderSysPop();   // the fleet pop-up, the send-here badge and the system pop-up on the maps
 }
