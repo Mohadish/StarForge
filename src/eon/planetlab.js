@@ -1,16 +1,16 @@
 // THE PLANET SANDBOX (planet.html): colony.js alone, to play with before it goes into the game — laid out as the planet POP-UP he
 // drew (2026-10-18): the two focus widgets on top, equal; the planet in a frame that is always the HUGE world's outline (a smaller
 // world sits centred in it); the eon's output under it as bars and icon rows. The fillet's reasons live on the widgets' hover.
-import { newColony, endEon, compute, weightsFor, filletWhy, building, counts, normTri, xy, SLOT, DEV, FILLET, TRAITS, TRAIT, FACTORS, FACTOR_COLOR, KIND_WORD } from './colony.js';
+import { newColony, endEon, compute, weightsFor, filletWhy, building, counts, normTri, isFull, planetOf, unitCap, districtInfo, DEV, FILLET, FACTORS, FACTOR_COLOR, KIND_WORD } from './colony.js';
 import { SIZES, LARGEST } from './districts.js';
-import { drawSurface, focusTetra, drawTri as drawTriV, triFromPoint, triBall, toCanvas, cellAt as cellAtV, mapSize, nextPlan } from './colonyview.js';
+import { drawSurface, focusTetra, drawTri as drawTriV, triFromPoint, triBall, toCanvas, districtAt as cellAtV, mapSize } from './colonyview.js';
 
 const $ = id => document.getElementById(id);
 let C = null, timer = null, hoverCell = -1;
 
-function reset(landing = null) {
+function reset() {
   const g = SIZES[$('size').value], home = $('kind').value === 'home';
-  C = newColony({ w: g.w, h: g.h, seed: $('seed').value || 'home', home, people: home ? 100 : 12, landing, focus: C ? C.wf : undefined, tri: C ? C.tri : undefined });
+  C = newColony({ w: g.w, h: g.h, seed: $('seed').value || 'home', kind: 'living', home, people: home ? 100 : 12, focus: C ? C.wf : undefined, tri: C ? C.tri : undefined });
   const name = ($('seed').value || 'home').trim(); $('cname').textContent = name.charAt(0).toUpperCase() + name.slice(1);
   $('cmeta').textContent = `${home ? 'HOMEWORLD' : 'COLONY'}   SIZE: ${g.name.toUpperCase()} ${g.w} × ${g.h}`;
   const cv = $('map'); [cv.width, cv.height] = mapSize();   // the frame never changes: the huge world's
@@ -71,14 +71,14 @@ function drawTri() { const cv = $('tri'); drawTriV(cv, C.tri); const r = C.last;
 const n0 = v => Math.round(v), rep = (icon, n, max = 40) => icon.repeat(Math.max(0, Math.min(max, n)));
 const bar = (name, val, max, col, text) => `<div class="bar"><span style="color:${col}">${name}</span><div class="track"><div style="width:${Math.min(100, 100 * val / Math.max(1, max))}%;background:${col}"></div></div><b>${text}</b></div>`;
 function renderOut() {
-  const r = C.last, next = building(C), full = C.cells.every(c => c.slots.length >= SLOT.per);
+  const r = C.last, next = building(C), full = isFull(C);
   const plates = Math.ceil(r.eat / 20), fedPlates = Math.min(plates, Math.ceil(Math.min(r.food, r.eat) / 20)), grain = Math.floor(Math.max(0, r.food - r.eat) / 20);
   const gears = Math.round(r.industry / 10), sci = Math.round(r.science / 10), hammers = Math.round(r.dev);
   if (!Q.length) lastQ = { spent: 0, left: r.industry };
-  const cellName = i => xy(C, i).map(v => v + 1).join(',');
+  const where = k => { const inf = districtInfo(C, k); return inf ? inf.ground : '?'; };
   const nextLine = !next ? (full ? `the planet is full and in balance — ${n0(r.hands.development)} M builders stand idle, move the triangle` : 'nothing to build') : next.demolish
-    ? `tearing down a <b style="color:${FACTOR_COLOR[next.demolish]}">${KIND_WORD[next.demolish]}</b> slot in cell ${cellName(next.cell)} (${DEV.demolish} pts, ${r.dev > 0 ? Math.max(1, Math.ceil((DEV.demolish - C.progress) / r.dev)) + ' eon(s)' : 'nobody works'}), then <b style="color:${FACTOR_COLOR[next.kind]}">${KIND_WORD[next.kind]}</b> goes up in its place (${DEV.cost} pts)`
-    : `${next.partial ? 'going up' : 'next'}: <b style="color:${FACTOR_COLOR[next.kind]}">${KIND_WORD[next.kind]}</b> in cell ${cellName(next.cell)}${next.partial ? ` — ${next.b < 0.1 ? (next.b * 100).toFixed(1) : Math.round(next.b * 100)} % built` : ''}${C.cells[next.cell].plan ? ' — planned' : TRAITS[C.cells[next.cell].trait] === next.kind ? ` — ${C.cells[next.cell].trait} ground` : ''} · ${r.dev > 0 ? Math.max(1, Math.ceil((1 - (next.b || 0)) * DEV.cost / r.dev)) + ' eon(s) to finish' : 'nobody builds'}`;
+    ? `tearing down a <b style="color:${FACTOR_COLOR[next.demolish]}">${KIND_WORD[next.demolish]}</b> district (${where(next.unit)}, ${DEV.demolish} pts, ${r.dev > 0 ? Math.max(1, Math.ceil((DEV.demolish - C.progress) / r.dev)) + ' eon(s)' : 'nobody works'}), then <b style="color:${FACTOR_COLOR[next.kind]}">${KIND_WORD[next.kind]}</b> goes up in its place (${DEV.cost} pts)`
+    : `${next.partial ? 'going up' : 'next'}: <b style="color:${FACTOR_COLOR[next.kind]}">${KIND_WORD[next.kind]}</b> on ${where(next.unit)}${next.partial ? ` — ${next.b < 0.1 ? (next.b * 100).toFixed(1) : Math.round(next.b * 100)} % built` : ''} · ${r.dev > 0 ? Math.max(1, Math.ceil((1 - (next.b || 0)) * DEV.cost / r.dev)) + ' eon(s) to finish' : 'nobody builds'}`;
   $('out').innerHTML = `
     ${bar('people', C.people, r.housing, FACTOR_COLOR.housing, `${n0(C.people)} / ${n0(r.housing)} M <span class="tiny">homes · ${r.growth >= 0 ? '+' : ''}${(r.growth * 100).toFixed(1)} %</span>`)}
     ${bar('food', Math.min(r.food, r.eat), r.eat, FACTOR_COLOR.food, `${n0(r.food)} / ${n0(r.eat)} M <span class="tiny">fed / eat</span>`)}
@@ -88,13 +88,13 @@ function renderOut() {
     ${bar('science', r.science, r.cap.science, FACTOR_COLOR.science, `${n0(r.science)} <span class="tiny">${n0(r.hands.research)} M / ${n0(r.cap.science)} M labs</span>`)}
     <div class="icons" title="a microscope or a tube = 10 M at the labs">${Array.from({ length: Math.min(40, sci) }, (_, i) => i % 2 ? '🧪' : '🔬').join('')}</div>
     ${bar('building', next ? next.b || 0 : 0, 1, '#f5a3c7', `${(r.dev).toFixed(1)} <span class="tiny">pts/eon · ${n0(r.hands.development)} M builders</span>`)}
-    <div class="icons" title="a hammer = one builder point an eon (a slot costs ${DEV.cost}, tearing one down ${DEV.demolish})">${rep('🔨', hammers)}</div>
-    <div class="tiny" style="margin:0 0 2px 92px">${nextLine}${r.cap.pure ? ` · <span style="color:var(--bad)">${r.cap.pure} pure cell${r.cap.pure > 1 ? 's' : ''}</span>` : ''}</div>`;
+    <div class="icons" title="a hammer = one builder point an eon (a district costs ${DEV.cost}, tearing one down ${DEV.demolish})">${rep('🔨', hammers)}</div>
+    <div class="tiny" style="margin:0 0 2px 92px">${nextLine}</div>`;
   $('eon').textContent = `eon ${C.eon} · ${n0(C.people)} M people`;
 }
 const LOG = [];
 function renderLog() {
-  for (const e of C.log || []) LOG.unshift(e.kind === 'slot' ? `<div><b>eon ${C.eon}</b> · a <b style="color:${FACTOR_COLOR[e.slot]}">${KIND_WORD[e.slot]}</b> slot in cell ${xy(C, e.cell).map(v => v + 1).join(',')}${C.cells[e.cell].slots.length === SLOT.per ? ' — the cell is full' : ''}</div>` : `<div><b>eon ${C.eon}</b> · cell ${xy(C, e.cell).map(v => v + 1).join(',')}: a <span style="color:${FACTOR_COLOR[e.slot]}">${KIND_WORD[e.slot]}</span> slot torn down — <b style="color:${FACTOR_COLOR[e.to]}">${KIND_WORD[e.to]}</b> goes up in its place</div>`);
+  for (const e of C.log || []) LOG.unshift(e.kind === 'unit' ? `<div><b>eon ${C.eon}</b> · a <b style="color:${FACTOR_COLOR[e.slot]}">${KIND_WORD[e.slot]}</b> district on ${districtInfo(C, e.unit)?.ground || '?'}</div>` : `<div><b>eon ${C.eon}</b> · a <span style="color:${FACTOR_COLOR[e.slot]}">${KIND_WORD[e.slot]}</span> district torn down (${districtInfo(C, e.unit)?.ground || '?'}) — <b style="color:${FACTOR_COLOR[e.to]}">${KIND_WORD[e.to]}</b> goes up in its place</div>`);
   C.log = []; LOG.length = Math.min(LOG.length, 60); $('log').innerHTML = LOG.join('') || '<div class="tiny">Nothing built yet.</div>';
 }
 function render() { drawMap(); drawRect(); drawTri(); renderOut(); renderQueue(); renderLog(); }
@@ -122,16 +122,11 @@ $('queue').addEventListener('dragend', () => { dragId = null; document.querySele
 
 // ---- input
 const cellAt = e => cellAtV($('map'), C, e);
-$('map').addEventListener('click', e => {
-  const i = cellAt(e); if (i < 0) return;
-  if (e.shiftKey) { reset(i); return; }
-  C.cells[i].plan = nextPlan(C.cells[i].plan); render();
-});
 $('map').addEventListener('mousemove', e => {
   const i = cellAt(e); if (i !== hoverCell) { hoverCell = i; drawMap(); } const tip = $('tip');
   if (i < 0) { tip.style.display = 'none'; return; }
-  const cell = C.cells[i], out = C.last.perCell[i], [x, y] = xy(C, i);
-  tip.innerHTML = `<b>cell ${x + 1},${y + 1}</b> · ${cell.trait === 'none' ? 'plain ground' : `${cell.trait} ground (${KIND_WORD[TRAITS[cell.trait]]} × ${TRAIT.boost})`}${cell.plan ? ` · planned: ${cell.plan.map(k => KIND_WORD[k]).join(' + ')}` : ''}<br>${cell.slots.length ? `slots: ${cell.slots.map(k => `<span style="color:${FACTOR_COLOR[k]}">${KIND_WORD[k]}</span>`).join(', ')}<br>yields: ${FACTORS.filter(k => out[k] > 0.5).map(k => `${KIND_WORD[k]} ${Math.round(out[k])} M`).join(' · ')}${out.staffed < 0.999 ? `<br><span style="color:var(--warn)">short of hands: no housing of its own (${Math.round(out.staffed * 100)} %)</span>` : ''}${out.purity > 0.99 ? '<br><span style="color:var(--bad)">pure: a focus shock hits it hardest</span>' : ''}` : 'empty'}`;
+  const inf = districtInfo(C, i); if (!inf) { tip.style.display = 'none'; return; } const D = planetOf(C);
+  tip.innerHTML = `<b>${inf.landing ? 'the landing · ' : ''}${inf.ground}</b><br>${inf.unit ? `<b style="color:${FACTOR_COLOR[inf.unit]}">${KIND_WORD[inf.unit]}</b>${inf.b < 1 ? ` — ${Math.round(inf.b * 100)} % built` : ''} · yields ${Math.round(C.last.perUnit[i] || 0)} M` : inf.buildable ? 'free ground' : `<span style="color:var(--bad)">nothing can be built: ${inf.why}</span>`}${inf.buildable ? `<br>one unit here: ${FACTORS.map(k => `<span style="color:${FACTOR_COLOR[k]}">${KIND_WORD[k]} ${Math.round(unitCap(D, i, k, C.levels))} M</span>`).join(' · ')}` : ''}`;
   tip.style.display = 'block'; tip.style.left = Math.min(window.innerWidth - 300, e.clientX + 14) + 'px'; tip.style.top = (e.clientY + 14) + 'px';
 });
 $('map').addEventListener('mouseleave', () => { hoverCell = -1; $('tip').style.display = 'none'; drawMap(); });
@@ -147,6 +142,6 @@ for (const id of ['size', 'kind', 'seed']) $(id).addEventListener('change', () =
 const depth = () => { FILLET.maxR = +$('depth').value; $('depthV').textContent = `${FILLET.maxR} — a full corner capped near ${Math.round(100 * Math.pow(1 - (FILLET.maxR - FILLET.maxR / Math.SQRT2), 2))} %`; if (C) render(); };
 $('depth').addEventListener('input', depth);
 window.addEventListener('keydown', e => { if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return; if (e.key === ' ') { e.preventDefault(); run(!timer); } else if (e.key === 'ArrowRight') step(); });
-$('size').innerHTML = Object.entries(SIZES).map(([k, s]) => `<option value="${k}" ${s === LARGEST ? 'selected' : ''}>${s.w} × ${s.h} · ${s.name} (${s.w * s.h * SLOT.per} slots)</option>`).join('');   // the whole ladder
+$('size').innerHTML = Object.entries(SIZES).map(([k, s]) => `<option value="${k}" ${s === LARGEST ? 'selected' : ''}>${s.w} × ${s.h} · ${s.name} (${s.w * s.h * 16} districts)</option>`).join('');   // the whole ladder
 depth(); reset();
 window.sbsPlanet = { get C() { return C; }, get Q() { return Q; }, step, reset, compute, weightsFor, counts, qAdd, render };

@@ -2,39 +2,34 @@
 // fillet, the effort triangle — drawn on canvases, shared by the game (app.js, the colony pop-up) and the sandbox (planetlab.js).
 // The canvases are drawn at full size and SHOWN to fit: toCanvas() turns a mouse position back into drawing pixels.
 // 2026-10-21: the surface sits on the PLANET (terrain.js): a straight grid squashed 2:1, every cell drawn as the Voronoi region of its
-// jittered centre on the generated terrain, its 4 slots the sub-regions; the overlays (kinds, cranes, plans…) follow those shapes.
-import { SLOT, DEV, TRAITS, TRAIT_GLYPH, TRI, FACTORS, FACTOR_COLOR, KIND_WORD, xy, isPure, normTri, bOf, focusOf, effectiveFocus, capsAll } from './colony.js';
+// jittered centre on the generated terrain. 2026-10-22: the DISTRICTS are the units — the hover lights one district, the marks sit on one.
+import { TRI, FACTORS, FACTOR_COLOR, KIND_WORD, normTri, bOf, focusOf, effectiveFocus, capsAll, terrainKind } from './colony.js';
 import { createTetra } from './tetra.js';
 import { LARGEST } from './districts.js';
-import { terrain, paint, KINDS } from './terrain.js';
-import { renderColony, stateFromSurface, stateKey } from './surface.js';
+import { terrain, paint, CELL_PX, primeDistricts } from './terrain.js';
+import { renderColony, stateFromSurface, stateKey, districtBoxes } from './surface.js';
 
-export const CELLW = 182, CELLH = 91, FRAME = LARGEST;                 // a cell on the straight 2:1 grid (his call), 30 % up from 140 × 70 (his ask 2026-10-21: "make the planet bigger"); the frame = the huge world's
+export const CELLW = CELL_PX.w, CELLH = CELL_PX.h, FRAME = LARGEST;                 // a cell on the straight 2:1 grid (his call), 30 % up from 140 × 70 (his ask 2026-10-21: "make the planet bigger"); the frame = the huge world's
 export const TRI_COLOR = { industry: '#ffb347', research: '#4fa3ff', development: '#f5a3c7' };   // his palette: research blue as science, development pink as housing
 export const TRI_PTS = { industry: [28, 222], research: [222, 222], development: [125, 34] };   // on a 250 × 250 canvas
 export const mapSize = () => [FRAME.w * CELLW, FRAME.h * CELLH];
 export const toCanvas = (cv, e) => { const b = cv.getBoundingClientRect(); return [(e.clientX - b.left) * cv.width / b.width, (e.clientY - b.top) * cv.height / b.height]; };
 // a smaller world sits centred in the frame
 export const originOf = G => [Math.round((FRAME.w - G.w) / 2 * CELLW), Math.round((FRAME.h - G.h) / 2 * CELLH)];
-// THE PLANET UNDER THE CELLS: generated once per planet (its id + kind + size), painted into an offscreen canvas, with every slot's and
-// cell's box and centre (the slots are jittered Voronoi regions, so the overlays need to know where they are)
+// THE PLANET UNDER THE DISTRICTS: generated once per planet (its id + kind + size), painted into an offscreen canvas; its districts are
+// handed to the game (terrain.js primeDistricts) — the very ones the model builds on
 const TERRAIN = new Map();
-const subIndex = (T, cell, s) => (2 * Math.floor(cell / T.w) + (s >> 1)) * (2 * T.w) + 2 * (cell % T.w) + (s & 1);
 export function terrainFor(G, planet = {}) {
-  const id = planet.id ?? 'sandbox', kind = KINDS.includes(planet.kind) ? planet.kind : 'rock', key = `${id}|${kind}|${G.w}x${G.h}`;
+  const id = planet.id ?? G.pid ?? 'sandbox', kind = terrainKind(planet.kind ?? G.kind), key = `${id}|${kind}|${G.w}x${G.h}`;
   let T = TERRAIN.get(key); if (T) return T;
-  T = terrain(id + '|ground', G.w, G.h, kind, { cellW: CELLW, cellH: CELLH });
+  T = terrain(id + '|ground', G.w, G.h, kind, { cellW: CELLW, cellH: CELLH }); primeDistricts(id, G.w, G.h, kind, T);
   const c = document.createElement('canvas'); c.width = T.W; c.height = T.H; const g = c.getContext('2d'), img = g.createImageData(T.W, T.H); paint(T, img.data); g.putImageData(img, 0, 0); T.image = c;
-  const box = Array.from({ length: G.w * G.h * 4 }, () => [T.W, T.H, -1, -1, 0, 0, 0]);   // x0 y0 x1 y1 Σx Σy n per slot
-  for (let y = 0; y < T.H; y++) for (let x = 0; x < T.W; x++) { const b = box[T.sub[y * T.W + x]]; if (x < b[0]) b[0] = x; if (y < b[1]) b[1] = y; if (x > b[2]) b[2] = x; if (y > b[3]) b[3] = y; b[4] += x; b[5] += y; b[6]++; }
-  T.slotBox = box.map(b => ({ x0: b[0], y0: b[1], x1: b[2], y1: b[3], cx: b[6] ? b[4] / b[6] : 0, cy: b[6] ? b[5] / b[6] : 0 }));
-  T.cellBox = []; for (let k = 0; k < G.w * G.h; k++) { const bs = [0, 1, 2, 3].map(s => T.slotBox[subIndex(T, k, s)]); T.cellBox.push({ x0: Math.min(...bs.map(b => b.x0)), y0: Math.min(...bs.map(b => b.y0)), x1: Math.max(...bs.map(b => b.x1)), y1: Math.max(...bs.map(b => b.y1)), cx: bs.reduce((a, b) => a + b.cx, 0) / 4, cy: bs.reduce((a, b) => a + b.cy, 0) / 4 }); }
   if (TERRAIN.size > 40) TERRAIN.delete(TERRAIN.keys().next().value); TERRAIN.set(key, T); return T;
 }
-export function cellAt(cv, G, e) {                    // the cell under the mouse = the pixel's owner on the last terrain drawn here
+export function districtAt(cv, G, e) {                // the district under the mouse = the drawn (jagged) outline's owner on the last terrain drawn here
   const T = cv._terrain; if (!T) return -1;
   const [mx, my] = toCanvas(cv, e), [ox, oy] = originOf(G), x = Math.floor(mx - ox), y = Math.floor(my - oy);
-  return x >= 0 && y >= 0 && x < T.W && y < T.H ? T.owner[y * T.W + x] : -1;
+  return x >= 0 && y >= 0 && x < T.W && y < T.H ? T.detJ[y * T.W + x] : -1;
 }
 // a kind's little pattern inside a slot (drawn for 34 px, scaled to the slot): chimneys, furrows, blocks, a dome
 export function glyph(g, kind, x, y, s) {
@@ -48,32 +43,27 @@ export function glyph(g, kind, x, y, s) {
 }
 const mark = (g, ch, col, x, y) => { g.fillStyle = col; g.font = 'bold 16px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.strokeStyle = 'rgba(0,0,0,.6)'; g.lineWidth = 3; g.strokeText(ch, x, y + 1); g.fillText(ch, x, y + 1); g.lineWidth = 1; };
 const rgbOf = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
-// the surface: the planet, then a tint per slot region (its kind; a slot going up fills from the bottom; a slot being torn down reddens
-// from the left; a planned cell faintly in its first kind; the hovered cell lighter), then the vector bits: a built slot's pattern,
-// ⚒ where the next slot goes, ✕ on a slot being torn down, the plan's letters, the trait glyph, the landing ring, 'pure'.
+// the surface: the planet with what stands on it (surface.js), then the hovered district under a light veil with its outline, ⚒ on the
+// unit going up (or where the next one goes), ✕ on a unit being torn down, ○ the landing.
 // opts: { next, hover, frameColor, planet: { id, kind } } — the planet's id seeds its terrain, kind = living | ocean | ice | other
 export function drawSurface(cv, G, { next = null, hover = -1, frameColor = 'rgba(126,243,176,.45)', planet = null } = {}) {
   const g = cv.getContext('2d'), [ox, oy] = originOf(G), T = terrainFor(G, planet || {}); cv._terrain = T;
   g.fillStyle = '#060a14'; g.fillRect(0, 0, cv.width, cv.height);
   // THE PICTURE (surface.js, 2026-10-21): the planet with its crops, urban grid, ridges, forests and the cluster chips that fill a
-  // district as its slot is built — rendered once per state (built kinds + fractions) and cached on the terrain
+  // district as its unit is built — rendered once per state (built kinds + fractions) and cached on the terrain
   const state = stateFromSurface(G, T, bOf), key = stateKey(state) + '|' + (frameColor || '');
   if (!T._comp || T._comp.key !== key) T._comp = { key, canvas: renderColony(T, state, 1, { faction: frameColor && frameColor.length >= 7 ? frameColor.slice(0, 7) : '#9fe8c4' }) };
   g.drawImage(T._comp.canvas, ox, oy);
-  if (hover >= 0) {                                      // the hovered cell: a light veil over its (jagged) region
-    const cb = T.cellBox[hover]; if (cb) { g.fillStyle = 'rgba(255,255,255,.14)'; for (let y = cb.y0; y <= cb.y1; y++) { let run = -1; for (let x = cb.x0; x <= cb.x1 + 1; x++) { const on = x <= cb.x1 && T.owner[y * T.W + x] === hover; if (on && run < 0) run = x; if (!on && run >= 0) { g.fillRect(ox + run, oy + y, x - run, 1); run = -1; } } } } }
-  G.cells.forEach((cell, i) => {
-    const cb = T.cellBox[i];
-    for (let s = 0; s < SLOT.per; s++) {
-      const sb = T.slotBox[subIndex(T, i, s)], kind = cell.slots[s], x = ox + sb.cx, y = oy + sb.cy;
-      if (kind && bOf(cell, s) >= 1) { if (next && next.demolish && next.cell === i && s === next.slot) mark(g, '✕', '#ff7979', x, y); }
-      else if (next && next.cell === i && (next.slot === s || (!next.partial && !next.demolish && s === cell.slots.length))) mark(g, '⚒', FACTOR_COLOR[next.kind], x, y);
-    }
-    if (cell.plan) { g.fillStyle = '#04070f'; g.fillRect(ox + cb.cx - 8, oy + cb.y1 - 15, 15 + 10 * (cell.plan.length - 1), 14); g.font = 'bold 11px system-ui'; g.textAlign = 'left'; g.textBaseline = 'alphabetic'; cell.plan.forEach((k, j) => { g.fillStyle = FACTOR_COLOR[k]; g.fillText(KIND_WORD[k][0].toUpperCase(), ox + cb.cx - 6 + j * 10, oy + cb.y1 - 4); }); }
-    if (cell.trait && cell.trait !== 'none') { g.font = '14px system-ui'; g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.fillStyle = FACTOR_COLOR[TRAITS[cell.trait]]; g.fillText(TRAIT_GLYPH[cell.trait], ox + cb.cx, oy + cb.y0 + 15); }
-    if (i === G.landing) { g.strokeStyle = '#fff'; g.lineWidth = 1.5; g.beginPath(); g.arc(ox + cb.cx, oy + cb.cy, 5, 0, 6.283); g.stroke(); g.lineWidth = 1; }
-    if (isPure(cell)) { g.fillStyle = 'rgba(255,121,121,.9)'; g.font = '10px system-ui'; g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.fillText('pure', ox + cb.cx, oy + cb.y0 + 27); }
-  });
+  if (hover >= 0) {                                      // the hovered DISTRICT: a light veil over its jagged region and its outline
+    const b = districtBoxes(T)[hover]; if (b && b[2] >= b[0]) {
+      const own = i => T.detJ[i] === hover; g.fillStyle = 'rgba(255,255,255,.2)';
+      for (let y = b[1]; y <= b[3]; y++) { let run = -1; for (let x = b[0]; x <= b[2] + 1; x++) { const on = x <= b[2] && own(y * T.W + x); if (on && run < 0) run = x; if (!on && run >= 0) { g.fillRect(ox + run, oy + y, x - run, 1); run = -1; } } }
+      g.fillStyle = 'rgba(255,255,255,.85)';
+      for (let y = b[1]; y <= b[3]; y++) for (let x = b[0]; x <= b[2]; x++) { const i = y * T.W + x; if (!own(i)) continue; if (x === 0 || y === 0 || x === T.W - 1 || y === T.H - 1 || !own(i - 1) || !own(i + 1) || !own(i - T.W) || !own(i + T.W)) g.fillRect(ox + x, oy + y, 1, 1); }
+    } }
+  const at = k => T.feat && T.feat[k] ? [ox + T.feat[k].x, oy + T.feat[k].y] : null;
+  if (next) { const p = at(next.unit); if (p) { if (next.demolish) mark(g, '✕', '#ff7979', p[0], p[1]); else mark(g, '⚒', FACTOR_COLOR[next.kind], p[0], p[1]); } }
+  const L = at(G.landing); if (L) { g.strokeStyle = '#fff'; g.lineWidth = 1.5; g.beginPath(); g.arc(L[0], L[1], 5, 0, 6.283); g.stroke(); g.lineWidth = 1; }
 }
 // THE FOCUS TETRAHEDRON (2026-10-20): the empire's pyramid widget, here with the colony's four kinds — the wish (a ring when the
 // fillet holds it back), the effective focus (the ball), each corner's cut; drag the ball, click a corner's name to pull toward it,
@@ -101,5 +91,3 @@ export function triFromPoint(px, py) {                // barycentric, clamped in
   let a = ((by - cy) * (px - cx) + (cx - bx) * (py - cy)) / det, b = ((cy - ay) * (px - cx) + (ax - cx) * (py - cy)) / det, c = 1 - a - b;
   a = Math.max(0, a); b = Math.max(0, b); c = Math.max(0, c); const s = a + b + c || 1; return { industry: a / s, research: b / s, development: c / s };
 }
-export const PLAN_CYCLE = [null, ['industry'], ['food'], ['housing'], ['science'], ['industry', 'housing'], ['food', 'science']];
-export const nextPlan = plan => { const at = PLAN_CYCLE.findIndex(p => JSON.stringify(p) === JSON.stringify(plan || null)); return PLAN_CYCLE[(at + 1) % PLAN_CYCLE.length]; };

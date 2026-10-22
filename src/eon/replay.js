@@ -2,7 +2,7 @@
 // order a player — or the AI player in tools/play — gives is one ACTION, and a game is a seed plus the actions eon by eon.
 // The same seed and the same actions give the same game (model.js draws every die from the state), so a log replays exactly.
 // applyAction runs one order on a state; the AI player and the game's Replay bar both use it. No DOM.
-import { sendFleet, giveAttention, settle, compute, setSplit, setDevFocus, planCell, queueAdd, queueCount, queueMove, queueDrop, setRelay, unrelay, moveRelay, dropRelay } from './model.js';
+import { sendFleet, giveAttention, settle, compute, setSplit, setDevFocus, queueAdd, queueCount, queueMove, queueDrop, setRelay, unrelay, moveRelay, dropRelay } from './model.js';
 
 export const REPLAY_VERSION = 1;
 // { type: 'split', place, split: [i, r, s] } · { type: 'design', design } (a whole design: replaces one with the same id) ·
@@ -19,7 +19,7 @@ export function applyAction(S, a) {
     case 'design': { const d = JSON.parse(JSON.stringify(a.design)); const i = S.designs.findIndex(x => x.id === d.id); if (i >= 0) S.designs[i] = d; else S.designs.push(d); return null; }
     case 'build': return queueAdd(S, a.place, a.design, a.n || 1);
     case 'devfocus': return setDevFocus(S, a.place, a.w || a.x, a.y);   // four weights (the tetrahedron) — or an older log's x, y
-    case 'plan': return planCell(S, a.place, a.cell, a.plan);
+    case 'plan': return null;                        // a cell planned by hand (2026-10-18 → 10-21): gone — the surface builds itself (his call 2026-10-22)
     case 'count': return queueCount(S, a.place, itemAt(a.place, a.item), a.n);
     case 'qmove': return queueMove(S, a.place, itemAt(a.place, a.item), a.to);
     case 'unq': return queueDrop(S, a.place, itemAt(a.place, a.item));

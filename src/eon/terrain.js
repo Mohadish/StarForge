@@ -80,8 +80,13 @@ function assignTypes(w, h, kind, rnd) {
   if (kind === 'ice') for (let k = 0; k < n; k++) if (type[k] === 'low') type[k] = 'ice';
   return type;
 }
+// THE SIZE A CELL IS DRAWN AT — and the size the model reads the districts at: the districts are found on these pixels, so the game
+// (colony.js) and the picture (colonyview.js) must use the same numbers or they would see different districts
+export const CELL_PX = { w: 182, h: 91 };
 // ---- the surface ----
-export function terrain(seed, w, h, kind, { cellW = 140, cellH = 70, jitter = 0.38 } = {}) {
+// lite: only what the MODEL needs (the districts, their natures, their grades, who touches whom) — no noise, no coasts, no picture;
+// the dice are drawn in the same order, so the districts are exactly the ones the full planet draws
+export function terrain(seed, w, h, kind, { cellW = 140, cellH = 70, jitter = 0.38, lite = false } = {}) {
   const W = w * cellW, H = h * cellH, N = W * H, s = hash(seed + '|' + kind), rnd = mulberry(s ^ 0x7f4a7c15), n1 = perlin(s), n2 = perlin(s ^ 0x9e3779b9);
   const w2 = w * 2, h2 = h * 2, type = assignTypes(w2, h2, kind, rnd);                            // a nature per SLOT (on the 2w × 2h slot grid)
   const subIndex = (cell, sl) => (2 * Math.floor(cell / w) + (sl >> 1)) * w2 + 2 * (cell % w) + (sl & 1);
@@ -91,15 +96,15 @@ export function terrain(seed, w, h, kind, { cellW = 140, cellH = 70, jitter = 0.
   // the noise fields, once per pixel
   const f1 = new Float32Array(N), f2 = new Float32Array(N), hill = new Float32Array(N);
   const U = cellW / 140;                                                                            // the px-sized noises scale with the cell (140 × 70 was the design size)
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const i = y * W + x; f1[i] = fbm(n1, x / (150 * U), y / (75 * U)); f2[i] = fbm(n2, x / (70 * U), y / (35 * U), 3); hill[i] = fbm(n2, x / (60 * U), y / (30 * U), 3); }
+  if (!lite) for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const i = y * W + x; f1[i] = fbm(n1, x / (150 * U), y / (75 * U)); f2[i] = fbm(n2, x / (70 * U), y / (35 * U), 3); hill[i] = fbm(n2, x / (60 * U), y / (30 * U), 3); }
   const AMP = [cellH * 0.55, cellH * 0.3, cellH * 0.16], wob = (p, L, i) => (p.c1 * f1[i] + p.c2 * f2[i]) * AMP[L];
   // k-means: K seeds inside a region (its pixel list), anchored for the wrap; every seed keeps members (an empty one is re-seeded)
   const kmeans = (members, K, anchor) => {
     const rel = x => { let d = x - anchor.x; if (d > W / 2) d -= W; if (d < -W / 2) d += W; return d; };
     let pts = []; for (let q = 0; q < K; q++) { const m = members[Math.floor(rnd() * members.length)]; pts.push({ x: anchor.x + rel(m % W), y: Math.floor(m / W) }); }
     for (let it = 0; it < 5; it++) {
-      const sx = new Float64Array(K), sy = new Float64Array(K), cnt = new Float64Array(K);
-      for (const m of members) { const x = m % W, y = Math.floor(m / W); let b = 0, bd = 1e18; for (let q = 0; q < K; q++) { const dx = rel(x) - rel(pts[q].x), dy = (y - pts[q].y) * 2, d = dx * dx + dy * dy; if (d < bd) { bd = d; b = q; } } sx[b] += rel(x); sy[b] += y; cnt[b]++; }
+      const sx = new Float64Array(K), sy = new Float64Array(K), cnt = new Float64Array(K), px = pts.map(p => rel(p.x)), py = pts.map(p => p.y);   // the same sums as before, each term worked out once (2026-10-22: 4× faster, the same seeds)
+      for (let mi = 0, ml = members.length; mi < ml; mi++) { const m = members[mi], x = m % W, y = Math.floor(m / W), rx = rel(x); let b = 0, bd = 1e18; for (let q = 0; q < K; q++) { const dx = rx - px[q], dy = (y - py[q]) * 2, d = dx * dx + dy * dy; if (d < bd) { bd = d; b = q; } } sx[b] += rx; sy[b] += y; cnt[b]++; }
       for (let q = 0; q < K; q++) { if (cnt[q]) { pts[q].x = anchor.x + sx[q] / cnt[q]; pts[q].y = sy[q] / cnt[q]; } else { const m = members[Math.floor(rnd() * members.length)]; pts[q].x = anchor.x + rel(m % W); pts[q].y = Math.floor(m / W); } }
     }
     return pts.map(p => ({ x: ((p.x % W) + W) % W, y: p.y, c1: coef(), c2: coef() }));
@@ -109,14 +114,14 @@ export function terrain(seed, w, h, kind, { cellW = 140, cellH = 70, jitter = 0.
   const seeds = []; for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) seeds.push({ x: (i + 0.5 + J() * jitter) * cellW, y: (j + 0.5 + J() * jitter * 0.8) * cellH, c1: coef(), c2: coef() });
   const owner = new Int16Array(N), ownerN = new Int16Array(N);
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const i = y * W + x, gi = Math.floor(x / cellW), gj = Math.floor(y / cellH); let cell = -1, bd = 1e18, cellN = -1, bn = 1e18;
-    for (let dj = -2; dj <= 2; dj++) { const cj = gj + dj; if (cj < 0 || cj >= h) continue; for (let di = -2; di <= 2; di++) { const k = cj * w + ((gi + di + w * 2) % w), d = dist(seeds[k], x, y); if (d < bd) { bd = d; cell = k; } const dn = d + wob(seeds[k], 0, i); if (dn < bn) { bn = dn; cellN = k; } } }
+    for (let dj = -2; dj <= 2; dj++) { const cj = gj + dj; if (cj < 0 || cj >= h) continue; for (let di = -2; di <= 2; di++) { const k = cj * w + ((gi + di + w * 2) % w), d = dist(seeds[k], x, y); if (d < bd) { bd = d; cell = k; } if (lite) continue; const dn = d + wob(seeds[k], 0, i); if (dn < bn) { bn = dn; cellN = k; } } }
     owner[i] = cell; ownerN[i] = cellN; }
   // LEVEL 2 — the slots: 4 seeds clustered inside each cell's own pixels; a pixel picks among its own cell's 4 (exact) / its noisy cell's 4
   const cellMembers = membersOf(owner, w * h), subSeeds = [];
   for (let k = 0; k < w * h; k++) subSeeds.push(...kmeans(cellMembers(k), 4, seeds[k]));
   const slot = new Uint8Array(N), slotN = new Uint8Array(N), sub = new Int16Array(N), subN = new Int16Array(N);
   for (let i = 0; i < N; i++) { const x = i % W, y = (i / W) | 0; let b = 0, bd = 1e18, bN = 0, bn = 1e18;
-    for (let q = 0; q < 4; q++) { const d = dist(subSeeds[owner[i] * 4 + q], x, y); if (d < bd) { bd = d; b = q; } const p = subSeeds[ownerN[i] * 4 + q], dn = dist(p, x, y) + wob(p, 1, i); if (dn < bn) { bn = dn; bN = q; } }
+    for (let q = 0; q < 4; q++) { const d = dist(subSeeds[owner[i] * 4 + q], x, y); if (d < bd) { bd = d; b = q; } if (lite) continue; const p = subSeeds[ownerN[i] * 4 + q], dn = dist(p, x, y) + wob(p, 1, i); if (dn < bn) { bn = dn; bN = q; } }
     slot[i] = b; sub[i] = subIndex(owner[i], b); slotN[i] = bN; subN[i] = ownerN[i] * 4 + bN; }
   // LEVEL 3 — the detail = the districts: 4 seeds clustered inside each slot's own pixels
   const exactSlotKey = new Int32Array(N); for (let i = 0; i < N; i++) exactSlotKey[i] = owner[i] * 4 + slot[i];
@@ -124,7 +129,7 @@ export function terrain(seed, w, h, kind, { cellW = 140, cellH = 70, jitter = 0.
   for (let k = 0; k < w * h * 4; k++) { const m = slotPixels(k); if (m.length) detSeeds.push(...kmeans(m, 4, subSeeds[k])); else for (let q = 0; q < 4; q++) detSeeds.push({ x: subSeeds[k].x, y: subSeeds[k].y, c1: 0, c2: 0 }); }
   const det = new Int16Array(N), detN = new Int16Array(N);
   for (let i = 0; i < N; i++) { const x = i % W, y = (i / W) | 0, k = exactSlotKey[i], kN = subN[i]; let b = 0, bd = 1e18, bN = 0, bn = 1e18;
-    for (let q = 0; q < 4; q++) { const d = dist(detSeeds[k * 4 + q], x, y); if (d < bd) { bd = d; b = q; } const p = detSeeds[kN * 4 + q], dn = dist(p, x, y) + wob(p, 2, i); if (dn < bn) { bn = dn; bN = q; } }
+    for (let q = 0; q < 4; q++) { const d = dist(detSeeds[k * 4 + q], x, y); if (d < bd) { bd = d; b = q; } if (lite) continue; const p = detSeeds[kN * 4 + q], dn = dist(p, x, y) + wob(p, 2, i); if (dn < bn) { bn = dn; bN = q; } }
     det[i] = k * 4 + b; detN[i] = kN * 4 + bN; }
   // the natures of the districts: the slot's, with a small seeded chance to flip; the polar caps are districts whose seed lies beyond CAP
   const FLIP = { living: { island: 0.09, lake: 0.06, bump: 0.12 }, ocean: { island: 0.07, lake: 0.04, bump: 0.1 }, ice: { island: 0.05, lake: 0.05, bump: 0.1, pit: 0.02 }, rock: { island: 0, lake: 0, bump: 0.14, pit: 0.03 }, irradiated: { island: 0, lake: 0, bump: 0.16, pit: 0.04 } }[kind];
@@ -137,6 +142,12 @@ export function terrain(seed, w, h, kind, { cellW = 140, cellH = 70, jitter = 0.
     if (kind === 'ice' && d === 'chasm' && t === 'ocean') d = t;
     const lat = Math.abs(detSeeds[k].y / H * 2 - 1) + J() * 0.04; if (lat > CAP[kind] && d !== 'chasm') { d = 'ice'; polar[k] = 1; }   // the cap: a defined area of districts, closed to building (his call)
     dtype.push(d); }
+  if (lite) {                                                                                     // the model's planet: the districts and nothing to draw
+    const dArea = new Uint32Array(dtype.length); for (let i = 0; i < N; i++) dArea[det[i]]++;
+    const hab = new Uint8Array(dtype.length); let gross = 0, net = 0; for (let k = 0; k < dtype.length; k++) { hab[k] = dArea[k] && !polar[k] && habitable(kind, dtype[k]) ? 1 : 0; if (dArea[k]) gross++; net += hab[k]; }
+    const T = { w, h, W, H, cellW, cellH, kind, dtype, polar, habitable: hab, dArea, det, gross, net, lite: true };
+    features(T, rnd); delete T.det; return T;
+  }
   // the classes per pixel from the noisy district
   const cls = new Uint8Array(N), water = new Uint8Array(N);
   for (let i = 0; i < N; i++) { const t = dtype[detN[i]], hv = hill[i]; let c;
@@ -208,6 +219,17 @@ function features(T, rnd) {
   // the BUFFER round the polar caps (his call 2026-10-21: "one tile between"): a district touching the cap is not buildable either
   if (T.polar) { let net = 0; for (let k = 0; k < n; k++) { if (T.habitable[k] && adj[k].some(q => T.polar[q])) T.habitable[k] = 0; net += T.habitable[k]; } T.net = net; }
 }
+// THE PLANET'S DISTRICTS FOR THE GAME (his call 2026-10-22: "a district is the unit that can be built on"): per district whether it
+// can be built on, its grades, its neighbours, its centre — found once per planet (id + size + kind) at CELL_PX and kept
+const DISTRICTS = new Map();
+const summary = T => ({ n: T.dtype.length, W: T.W, H: T.H, cellW: T.cellW, kind: T.kind, net: T.net, hab: Uint8Array.from(T.habitable), grade: T.grade, adj: T.adj, feat: T.feat, polar: T.polar, dtype: T.dtype });
+export function districts(id, w, h, kind) {
+  const key = `${id}|${kind}|${w}x${h}`; let D = DISTRICTS.get(key); if (D) return D;
+  D = summary(terrain(id + '|ground', w, h, kind, { cellW: CELL_PX.w, cellH: CELL_PX.h, lite: true }));
+  if (DISTRICTS.size > 200) DISTRICTS.delete(DISTRICTS.keys().next().value); DISTRICTS.set(key, D); return D;
+}
+// the picture's full planet hands its districts over (the same ones), so the game does not find them again
+export function primeDistricts(id, w, h, kind, T) { const key = `${id}|${kind}|${w}x${h}`; if (!DISTRICTS.has(key) && T.cellW === CELL_PX.w && T.cellH === CELL_PX.h) DISTRICTS.set(key, summary(T)); }
 // ---- paint into an RGBA buffer (his asks 2026-10-21: no sharp lines between the bands, no uniform bump): the band is looked up at a
 // position warped by a fine noise so its edges are RAGGED, its colour slides toward the neighbour band by the hill, and then the land
 // is SOFTENED by a 5 × 5 average (water, the coast and the ice edge stay crisp); the water keeps a gentle depth gradient. The

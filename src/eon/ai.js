@@ -13,6 +13,7 @@ import { T, SCALE, compute, lyBetween, fleetRange, shipRange, zoneOfSys, effecti
 import { applyWorldAction, heldByAnother } from './world.js';
 import { designFromStacks } from './battle.js';
 import { designStats, autoFit, fitModule } from './modules.js';
+import { planetOf } from './colony.js';
 
 const chip = (kind, h, role = null, id) => ({ id, type: kind.startsWith('weapon') || kind === 'hangar' ? 'weapon' : 'trait', kind, h, role });
 // the family: `cls` = its place in the tactics cycle; the lancer is the long-reach pool on its own
@@ -140,7 +141,7 @@ export function makeBrain(W, S, opts = {}) {
     let split = [0.5, 0.2, 0.3];
     if (pc.short > 0) shortHold = 6; else if (shortHold > 0) shortHold--;              // held a few eons: the split flipped every eon on the sustain line
     if (shortHold > 0) split = [0.6, 0.25, 0.15];
-    if (pc.G && pc.cap.slots >= pc.G.cells.length * 4 - 1) split = [0.5, 0.4, 0.1];   // a (nearly) full world — a slot torn down for re-making does not count   // industry held at half: past it, industrial pollution builds and its sickness caps the people (384 M on every home, 2026-10-18)
+    if (pc.G && pc.cap.units >= planetOf(pc.G).net - 1) split = [0.5, 0.4, 0.1];   // a (nearly) full world — a district torn down for re-making does not count   // industry held at half: past it, industrial pollution builds and its sickness caps the people (384 M on every home, 2026-10-18)
     const sum = split.reduce((a, v) => a + v, 0); split = split.map(v => v / sum);
     if (!lastSplit || split.some((v, i) => Math.abs(v - lastSplit[i]) > 0.02)) { act({ type: 'split', place: HOMEPLACE, split }); lastSplit = split; }
     // THE SURFACE (colony.js): every colony's development focus leans toward what it lacks — homes when the people press the housing,

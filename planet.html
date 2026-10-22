@@ -71,12 +71,12 @@ canvas { display: block; border-radius: 8px }
 </style>
 </head>
 <body>
-<h1>Planet sandbox <small>the colony as slots — the planet pop-up as he drew it</small></h1>
+<h1>Planet sandbox <small>the colony as districts — the planet pop-up as he drew it</small></h1>
 <div class="card">
   <div class="ctl">
     <label>size <select id="size"></select></label>
     <label>seed <input type="text" id="seed" value="home"></label>
-    <label>start as <select id="kind"><option value="home">homeworld (4 mixed cells)</option><option value="colony">new colony (one landing)</option></select></label>
+    <label>start as <select id="kind"><option value="home">homeworld (16 districts, 4 of each)</option><option value="colony">new colony (one landing)</option></select></label>
     <label>fillet depth <span id="depthV" class="tiny"></span><input type="range" id="depth" min="0.5" max="1" step="0.05" value="0.7"></label>
     <button id="reset">Reset</button>
     <button id="step" class="go">Step ▸</button>
@@ -84,7 +84,7 @@ canvas { display: block; border-radius: 8px }
     <label>speed <select id="speed"><option value="2">2 eons/s</option><option value="5" selected>5 eons/s</option><option value="12">12 eons/s</option></select></label>
     <span id="eon" style="font-variant-numeric:tabular-nums;font-weight:700;align-self:center"></span>
   </div>
-  <div class="tiny" style="margin-top:6px">Click a cell to PLAN it (cycles industry → food → housing → science → pairs → any); shift-click = land there instead (resets). ⛏ deposits · 🌾 fertile · ☼ calm · ✦ anomaly. ⚒ where the next slot goes, ✕ a slot being torn down. Hover a focus widget for why a corner is rounded. Space runs, → steps.</div>
+  <div class="tiny" style="margin-top:6px">Every district that can be built on takes one unit; the builders place them by themselves, each where its ground suits it best. Hover a district for its ground and what each kind would give there. ⚒ the unit going up, ✕ one being torn down, ○ the landing. Hover a focus widget for why a corner is rounded. Space runs, → steps.</div>
 </div>
 <div class="popwrap">
 <div class="pop">

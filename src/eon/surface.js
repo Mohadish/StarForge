@@ -70,11 +70,12 @@ export function renderColony(T, state, scale, { faction = '#9fe8c4' } = {}) {
   all.sort((p, q) => p.y - q.y).forEach(p => drawChip(g, p.chip, p.x * scale, p.y * scale, scale * LOOK.chipScale * U, { tint: p.dk === 'housing' ? faction : null }));
   return out;
 }
-// ---- the model's surface → the districts' state: a cell's slot s (kind, built fraction b) lights up its 4 districts in overlapping
-// stages (the first is done when the slot is 40 % built, the last starts at 60 %); a district that is not habitable stays empty ----
+// ---- the model's surface → the districts' state (2026-10-22: one unit per district): a unit's kind lights its own district, filled as
+// far as it is built; a district that is not habitable stays empty ----
 export function stateFromSurface(G, T, bOf) {
   const n = T.dtype.length, built = new Int8Array(n).fill(-1), fill = new Float32Array(n);
-  G.cells.forEach((cell, c) => { for (let s = 0; s < 4; s++) { const kind = cell.slots[s]; if (!kind) continue; const b = bOf(cell, s), ki = DISTRICT_KINDS.indexOf(kind); if (ki < 0) continue;
-    for (let d = 0; d < 4; d++) { const k = (c * 4 + s) * 4 + d; if (!T.habitable[k]) continue; const f = Math.max(0, Math.min(1, (b - d * 0.2) / 0.4)); if (f <= 0) continue; built[k] = ki; fill[k] = f; } } });
+  for (const key in G.units || {}) { const k = +key, ki = DISTRICT_KINDS.indexOf(G.units[key]); if (ki < 0 || !(k < n) || !T.habitable[k]) continue; const f = Math.max(0, Math.min(1, bOf(G, key))); if (f <= 0) continue; built[k] = ki; fill[k] = f; }
   return { built, fill };
 }
+// every district's box on the drawn (jagged) outline: [x0, y0, x1, y1] — the hover veil walks it
+export function districtBoxes(T) { return prep(T).box; }

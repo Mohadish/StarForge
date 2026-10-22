@@ -19,7 +19,7 @@ import { PROPERTIES, DOMAINS, CHANNEL_X, RARITY } from '../data/properties.js';
 import { designStats, allCapsules, passiveOf, dockFit, fleetWarp } from './modules.js';
 import { generateGalaxy } from './galaxy.js';
 import { DISTRICT, FACTORS, gridOf, employed } from './districts.js';
-import { newSurface, capsOf, building, developStep, creepFillet, isFull, rectWeights, SLOT, DEV, FILLET, LEVEL1, KIND_WORD } from './colony.js';
+import { newSurface, unitsFromCells, capsOf, roomOf, building, developStep, creepFillet, isFull, rectWeights, DEV, FILLET, LEVEL1, KIND_WORD } from './colony.js';
 import { sizeFatigue, createBattle, shipFromDesign, rng32 } from './battle.js';
 import { composePlan, buildPlan, naturalShips, planStrip, TACTIC_IDS, TACTICS } from './fleetplan.js';
 
@@ -163,27 +163,31 @@ function rand(S) {
 }
 const perField = v => Object.fromEntries(FIELD_IDS.map(f => [f, typeof v === 'function' ? v(f) : v]));
 // a colony: its people, the room it was born with, the planet's triangle (industry / research / DEVELOPMENT), the production line —
-// and its SURFACE (colony.js): the world's cells of four slots, the development focus, the fillet (`home`: the homeworld's old city)
+// and its SURFACE (colony.js): the planet's districts, one unit each, the development focus, the fillet (`home`: the homeworld's old city)
 export const newColony = (people, baseHousing = 0, pl = null, home = false) => ({ people, baseHousing, split: [1 / 3, 1 / 3, 1 / 3], happiness: 60, queue: [], structures: [], factories: 0, surface: pl ? surfaceFor(pl, home, home ? null : people) : null });   // a landing: what the ship brought (colony.js SHELTER)
-export function surfaceFor(pl, home = false, arrivals = null) { const g = gridOf(pl); return g ? newSurface({ w: g.w, h: g.h, seed: pl.id + '|ground', home, water: waterOf(pl), arrivals }) : null; }
-// an OLDER colony gets a surface (2026-10-18 morning: cells developed to district designs — each becomes four slots by its design's
-// mix, largest remainders first; before that: no cells — a fresh surface); the development queue of the old designs is dropped
+export function surfaceFor(pl, home = false, arrivals = null) { const g = gridOf(pl); return g ? newSurface({ w: g.w, h: g.h, pid: pl.id, kind: worldOf(pl), home, arrivals }) : null; }
+// an OLDER colony gets a surface: cells of four slots (2026-10-18 → 10-21) are laid again as districts (colony.js unitsFromCells);
+// before them, cells developed to district designs (each four slots by its design's mix, largest remainders first); before that: no
+// cells — a fresh surface. The development queue of the old designs is dropped
 const LEGACY_MIX = { 'dist-mixed': [0.25, 0.25, 0.25, 0.25], 'dist-housing': [0, 0.3, 0.7, 0], 'dist-farms': [0, 0.7, 0.3, 0], 'dist-foundry': [0.7, 0, 0.3, 0], 'dist-campus': [0, 0, 0.3, 0.7] };   // industry, food, housing, science
 function migrateColony(S, pl) {
-  const P = pl.colony, g = gridOf(pl); if (P.surface !== undefined && P.surface !== null) return P.surface; if (!g) return null;
+  const P = pl.colony, g = gridOf(pl);
+  if (P.surface && Array.isArray(P.surface.cells)) P.surface = unitsFromCells(P.surface, { pid: pl.id, kind: worldOf(pl) });   // cells of four slots → districts (2026-10-22)
+  if (P.surface !== undefined && P.surface !== null) return P.surface; if (!g) return null;
   if (!Array.isArray(P.cells)) { P.surface = surfaceFor(pl, pl.id === (S.homePlace || 'home')); delete P.develop; return P.surface; }
-  const G = newSurface({ w: g.w, h: g.h, seed: pl.id + '|ground', water: waterOf(pl) }); G.cells.forEach(c => { c.slots = []; });
+  const G = { w: g.w, h: g.h, cells: [] };
   let first = -1;
   P.cells.forEach((cell, i) => {
-    if (!cell || !cell.design || i >= G.cells.length) return;
+    if (!cell || !cell.design) return; G.cells[i] = { slots: [] };
     const d = (S.districts || []).find(x => x.id === cell.design), mix = d ? FACTORS.map(f => d.mix[f] || 0) : LEGACY_MIX[cell.design] || LEGACY_MIX['dist-mixed'];
-    const t = mix.reduce((a, v) => a + v, 0) || 1, raw = mix.map(v => v / t * SLOT.per), n = raw.map(Math.floor), r = SLOT.per - n.reduce((a, v) => a + v, 0);
+    const t = mix.reduce((a, v) => a + v, 0) || 1, raw = mix.map(v => v / t * 4), n = raw.map(Math.floor), r = 4 - n.reduce((a, v) => a + v, 0);   // four slots a cell, as they were
     raw.map((v, k) => [v - n[k], k]).sort((a, b) => b[0] - a[0] || a[1] - b[1]).slice(0, r).forEach(([, k]) => n[k]++);
     FACTORS.forEach((f, k) => { for (let m = 0; m < n[k]; m++) G.cells[i].slots.push(f); });
     if (first < 0) first = i;
   });
-  if (first >= 0) G.landing = first; else G.cells[G.landing].slots = ['housing', 'food'];   // a home and a farm (on a dry world the farm waits for water)
-  delete P.cells; delete P.develop; P.surface = G; return G;
+  delete P.cells; delete P.develop;
+  P.surface = first >= 0 ? unitsFromCells({ ...G, cells: G.cells.filter(Boolean) }, { pid: pl.id, kind: worldOf(pl) }) : surfaceFor(pl);   // nothing built: a home and a farm (on a dry world the farm waits for water)
+  return P.surface;
 }
 const surfaceOf = (S, pl) => migrateColony(S, pl);    // a world snapshot from before the slots meets the engine here (upgrade() does it for a save)
 
@@ -307,11 +311,12 @@ export function compute(S) {
     }
     for (const { u, t } of ships) if (!u.dest && u.at === pl.id) for (const gt of t.gantries) gantries.push({ ...gt, of: u.name, at: pl.name });
     const people = { industry: mp * si, research: mp * sr, development: mp * sd };
-    // THE SURFACE (his design, 2026-10-18 — colony.js): cells of four slots, industry / food / housing / science. The slots are the
-    // CAPACITY — works and labs that employ the triangle's hands (the rest work at idle), homes, farms that feed; the triangle is the
-    // EFFORT, and its third corner, DEVELOPMENT, builds the next slot toward the colony's development focus. A pure cell takes the focus shock.
-    const G = surfaceOf(S, pl), water = waterOf(pl), grid = gridOf(pl), cellsAll = grid ? grid.w * grid.h : 0;
-    const { cap, perCell } = G ? capsOf(G, { levels: S.slotLevels || LEVEL1, shock }) : { cap: { industry: 0, food: 0, housing: 0, science: 0, cells: 0, scienceShare: 0, pure: 0, slots: 0 }, perCell: [] };
+    // THE SURFACE (his design, 2026-10-18; one unit per DISTRICT since 2026-10-22 — colony.js): industry / food / housing / science
+    // on the planet's own districts, each as good as its ground. The units are the CAPACITY — works and labs that employ the triangle's
+    // hands (the rest work at idle), homes, farms that feed; the triangle is the EFFORT, and its third corner, DEVELOPMENT, builds the
+    // next unit toward the colony's development focus. No penalties inside the surface (his call 2026-10-22: no "pure", no "short of hands").
+    const G = surfaceOf(S, pl), water = waterOf(pl), grid = gridOf(pl);
+    const { cap, perUnit } = G ? capsOf(G, { levels: S.slotLevels || LEVEL1 }) : { cap: { industry: 0, food: 0, housing: 0, science: 0, units: 0, scienceShare: 0 }, perUnit: {} };
     // FOOD from the farms (the M people they feed; a landed ship's social systems add theirs) — only where there is water (his spec,
     // 2026-10-16): without it the settlers live on their stores — no food, no growth, no famine — until supply lines exist (later)
     // …and on a DRY world (his rule, 2026-10-18) the farms grow on the water brought in (waterSupply): as much of them as it reaches;
@@ -351,7 +356,7 @@ export function compute(S) {
       for (let k = 0; k < built; k++) done.push({ item, d, ds, sections });
     }
     // ROOM: the homes on the surface (and the room the colony was born with); a world of homes is the ceiling
-    const roomCap = P.baseHousing + flat.housing + cellsAll * SLOT.per * SLOT.cap.housing, houses = 0;
+    const roomCap = P.baseHousing + flat.housing + (G ? roomOf(G, S.slotLevels || LEVEL1) : 0), houses = 0;
     // the industry nothing in the line needed builds FACTORIES (one per pop at most), and past that it piles up RESERVES — stored industry, the empire's money
     const spare = left, canBuild = Math.max(0, Math.floor(mp) - (P.factories || 0)), newFactories = Math.min(canBuild, Math.floor(spare / T.factoryCost)), toReserves = spare - newFactories * T.factoryCost;
     // SUSTAIN: a big society needs industry and research at work for its own sake; short of it, unrest — people leave, the mood sours
@@ -379,7 +384,7 @@ export function compute(S) {
     const noFood = !water && !(ws && ws.reach > 0);   // a dry world builds farms once water can reach it
     const next = G && !blockaded ? building(G, { noFood, lack }) : null;
     return { pl, P, people, factor, flat, industry, research, food, gantries, housing, full, queue, done, spare, eat, surplus, fed, hungry, dPeople, happiness, happyTarget,
-      water, noFood, waterNeed, waterIn, waterRoutes: ws ? ws.routes : [], waterCost: ws ? ws.cost : 0, waterReach: ws ? ws.reach : 0, roomCap, houses, factories: P.factories || 0, newFactories, toReserves, needI, needR, short, pol, polNext, blockaded, cap, perCell, grid, cellsAll, G, dev, staffed, want, lack, next };
+      water, noFood, waterNeed, waterIn, waterRoutes: ws ? ws.routes : [], waterCost: ws ? ws.cost : 0, waterReach: ws ? ws.reach : 0, roomCap, houses, factories: P.factories || 0, newFactories, toReserves, needI, needR, short, pol, polNext, blockaded, cap, perUnit, grid, G, dev, staffed, want, lack, next };
   });
   // who is studying what: research power on the ground and in orbit, place by place
   const ground = {}, orbit = {}, sysResearch = {}, sysOfPlace = Object.fromEntries(S.places.map(p => [p.id, p.sys]));
@@ -438,7 +443,7 @@ function waterSupply(S, ships, caps, shock) {
     src.push({ id: u.id, name: u.name, at: pl.id, sys: pl.sys, kind: 'harvest', left: t.industry * WATER.perIndustry });
   }
   for (const pl of dry) {
-    const G = surfaceOf(S, pl), need = G ? Math.min(capsOf(G, { levels: S.slotLevels || LEVEL1, shock }).cap.food, pl.colony.people * WATER.margin) : 0;   // by the MOUTHS (his rule, 2026-10-20), not by the farms' size
+    const G = surfaceOf(S, pl), need = G ? Math.min(capsOf(G, { levels: S.slotLevels || LEVEL1 }).cap.food, pl.colony.people * WATER.margin) : 0;   // by the MOUTHS (his rule, 2026-10-20), not by the farms' size
     const options = src.filter(s => s.left > 1e-9).map(s => {
       const ly = s.sys === pl.sys ? 0 : lyBetween(S, s.sys, pl.sys), chance = ly ? clamp(chanceAt(effectiveLy(S, s.sys, pl.sys), VOY.range * warp), 0, 1) : 1, per = ly ? WATER.perLy * ly : WATER.inSystem;
       return { s, ly, chance, per, unit: per / Math.max(chance, 1e-6) };
@@ -690,12 +695,13 @@ export function endEon(S) {
     if (pc.surplus < 0) rep.push({ kind: 'bad', text: `${name}: not enough food — ${(before - P.people).toFixed(1)} people lost` });
     if (pc.short > 0.05) rep.push({ kind: 'bad', text: `${name}: unrest — a society of ${peopleWord(before)} needs ${Math.round(pc.needI)} industry and ${Math.round(pc.needR)} research at work and is ${Math.round(pc.short * 100)} % short` });
     P.happiness = pc.happiness;
-    // THE SURFACE (colony.js): the builders' points buy slots toward the development focus (a full world tears one down and builds
-    // the new kind the next eon); the fillet creeps toward what each corner can support. A district completed is reported.
+    // THE SURFACE (colony.js): the builders' points buy districts toward the development focus (a full world tears one down and builds
+    // the new kind the next eon); the fillet creeps toward what each corner can support. The districts finished this eon are reported.
     if (pc.G) {
-      const wasFull = isFull(pc.G), log = developStep(pc.G, pc.dev, { noFood: pc.noFood, lack: pc.lack });
-      for (const e of log) if (e.kind === 'slot' && e.done) { const n = {}; for (const k of pc.G.cells[e.cell].slots) n[k] = (n[k] || 0) + 1; rep.push({ kind: 'build', text: `${name}: a district completed — ${Object.entries(n).map(([k, v]) => `${v} ${KIND_WORD[k]}`).join(', ')}`, place: pc.pl.id, colony: true }); }
-      if (!wasFull && isFull(pc.G)) rep.push({ kind: 'build', text: `${name}: the whole world is developed — from now on the builders re-make it toward the focus, one slot at a time`, place: pc.pl.id, colony: true });
+      const wasFull = isFull(pc.G), log = developStep(pc.G, pc.dev, { noFood: pc.noFood, lack: pc.lack }), n = {};
+      for (const e of log) if (e.kind === 'unit') n[e.slot] = (n[e.slot] || 0) + 1;
+      const nb = Object.values(n).reduce((a, v) => a + v, 0); if (nb) rep.push({ kind: 'build', text: `${name}: ${nb === 1 ? 'a district' : nb + ' districts'} built — ${Object.entries(n).map(([k, v]) => `${v} ${KIND_WORD[k]}`).join(', ')}`, place: pc.pl.id, colony: true, minor: true });
+      if (!wasFull && isFull(pc.G)) rep.push({ kind: 'build', text: `${name}: the whole world is developed — from now on the builders re-make it toward the focus, one district at a time`, place: pc.pl.id, colony: true });
       creepFillet(pc.G, pc.want);
     }
     if (pc.newFactories > 0) { P.factories = (P.factories || 0) + pc.newFactories; rep.push({ kind: 'build', text: `${name}: ${pc.newFactories} factor${pc.newFactories === 1 ? 'y' : 'ies'} built with the industry nothing in the queue needed`, place: pc.pl.id, minor: true }); }
@@ -799,12 +805,6 @@ export function setDevFocus(S, placeId, w, y) {
   const v = Array.isArray(w) ? w.slice(0, 4).map(x => Math.max(0, +x || 0)) : rectWeights(+w || 0, +y || 0), t = v.reduce((a, b) => a + b, 0);
   if (v.length !== 4 || !(t > 0)) return 'A focus is four shares';
   P.surface.wf = v.map(x => x / t); delete P.surface.dot; return null;
-}
-export function planCell(S, placeId, cell, plan) {
-  const P = colonyAt(S, placeId), G = P && P.surface; if (!G) return 'No colony there';
-  if (!(cell >= 0 && cell < G.cells.length)) return 'No such cell';
-  if (plan != null && (!Array.isArray(plan) || !plan.length || plan.some(k => !FACTORS.includes(k)))) return 'A plan is a list of slot kinds';
-  G.cells[cell].plan = plan ? [...new Set(plan)] : null; return null;
 }
 export function queueAdd(S, placeId, designId, n = 1) {
   const P = colonyAt(S, placeId); if (!P) return 'No colony there'; if (!S.designs.some(d => d.id === designId)) return 'No such design';
