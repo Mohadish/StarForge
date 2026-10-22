@@ -11,15 +11,6 @@
 <body>
 <header id="topbar">
   <div class="brand">FORGE · EON</div>
-  <nav id="eTabs">
-    <button data-tab="empire" class="on">Empire</button>
-    <button data-tab="galaxy">Galaxy</button>
-    <button data-tab="system">Star system</button>
-    <button data-tab="colonies">Colonies</button>
-    <button data-tab="research">Research</button>
-    <button data-tab="economy">Economy</button>
-    <button data-tab="design">Design</button>
-  </nav>
   <div id="eStats"></div>
   <button id="eEnd" class="go">End eon ▸</button>
   <button id="eNew" class="x">new game</button>
@@ -27,6 +18,8 @@
   <button id="eReplay" class="x" title="play back a logged game (tools/play writes one, or ⤓ log from a simulation) eon by eon, through the game itself">▶ replay…</button><input type="file" id="eReplayFile" accept=".json,application/json" hidden>
 </header>
 <div id="replayBar" hidden></div>
+<!-- RELAY PICK (app.js RELAY): pick the world the colonies' new ships should gather at -->
+<div id="relayBar" hidden></div><div id="relayMenu" hidden></div>
 <div id="shipPop" hidden></div>
 <div id="battlePop" hidden></div>
 <!-- THE COLONY POP-UP (app.js openColPop): development focus + effort on top, the surface, the output; the production line on the right -->
@@ -156,6 +149,16 @@
 </main>
 <!-- the silhouette editor, over everything -->
 <div id="hullEd" class="hidden"></div>
+<!-- THE TABS, at the bottom, full width and chunky (his ask 2026-10-22: "like an old-fashioned 4X game, everything is in the bottom") -->
+<nav id="eTabs">
+  <button data-tab="empire" class="on">Empire</button>
+  <button data-tab="galaxy">Galaxy</button>
+  <button data-tab="system">Star system</button>
+  <button data-tab="colonies">Colonies</button>
+  <button data-tab="research">Research</button>
+  <button data-tab="economy">Economy</button>
+  <button data-tab="design">Design</button>
+</nav>
 <script type="module" src="src/eon/fresh.js"></script>
 <script type="module" src="src/eon/app.js"></script>
 </body>

@@ -2,7 +2,7 @@
 // order a player — or the AI player in tools/play — gives is one ACTION, and a game is a seed plus the actions eon by eon.
 // The same seed and the same actions give the same game (model.js draws every die from the state), so a log replays exactly.
 // applyAction runs one order on a state; the AI player and the game's Replay bar both use it. No DOM.
-import { sendFleet, giveAttention, settle, compute, setSplit, setDevFocus, planCell, queueAdd, queueCount, queueMove, queueDrop } from './model.js';
+import { sendFleet, giveAttention, settle, compute, setSplit, setDevFocus, planCell, queueAdd, queueCount, queueMove, queueDrop, setRelay, unrelay, moveRelay, dropRelay } from './model.js';
 
 export const REPLAY_VERSION = 1;
 // { type: 'split', place, split: [i, r, s] } · { type: 'design', design } (a whole design: replaces one with the same id) ·
@@ -46,6 +46,11 @@ export function applyAction(S, a) {
       return settle(S, u.id);
     }
     case 'develop': case 'undevelop': case 'district': return null;           // the per-cell district designs of the morning of 2026-10-18: gone (the slots replaced them) — an older log's orders pass unheeded
+    // RELAYS (2026-10-22): { type: 'relay', from: [places], to } · { type: 'unrelay', place } · { type: 'relaymove', at, to } · { type: 'relaydrop', at }
+    case 'relay': return setRelay(S, a.from || [], a.to);
+    case 'unrelay': return unrelay(S, a.place);
+    case 'relaymove': return moveRelay(S, a.at, a.to);
+    case 'relaydrop': return dropRelay(S, a.at);
     case 'focus': { S.focus = a.w.slice(); return null; }
     case 'attention': { giveAttention(S, a.field, a.d); return null; }
     default: return 'unknown action ' + a.type;

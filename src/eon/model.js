@@ -522,6 +522,50 @@ export function regroupSend(S, fleetIds, pickedIds, newDest = null) {
   return chosen.length && newDest ? sendFleet(S, chosen, newDest) : null;
 }
 export const sendShip = (S, shipId, placeId) => sendFleet(S, [shipId], placeId);
+// RELAYS (his design, 2026-10-22): colonies send what they build to one RALLY POINT. S.relays = [{ id, to: placeId, from: [colony
+// placeIds] }]. A colony relays to at most one place; relaying to a place that already receives a relay MERGES into it; moving a
+// relay onto another one merges the two. A ship finished at a relaying colony leaves for the point at once (sent the next eon, so it
+// shows as a departing fleet you can still undo); one that cannot go there (no star drive across stars, no engine) stays and is
+// reported. A relay is found by its target (`to`): replay actions name places, never ids.
+export const relayOf = (S, placeId) => (S.relays || []).find(r => r.from.includes(placeId)) || null;   // the relay this colony sends to
+export const relayAt = (S, placeId) => (S.relays || []).find(r => r.to === placeId) || null;          // the relay that gathers here
+function tidyRelays(S) {
+  const colony = id => S.places.some(p => p.id === id && p.colony);
+  S.relays = (S.relays || []).map(r => ({ ...r, from: [...new Set(r.from)].filter(id => id !== r.to && colony(id)) })).filter(r => r.from.length && S.places.some(p => p.id === r.to));
+}
+export function setRelay(S, fromIds, toId) {
+  if (!S.places.some(p => p.id === toId)) return 'Nowhere to relay to';
+  const ids = [...new Set(fromIds)].filter(id => id !== toId && S.places.some(p => p.id === id && p.colony)); if (!ids.length) return 'No colony of yours to relay from (a colony cannot relay to itself)';
+  S.relays = S.relays || [];
+  for (const r of S.relays) r.from = r.from.filter(id => !ids.includes(id));           // each colony leaves the relay it was in
+  let r = relayAt(S, toId); if (!r) { r = { id: uid('r'), to: toId, from: [] }; S.relays.push(r); }
+  r.from.push(...ids); tidyRelays(S); return null;
+}
+export function unrelay(S, placeId) { for (const r of S.relays || []) r.from = r.from.filter(id => id !== placeId); tidyRelays(S); return null; }
+export function moveRelay(S, atId, toId) {
+  const r = relayAt(S, atId); if (!r) return 'No relay gathers there'; if (!S.places.some(p => p.id === toId)) return 'Nowhere to move it';
+  if (toId === atId) return null;
+  const other = relayAt(S, toId);
+  if (other) { other.from.push(...r.from); S.relays = S.relays.filter(x => x !== r); } else r.to = toId;   // onto another relay: one relay
+  tidyRelays(S); return null;
+}
+export function dropRelay(S, atId) { S.relays = (S.relays || []).filter(r => r.to !== atId); return null; }
+// the ships finished this eon at relaying colonies leave for their points — one fleet per colony and point
+function relayBuilt(S, built, rep) {
+  if (!built.length || !(S.relays || []).length) return;
+  tidyRelays(S);
+  const caps = allCapsules(S), sysOfP = id => (S.places.find(p => p.id === id) || {}).sys, placeName = id => (S.places.find(p => p.id === id) || {}).name || '?', groups = new Map();
+  for (const { unit, from } of built) { const R = relayOf(S, from); if (!R || !S.ships.includes(unit)) continue; const key = from + '>' + R.to; (groups.get(key) || groups.set(key, { from, to: R.to, units: [] }).get(key)).units.push(unit); }
+  for (const g of groups.values()) {
+    const cross = sysOfP(g.from) !== sysOfP(g.to);
+    const why = u => cross ? (u.klass !== 'starship' ? 'it has no star drive' : shipStats(S, u, caps).underDriven ? 'its star drive is too small for its bulk' : null) : (T.travel[u.klass] ? null : 'it has no engine');
+    const go = g.units.filter(u => !why(u)), stay = g.units.filter(u => why(u));
+    if (go.length) { const err = sendFleet(S, go.map(u => u.id), g.to); if (err) rep.push({ kind: 'bad', text: `${placeName(g.from)}: the relay to ${placeName(g.to)} failed — ${err}`, place: g.from, colony: true });
+      else { const R = cross ? fleetRange(S, go, caps) : Infinity, d = cross ? lyBetween(S, sysOfP(g.from), sysOfP(g.to)) : 0;
+        rep.push({ kind: 'move', text: `Relay: ${go.map(u => u.name).join(', ')} left ${placeName(g.from)} for ${placeName(g.to)}${d > R ? ` — ${(d - R).toFixed(1)} light years past its reach: it may break down` : ''}`, place: g.from, ship: go[0].id }); } }
+    for (const u of stay) rep.push({ kind: 'bad', text: `${u.name} stays at ${placeName(g.from)}: ${why(u)} — it cannot reach the relay point ${placeName(g.to)}`, place: g.from, ship: u.id });
+  }
+}
 // Call back: inside a system the ship simply stays; between stars the whole fleet turns round — the way back is what it has
 // covered, on the same voyage (the light years keep adding up: past halfway, turning round is as dear as going on)
 export function recallShip(S, shipId) {
@@ -623,7 +667,7 @@ function fightHostiles(S, caps, rep) {
 
 // ---------------- end the eon ----------------
 export function endEon(S) {
-  const c = compute(S), rep = [];
+  const c = compute(S), rep = [], built = [];        // built: the ships finished this eon and where (the relays send them on)
   for (const pc of c.colonies) {
     const P = pc.P, name = pc.pl.name;
     for (const q of pc.queue) if (!q.gone) { q.item.progress = q.progressAfter; q.item.joined = q.joinedAfter; if (q.built) q.item.count = q.count - q.built; }   // a unit built: one fewer of the item left
@@ -635,7 +679,7 @@ export function endEon(S) {
         unit.at = pc.pl.id; unit.dest = null; unit.eta = 0; unit.st = 100;
         unit.people = ds.housing > 0 ? Math.max(0, Math.min(ds.housing * SCALE.shipHousing, P.people - 5)) : 0;     // settlers leave with the ship — a ship's habitat holds a thousandth of a world's
         P.people -= unit.people;
-        S.ships.push(unit);
+        S.ships.push(unit); built.push({ unit, from: pc.pl.id });
       }
       rep.push({ kind: 'build', text: `${name}: built ${d.name}` + (sections > 1 ? ` in ${sections} sections` : '') + (unit.people ? ` — ${peopleWord(unit.people)} people went aboard` : ''), place: pc.pl.id, colony: true });
     }
@@ -736,6 +780,7 @@ export function endEon(S) {
   for (const pc of c.colonies) { const was = pc.pol, now = pc.polNext; pc.P.pol = now; for (const [k, word] of [['industry', 'industrial pollution — people sicken'], ['social', 'a docile society — industry and research slacken'], ['research', 'an aloof society — the builders slacken']]) if (now[k] >= 50 && was[k] < 50) rep.push({ kind: 'bad', text: `${pc.pl.name}: ${word}` }); }
   S.focusStart = [...S.focus];
   S.report = rep; S.eon++;
+  relayBuilt(S, built, rep);                         // after the eon turns: the relayed ships leave "this eon" (a departing fleet, still undoable)
   return rep;
 }
 

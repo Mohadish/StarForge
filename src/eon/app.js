@@ -4,7 +4,7 @@ import { $, clamp, fmt, signed, esc } from '../util.js';
 import { DOMAINS } from '../data/properties.js';
 import { XS, X_INFO, T, CENTER, FIELD_IDS, newState, compute, endEon, uid, isIntegrated, giveAttention, sendShip, recallShip, settle, starEons, sysDistance, worldOf,
   setSplit, setDevFocus, planCell, queueAdd, queueCount, queueMove, queueDrop, canUndoSend, undoSend, regroupSend,
-  LY, VOY, SCALE, shipRange, forecast, fleetRange, sendFleet, lyBetween, peopleWord, upgrade, hostileIn, hostileWord, hostileWorth, ZONE, bubbles, zoneOfSys, effectiveLy } from './model.js';
+  LY, VOY, SCALE, shipRange, forecast, fleetRange, sendFleet, lyBetween, peopleWord, upgrade, hostileIn, hostileWord, hostileWorth, ZONE, bubbles, zoneOfSys, effectiveLy, setRelay, unrelay, moveRelay, dropRelay, relayOf, relayAt } from './model.js';
 import { KINDS, KIND_IDS, CLASS_NAME, GANTRY, GUN, PRESETS, applyPreset, allCapsules, designStats, isRelevant, dockFit, reachBand, fitModule, autoFit, traverseOf } from './modules.js';
 import { GALAXY, STARS, galaxyOf } from './galaxy.js';
 import { createTetra } from './tetra.js';
@@ -42,6 +42,7 @@ const myCol = () => (S && S.look && S.look.colA) || '#7ef3b0', myColA = a => { c
 const foreignEmpires = () => W ? W.empires.map((E, k) => ({ E, k, col: E.look.colA })).filter(x => x.E !== S && !x.E.dead) : [];   // the other empires, as they are (not a summary)
 const sysOfPlaceOf = (E, id) => (E.places.find(p => p.id === id) || {}).sys;
 let tab = 'empire', newIds = new Set();
+let RELAY = null, relayHi = null, relayRaf = 0, relayMenuItems = [];   // RELAY: picking a relay point — { mode: 'new', from: [colony ids] } | { mode: 'move', at }; relayHi: { to, until } — the relay whose lines flash blue
 let curDesign = S.designs[0]?.id || null, selMod = null, openBt = new Set(), note = '', noteT = null, FIT = null;
 let HULLS = loadHulls(); setUserHulls(HULLS);
 let selSys = S.homeSys, selPlace = S.homePlace || 'home', hoverPlace = null, DS = null, LAST = null;
@@ -417,6 +418,16 @@ function drawGalaxy(c) {
   // (this eon's departures wait at their star — the OUTGOING icons below — not on the line)
   for (const f of flights) { const u = f.u; if (!u.dest) continue; if (!GE && outKeyOf(u)) continue; const V = u.voy, key = `${f.k}|${V && V.fleet ? V.fleet : V ? `${V.A}>${V.B}@${(V.pos ?? 0).toFixed(2)}` : `${u.at}>${u.dest}@${u.eta}`}`; (convoys.get(key) || convoys.set(key, { ...f, ids: [] }).get(key)).ids.push(u.id); }
   // WATER ROUTES between stars (his ask, 2026-10-18): a blue dotted line from the star that sends water to the dry colony's star
+  // RELAYS (2026-10-22): an orange dotted line from every relaying colony's star to the relay point's star, an arrow at its end and a
+  // ring round the point; the relay you point at (menu, list) flashes blue
+  for (const r of S.relays || []) {
+    const tp = placeOf(r.to), b = tp && G.pos[tp.sys]; if (!b) continue; const hi = relayHi && relayHi.to === r.to, ph = hi ? 0.55 + 0.45 * Math.sin(performance.now() / 90) : 0.85, col = hi ? '#4fa3ff' : '#ff9f43';
+    for (const id of r.from) { const sp = placeOf(id), a = sp && G.pos[sp.sys]; if (!a || sp.sys === tp.sys) continue;
+      g.setLineDash([8, 5]); g.strokeStyle = col; g.globalAlpha = ph; g.lineWidth = hi ? 3.2 : 2.2; g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke(); g.setLineDash([]);
+      const ang = Math.atan2(b.y - a.y, b.x - a.x), hx = b.x - Math.cos(ang) * 17, hy = b.y - Math.sin(ang) * 17; g.fillStyle = col; g.beginPath(); g.moveTo(hx + Math.cos(ang) * 7, hy + Math.sin(ang) * 7); g.lineTo(hx + Math.cos(ang + 2.5) * 7, hy + Math.sin(ang + 2.5) * 7); g.lineTo(hx + Math.cos(ang - 2.5) * 7, hy + Math.sin(ang - 2.5) * 7); g.closePath(); g.fill(); }
+    g.globalAlpha = hi ? ph : 1; g.strokeStyle = col; g.lineWidth = 2; g.setLineDash([3, 3]); g.beginPath(); g.arc(b.x, b.y, 14, 0, 7); g.stroke(); g.setLineDash([]); g.lineWidth = 1;
+    g.font = 'bold 10px sans-serif'; g.textAlign = 'left'; g.fillStyle = col; g.fillText(`⇠ relay · ${r.from.length}`, b.x + 17, b.y - 8); g.globalAlpha = 1;
+  }
   if (!GE) for (const pc of c.colonies) for (const r of pc.waterRoutes || []) { if (r.sys === pc.pl.sys) continue; const a = G.pos[r.sys], b = G.pos[pc.pl.sys]; if (!a || !b) continue; g.setLineDash([2, 4]); g.strokeStyle = '#4fa3ff'; g.globalAlpha = r.chance < 0.9 ? 0.5 : 0.8; g.lineWidth = 1.5; g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke(); g.setLineDash([]); g.globalAlpha = 1; g.lineWidth = 1; }
   for (const [key, { u, k: ek, E, col, ids }] of convoys) {
     const pOf = id => (E.places.find(p => p.id === id) || {}).sys;
@@ -591,6 +602,7 @@ $('gMap').addEventListener('mousemove', e => {
 // a click: the fleet icon → the fleet panel; a star → the system (or, with ships picked, where they go). You are on one or the other.
 // In God mode: a fleet triangle → that empire's ships there; a ship under way → its card; a star → everything at it.
 $('gMap').addEventListener('click', e => {
+  if (RELAY) { const id = sysAt(e); sysPop = id || null; if (id) gSel = id; return refresh(); }   // picking a relay point: a star opens its worlds
   const bt = battleAt(e); if (bt) return watchBattle(bt.id, bt.k != null && W ? W.empires[bt.k] : S);
   if (godEmpires()) {
     const gf = godFleetAt(e); if (gf) { const [sys, k] = gf.split('|'); godPick = { kind: 'fleet', k: +k, sys }; gSel = sys; gMode = 'god'; return refresh(); }
@@ -617,7 +629,8 @@ $('gMap').addEventListener('dblclick', e => { if (fleetAt(e) || godFleetAt(e) ||
     e.preventDefault(); if (panMoved || !LAST) return;
     const GE = godEmpires();
     if (GE) { const gf = godFleetAt(e); if (gf) { const [sys, k] = gf.split('|'), E = GE[+k]; return openShipPop(+k, GODC[+k].ships.filter(x => !x.u.dest && sysOfPlaceOf(E, x.u.at) === sys).map(x => x.u.id), e.clientX, e.clientY); } const gs = godShipAt(e); if (gs) return openShipPop(gs.k, gs.ids, e.clientX, e.clientY); }
-    const f = fleetAt(e); if (f) openShipPop(null, LAST.ships.filter(x => !x.u.dest && placeOf(x.u.at)?.sys === f).map(x => x.u.id), e.clientX, e.clientY);
+    const f = fleetAt(e); if (f) return openShipPop(null, LAST.ships.filter(x => !x.u.dest && placeOf(x.u.at)?.sys === f).map(x => x.u.id), e.clientX, e.clientY);
+    const sid = sysAt(e); if (sid) { const items = placesIn(sid).flatMap(pl => relayItems(pl.id, true)); if (items.length) openRelayMenu(e.clientX, e.clientY, items, esc(sysOf(sid).name)); }   // a star: its relay points and colonies (2026-10-22)
   });
   cv.addEventListener('wheel', e => {
     e.preventDefault(); const [px, py] = mapXY(e), mx = px - cv.width / 2, my = py - cv.height / 2, z = clamp(gView.z * (e.deltaY < 0 ? 1.18 : 1 / 1.18), 0.5, 8), k = z / gView.z;
@@ -771,17 +784,27 @@ function renderColonies(c) {
     <div class="colbar"><span class="tiny">world</span><select data-colkind><option value="all">all</option>${kinds.map(k => `<option value="${k}" ${COL.kind === k ? 'selected' : ''}>${WORLD_KIND[k] || k}</option>`).join('')}</select>
       <span class="tiny">size</span><select data-colsize><option value="all">all</option>${sizes.map(k => `<option value="${k}" ${COL.size === k ? 'selected' : ''}>${SIZES[k].name} ${SIZES[k].w} × ${SIZES[k].h}</option>`).join('')}</select>
       <span style="flex:1"></span><button class="x" data-colall>select all shown</button><button class="x" data-colnone>none</button></div>
-    <table class="col"><tr><th></th>${th('name', 'colony')}${th('sys', 'system')}${th('kind', 'world')}${th('size', 'size')}${th('slots', 'built', 'slots raised')}${th('people', 'people')}${th('food', 'food', 'fed − eating (M)')}${th('industry', 'industry')}${th('research', 'research')}${th('line', 'to the line')}${th('excess', 'excess', 'to the reserves')}${th('water', 'water')}<th>building</th></tr>
-    ${rows.map(r => `<tr class="${COL.sel.has(r.id) ? 'sel' : ''}"><td><input type="checkbox" data-colsel="${r.id}" ${COL.sel.has(r.id) ? 'checked' : ''}></td><td class="name" data-colopen="${r.id}"><b>${esc(r.name)}</b>${r.id === (S.homePlace || 'home') ? ' <span class="tiny">home</span>' : ''}</td><td class="tiny">${esc(r.sys)}</td><td>${WORLD_KIND[r.kind] || r.kind}</td><td>${r.size.w} × ${r.size.h}</td><td>${r.slots}</td><td>${peopleWord(r.people)}</td><td class="${r.fed < r.eat ? 'up' : ''}">${fmt(r.fed)} / ${fmt(r.eat)}</td><td>${fmt(r.industry)}</td><td>${fmt(r.research)}</td><td>${fmt(r.line)}</td><td><b>${fmt(r.excess)}</b></td><td>${r.p.water ? 'own' : r.p.waterNeed > 0 ? `${Math.round(r.water * 100)} %` : '—'}</td><td class="tiny">${r.queue.length ? `${esc(r.queue[0].d.name)}${r.queue[0].count > 1 ? ` ×${r.queue[0].count}` : ''}${r.queue.length > 1 ? ` +${r.queue.length - 1}` : ''}` : '—'}</td></tr>`).join('')}</table>
+    <table class="col"><tr><th></th>${th('name', 'colony')}${th('sys', 'system')}${th('kind', 'world')}${th('size', 'size')}${th('slots', 'built', 'slots raised')}${th('people', 'people')}${th('food', 'food', 'fed − eating (M)')}${th('industry', 'industry')}${th('research', 'research')}${th('line', 'to the line')}${th('excess', 'excess', 'to the reserves')}${th('water', 'water')}<th>building</th><th>relay</th></tr>
+    ${rows.map(r => `<tr class="${COL.sel.has(r.id) ? 'sel' : ''}"><td><input type="checkbox" data-colsel="${r.id}" ${COL.sel.has(r.id) ? 'checked' : ''}></td><td class="name" data-colopen="${r.id}"><b>${esc(r.name)}</b>${r.id === (S.homePlace || 'home') ? ' <span class="tiny">home</span>' : ''}</td><td class="tiny">${esc(r.sys)}</td><td>${WORLD_KIND[r.kind] || r.kind}</td><td>${r.size.w} × ${r.size.h}</td><td>${r.slots}</td><td>${peopleWord(r.people)}</td><td class="${r.fed < r.eat ? 'up' : ''}">${fmt(r.fed)} / ${fmt(r.eat)}</td><td>${fmt(r.industry)}</td><td>${fmt(r.research)}</td><td>${fmt(r.line)}</td><td><b>${fmt(r.excess)}</b></td><td>${r.p.water ? 'own' : r.p.waterNeed > 0 ? `${Math.round(r.water * 100)} %` : '—'}</td><td class="tiny">${r.queue.length ? `${esc(r.queue[0].d.name)}${r.queue[0].count > 1 ? ` ×${r.queue[0].count}` : ''}${r.queue.length > 1 ? ` +${r.queue.length - 1}` : ''}` : '—'}</td><td class="rel">${relayOf(S, r.id) ? `⇢ ${esc(placeOf(relayOf(S, r.id).to)?.name || '?')}` : ''}${relayAt(S, r.id) ? ` ⇠ ${relayAt(S, r.id).from.length}` : ''}</td></tr>`).join('')}</table>
     <div class="colbar" style="margin-top:12px"><b>${colonies(COL.sel.size)} selected</b><span class="tiny">· give them a construction project:</span>
       <select data-colq ${designs.length ? '' : 'disabled'}>${designs.map(d => { const t = designStats(S, d, caps).t; return `<option value="${d.id}" ${COL.design === d.id ? 'selected' : ''}>${esc(d.name)} — ${CLASS_NAME[t.klass].toLowerCase()} · ${fmt(t.cost)} ⚙</option>`; }).join('')}</select>
       <input type="number" data-coln min="1" max="99" value="${COL.n}" style="width:56px" title="how many at each"><button class="go" data-colqueue ${COL.sel.size && COL.design ? '' : 'disabled'}>＋ Queue at ${colonies(COL.sel.size)}</button>
-      <span class="tiny">each colony builds its own; a ship needs a dock where it is built</span></div>`;
+      <button class="go relaybtn" data-colrelay ${COL.sel.size ? '' : 'disabled'} title="send every ship these colonies build to one place">⇢ Relay ${colonies(COL.sel.size)} to…</button>
+      <span class="tiny">each colony builds its own; a ship needs a dock where it is built</span></div>
+    <div class="relays"><h2>Relays — ${(S.relays || []).length}</h2>${(S.relays || []).length ? S.relays.map(r => `<div class="relay ${relayHi && relayHi.to === r.to ? 'hi' : ''}" data-relayrow="${r.to}"><div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><b style="color:#ff9f43">⇢ ${esc(relayName(r.to))}</b><span class="tiny">gathers the new ships of ${colWord(r.from.length)}</span><span style="flex:1"></span>
+        <button class="x" data-relayshow="${r.to}" title="flash its lines on the galaxy">◎ show</button><button class="x" data-relayadd="${r.to}" ${COL.sel.size ? '' : 'disabled'} title="the colonies ticked above join this relay">＋ add the selected (${COL.sel.size})</button><button class="x" data-relaymove="${r.to}" title="pick a new point on the galaxy">⇢ move…</button><button class="x" data-relaydrop="${r.to}">✕ delete</button></div>
+        <div class="chips">${r.from.map(id => `<span class="chip">${esc(placeOf(id)?.name || '?')}<button class="x" data-relayrm="${id}" title="take it out of the relay">✕</button></span>`).join('')}</div></div>`).join('') : '<div class="tiny">No relays yet. Tick colonies above and press ⇢ Relay: every ship they build leaves for the world you pick.</div>'}</div>`;
 }
 document.addEventListener('click', e => {
   const q = s => e.target.closest(s); let t;
   if ((t = q('[data-colsort]'))) { const k = t.dataset.colsort; if (COL.sort === k) COL.dir = -COL.dir; else { COL.sort = k; COL.dir = k === 'name' || k === 'sys' || k === 'kind' ? 1 : -1; } return renderColonies(LAST); }
   if ((t = q('[data-colopen]'))) return openColPop(t.dataset.colopen);
+  if (q('[data-colrelay]')) { if (COL.sel.size) startRelay({ mode: 'new', from: [...COL.sel] }); return; }
+  if ((t = q('[data-relayshow]'))) { const to = t.dataset.relayshow; go('galaxy'); return flashRelay(to, 5000); }
+  if ((t = q('[data-relayadd]'))) { toastErr(setRelay(S, [...COL.sel], t.dataset.relayadd)); save(); refresh(); return flashRelay(t.dataset.relayadd); }
+  if ((t = q('[data-relaymove]'))) return startRelay({ mode: 'move', at: t.dataset.relaymove });
+  if ((t = q('[data-relaydrop]'))) { const to = t.dataset.relaydrop, r = relayAt(S, to); if (r && confirm(`Delete the relay at ${relayName(to)}? ${colWord(r.from.length)} stop sending their ships there.`)) { dropRelay(S, to); save(); refresh(); } return; }
+  if ((t = q('[data-relayrm]'))) { unrelay(S, t.dataset.relayrm); save(); return refresh(); }
   if (q('[data-colall]')) { for (const tr of $('colTab').querySelectorAll('[data-colsel]')) COL.sel.add(tr.dataset.colsel); return renderColonies(LAST); }
   if (q('[data-colnone]')) { COL.sel.clear(); return renderColonies(LAST); }
   if (q('[data-colqueue]')) { let bad = null; for (const id of COL.sel) { const err = queueAdd(S, id, COL.design, COL.n); if (err) bad = err; } toastErr(bad); say(`${COL.n > 1 ? COL.n + ' × ' : ''}${esc((S.designs.find(d => d.id === COL.design) || {}).name || '?')} queued at ${COL.sel.size} ${COL.sel.size === 1 ? 'colony' : 'colonies'}`); save(); return refresh(); }
@@ -816,7 +839,9 @@ document.addEventListener('click', e => { if (!POP || e.shipPopOpened) return; i
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && POP) closeShipPop(); });
 $('sMap').addEventListener('contextmenu', e => {         // the ships parked at a place: yours first, else another empire's
   e.preventDefault(); const id = placeAt(e); if (!id || !LAST) return;
-  const own = LAST.ships.filter(s => !s.u.dest && s.u.at === id).map(s => s.u.id); if (own.length) return openShipPop(null, own, e.clientX, e.clientY);
+  const own = LAST.ships.filter(s => !s.u.dest && s.u.at === id).map(s => s.u.id);
+  const items = relayItems(id); if (items.length) { if (own.length) items.push({ label: `🚀 ${plural(own.length, 'ship')} here — their card`, act: ev => { ev.shipPopOpened = true; openShipPop(null, own, e.clientX, e.clientY); } }); openRelayMenu(e.clientX, e.clientY, items, esc(placeOf(id).name)); return; }   // a relay point or a colony of yours: the relay menu (2026-10-22)
+  if (own.length) return openShipPop(null, own, e.clientX, e.clientY);
   for (const { k } of foreignEmpires()) { const ids = GODC && GODC[k] ? GODC[k].ships.filter(s => !s.u.dest && s.u.at === id).map(s => s.u.id) : []; if (ids.length) return openShipPop(k, ids, e.clientX, e.clientY); }
 });
 // THE FLEET POP-UP ON THE MAP (his ask, 2026-10-17: "a pop-up of the fleet right there on screen… two columns like a table, the
@@ -858,6 +883,69 @@ function renderFleetPop(full = true) {
   }
   P.el.hidden = false; placeOverlay(P.el, P.cv, anchor, P.kind === 'system' ? 30 : 26);
 }
+// RELAYS (his design, 2026-10-22): pick colonies (the Colonies tab, or a right-click), press ⇢ Relay, then a star and a world on the
+// galaxy — every ship those colonies build leaves for that world on its own (model.js setRelay / relayBuilt). Orange dotted lines show
+// every relay; the one you point at flashes blue. Right-click a relay point (the galaxy star, the system map, or its tag in the system
+// pop-up) to move or delete it; right-click a relaying colony to take it out or send it elsewhere. Onto a point that already gathers a
+// relay, the two merge.
+const colWord = n => `${n} ${n === 1 ? 'colony' : 'colonies'}`;
+const relayName = id => { const pl = placeOf(id); return pl ? `${pl.name}${pl.kind !== 'star' ? ` (${(sysOf(pl.sys) || {}).name || '?'})` : ''}` : '?'; };
+function flashRelay(to, ms = 3500, menu = false) {   // menu: it flashes while its menu item is pointed at, and stops when the menu closes
+  const was = !!relayHi; relayHi = to ? { to, until: performance.now() + ms, menu } : null; cancelAnimationFrame(relayRaf);
+  const redraw = () => { if (!LAST) return; if (tab === 'galaxy') drawGalaxy(LAST); if (tab === 'system') drawMap(LAST); if (tab === 'colonies') renderColonies(LAST); };
+  const tick = () => { if (!relayHi || performance.now() > relayHi.until) { relayHi = null; redraw(); return; } if (tab === 'galaxy') drawGalaxy(LAST); else if (tab === 'system') drawMap(LAST); relayRaf = requestAnimationFrame(tick); };
+  if (relayHi) { if (tab === 'colonies') renderColonies(LAST); relayRaf = requestAnimationFrame(tick); } else if (was) redraw();
+}
+function startRelay(r) { RELAY = r; closeRelayMenu(); sysPop = null; go('galaxy'); if (r.mode === 'move') flashRelay(r.at, 4000); }
+function renderRelayBar() {
+  const el = $('relayBar'); if (!el) return; if (!RELAY) { el.hidden = true; return; }
+  const what = RELAY.mode === 'move' ? `Move the relay point at <b>${esc(relayName(RELAY.at))}</b> (${colWord(relayAt(S, RELAY.at)?.from.length || 0)})` : `Relay <b>${colWord(RELAY.from.length)}</b> — ${esc(RELAY.from.map(id => placeOf(id)?.name || '?').slice(0, 6).join(', '))}${RELAY.from.length > 6 ? ', …' : ''}`;
+  el.innerHTML = `<span style="font-size:18px;color:#ff9f43">⇢</span><span>${what}: <b>click a star</b> on the galaxy, then <b>the world</b> where their new ships should gather.</span><span style="flex:1"></span>${tab !== 'galaxy' ? '<button class="go" data-tab="galaxy">Galaxy ▸</button>' : ''}<button class="x" data-relaycancel title="cancel (Esc)">✕ Cancel</button>`;
+  el.hidden = false;
+}
+function pickRelayPoint(placeId) {                  // a world clicked while picking: ask, then do it
+  const pl = placeOf(placeId); if (!pl || !RELAY) return;
+  const into = relayAt(S, placeId); let err = null;
+  if (RELAY.mode === 'move') {
+    if (placeId === RELAY.at) return;
+    if (!confirm(`Move the relay point from ${relayName(RELAY.at)} to ${relayName(placeId)}?${into ? ' A relay already gathers there — the two will merge.' : ''}`)) return;
+    err = moveRelay(S, RELAY.at, placeId);
+  } else {
+    if (!confirm(`Relay ${colWord(RELAY.from.length)} to ${relayName(placeId)}? Every ship they build will leave for it on its own.${into ? ' A relay already gathers there — they join it.' : ''}${RELAY.from.includes(placeId) ? ' (' + pl.name + ' itself stays out: a colony does not relay to itself.)' : ''}`)) return;
+    err = setRelay(S, RELAY.from, placeId);
+  }
+  RELAY = null; sysPop = null; save(); toastErr(err); if (!err) say(`Relay point: ${relayName(placeId)}`); else refresh(); flashRelay(placeId);
+}
+// what a right-click on a place offers: a relay point → move / show / delete; a colony of yours → relay it, take it out, re-relay it
+function relayItems(placeId, withName = false) {
+  const pl = placeOf(placeId); if (!pl) return []; const items = [], nm = withName ? `<b>${esc(pl.name)}</b> · ` : '', at = relayAt(S, placeId), of = pl.colony ? relayOf(S, placeId) : null;
+  if (at) {
+    items.push({ label: `${nm}⇢ Move this relay point (${colWord(at.from.length)})…`, hi: placeId, act: () => startRelay({ mode: 'move', at: placeId }) });
+    items.push({ label: `${nm}◎ Show what relays here`, hi: placeId, act: () => { go('galaxy'); flashRelay(placeId, 5000); } });
+    items.push({ label: `${nm}✕ Delete this relay`, hi: placeId, act: () => { if (!confirm(`Delete the relay at ${relayName(placeId)}? ${colWord(at.from.length)} stop sending their ships there.`)) return; dropRelay(S, placeId); save(); refresh(); } });
+  }
+  if (pl.colony) {
+    if (of) { items.push({ label: `${nm}Remove from the relay (→ ${esc(relayName(of.to))})`, hi: of.to, act: () => { unrelay(S, placeId); save(); refresh(); } });
+      items.push({ label: `${nm}⇢ Relay it elsewhere / a new relay…`, hi: of.to, act: () => startRelay({ mode: 'new', from: [placeId] }) }); }
+    else items.push({ label: `${nm}⇢ Relay its new ships to…`, act: () => startRelay({ mode: 'new', from: [placeId] }) });
+  }
+  return items;
+}
+function openRelayMenu(x, y, items, title) {
+  const el = $('relayMenu'); if (!el || !items.length) return false; relayMenuItems = items; $('cpTip').style.display = 'none';
+  el.innerHTML = `${title ? `<h4>${title}</h4>` : ''}${items.map((it, i) => `<button data-rmi="${i}">${it.label}</button>`).join('')}`; el.hidden = false;
+  const r = el.getBoundingClientRect(); el.style.left = Math.max(8, Math.min(x + 6, innerWidth - r.width - 8)) + 'px'; el.style.top = Math.max(60, Math.min(y + 6, innerHeight - r.height - 70)) + 'px'; return true;
+}
+function closeRelayMenu() { const el = $('relayMenu'); if (el && !el.hidden && relayHi && relayHi.menu) flashRelay(null); if (el) el.hidden = true; relayMenuItems = []; }
+const relayTag = id => { const at = relayAt(S, id), of = relayOf(S, id); return at ? `<span class="rtag" data-relaytag="${id}" title="a relay point: ${colWord(at.from.length)} send their new ships here — click: move or delete it">⇠ relay · ${at.from.length}</span>` : of ? `<span class="rtag" data-relaytag="${id}" title="its new ships go to ${esc(relayName(of.to))} — click: take it out, or relay it elsewhere">⇢ ${esc(placeOf(of.to)?.name || '?')}</span>` : ''; };
+document.addEventListener('click', e => {
+  const tag = e.target.closest('[data-relaytag]'); if (tag) { const id = tag.dataset.relaytag; e.relayMenuOpened = true; openRelayMenu(e.clientX, e.clientY, relayItems(id), esc(placeOf(id)?.name || '')); return; }
+  const mi = e.target.closest('[data-rmi]'); if (mi) { const it = relayMenuItems[+mi.dataset.rmi]; closeRelayMenu(); e.shipPopOpened = true; if (it) it.act(e); return; }
+  if (!e.target.closest('#relayMenu')) closeRelayMenu();
+  if (e.target.closest('[data-relaycancel]')) { RELAY = null; return refresh(); }
+});
+document.addEventListener('mouseover', e => { const mi = e.target.closest?.('[data-rmi]'); if (!mi) return; const it = relayMenuItems[+mi.dataset.rmi]; if (it && it.hi && (!relayHi || relayHi.to !== it.hi)) flashRelay(it.hi, 60000, true); });
+document.addEventListener('keydown', e => { if (e.key !== 'Escape') return; if ($('relayMenu') && !$('relayMenu').hidden) return closeRelayMenu(); if (RELAY) { RELAY = null; refresh(); } });
 // THE SYSTEM POP-UP ON THE GALAXY (his ask, 2026-10-18: "click a star system and see its planets; hover one for its details; click a
 // colony of mine and get its panel; click outside and go anywhere else"): the star's worlds in a row beside it, the star first
 let sysPop = null, outOpen = null;             // outOpen: the star whose stack of departing fleets is spread out
@@ -871,20 +959,21 @@ function placeTip(pl) {                               // a world in words: what 
 }
 function renderSysPop() {
   const el = $('sysPop'); if (!el) return; el.hidden = true;
-  if (!sysPop || tab !== 'galaxy' || pickCount() || !LAST) return;
+  if (!sysPop || tab !== 'galaxy' || (pickCount() && !RELAY) || !LAST) return;
   const G = $('gMap')._geo, p = G && G.pos[sysPop], s = sysOf(sysPop); if (!p || !s) return;
   const places = placesIn(sysPop);
   const row = places.map(pl => { const lk = lookOf(pl), r = Math.round(Math.max(6, Math.min(15, lk.size * 1.1))), own = pl.colony ? null : ownerOfPlace(pl.id), ring = pl.colony ? myCol() : own ? own.col : 'transparent', pc = LAST.colonies.find(x => x.pl.id === pl.id) || (own && GODC && GODC[own.k] ? GODC[own.k].colonies.find(x => x.pl.id === pl.id) : null);
     const dry = pc && !pc.water && pc.waterIn < pc.waterNeed - 0.5;
-    return `<button class="sp ${pl.colony ? 'mine' : ''}" data-spplace="${pl.id}"><i style="width:${2 * r}px;height:${2 * r}px;background:${lk.color};outline:2px solid ${ring};outline-offset:2px"></i><small>${esc(pl.name)}</small>${pl.colony ? `<em>${peopleWord(pl.colony.people)}${dry ? ' · 💧!' : ''}</em>` : own ? `<em style="color:${own.col}">${esc(own.E.name)}${pc ? ' · ' + peopleWord(pc.P.people) : ''}${dry ? ' · 💧!' : ''}</em>` : ''}</button>`; }).join('');
-  el.innerHTML = `<div class="fphead"><b>${esc(s.name)}</b><span class="tiny">${STARS[s.type].name}</span><button class="x" data-opensys="${s.id}" title="the star-system screen">open ▸</button><button class="x" data-spclose title="close (or click outside)">✕</button></div><div class="sprow">${row}</div><div class="tiny">Hover a world for its details${places.some(pl => pl.colony) ? ' · click your colony to open it' : ''}${godEmpires() && places.some(pl => !pl.colony && ownerOfPlace(pl.id)) ? ' · click any colony to open it (God mode)' : ''} · click another to see it in the system.</div>`;
-  el.hidden = false; placeOverlay(el, $('gMap'), p, 22);
+    return `<button class="sp ${pl.colony ? 'mine' : ''}" data-spplace="${pl.id}"><i style="width:${2 * r}px;height:${2 * r}px;background:${lk.color};outline:2px solid ${ring};outline-offset:2px"></i><small>${esc(pl.name)}</small>${pl.colony ? `<em>${peopleWord(pl.colony.people)}${dry ? ' · 💧!' : ''}</em>` : own ? `<em style="color:${own.col}">${esc(own.E.name)}${pc ? ' · ' + peopleWord(pc.P.people) : ''}${dry ? ' · 💧!' : ''}</em>` : ''}${relayTag(pl.id)}</button>`; }).join('');
+  el.innerHTML = `<div class="fphead"><b>${esc(s.name)}</b><span class="tiny">${STARS[s.type].name}</span><button class="x" data-opensys="${s.id}" title="the star-system screen">open ▸</button><button class="x" data-spclose title="close (or click outside)">✕</button></div><div class="sprow">${row}</div><div class="tiny">${RELAY ? '<b style="color:#ff9f43">⇢ Click the world the relay should gather at</b> · ' : ''}Hover a world for its details${places.some(pl => pl.colony) ? ' · click your colony to open it' : ''}${godEmpires() && places.some(pl => !pl.colony && ownerOfPlace(pl.id)) ? ' · click any colony to open it (God mode)' : ''} · click another to see it in the system.</div>`;
+  el.classList.toggle('relaypick', !!RELAY); el.hidden = false; placeOverlay(el, $('gMap'), p, 22);
 }
-document.addEventListener('mouseover', e => { const b = e.target.closest?.('[data-spplace], [data-sendplace]'), tip = $('cpTip'); if (!b) return; const pl = placeOf(b.dataset.spplace || b.dataset.sendplace); if (!pl) return; tip.innerHTML = placeTip(pl); tip.style.display = 'block'; const r = b.getBoundingClientRect(); tip.style.left = Math.min(innerWidth - 300, r.left) + 'px'; tip.style.top = (r.bottom + 6) + 'px'; });
+document.addEventListener('mouseover', e => { const b = e.target.closest?.('[data-spplace], [data-sendplace]'), tip = $('cpTip'); if (!b) return; if (e.target.closest('[data-relaytag]') || !$('relayMenu').hidden) { tip.style.display = 'none'; return; } const pl = placeOf(b.dataset.spplace || b.dataset.sendplace); if (!pl) return; tip.innerHTML = placeTip(pl); tip.style.display = 'block'; const r = b.getBoundingClientRect(); tip.style.left = Math.min(innerWidth - 300, r.left) + 'px'; tip.style.top = (r.bottom + 6) + 'px'; });
 document.addEventListener('mouseout', e => { if (e.target.closest?.('[data-spplace], [data-sendplace]') && !e.relatedTarget?.closest?.('[data-spplace], [data-sendplace]')) $('cpTip').style.display = 'none'; });
 document.addEventListener('click', e => {
   if (e.target.closest('[data-spclose]')) { sysPop = null; $('cpTip').style.display = 'none'; return refresh(); }
-  const b = e.target.closest('[data-spplace]'); if (b) { const pl = placeOf(b.dataset.spplace); $('cpTip').style.display = 'none'; if (!pl) return; if (pl.colony) return openColPop(pl.id); const own = godEmpires() ? ownerOfPlace(pl.id) : null; if (own) return openColPop(pl.id, own.k); sysPop = null; return openSystem(pl.sys, pl.id); }
+  if (e.relayMenuOpened) return;
+  const b = e.target.closest('[data-spplace]'); if (b) { const pl = placeOf(b.dataset.spplace); $('cpTip').style.display = 'none'; if (!pl) return; if (RELAY) return pickRelayPoint(pl.id); if (pl.colony) return openColPop(pl.id); const own = godEmpires() ? ownerOfPlace(pl.id) : null; if (own) return openColPop(pl.id, own.k); sysPop = null; return openSystem(pl.sys, pl.id); }
   if (sysPop && !e.target.closest('#sysPop') && e.target.id !== 'gMap') { sysPop = null; $('sysPop').hidden = true; }   // a click anywhere else closes it (a click on the map is the map's own)
 });
 function renderSendBadge() {
@@ -1055,6 +1144,18 @@ function drawMap(c) {
       else if (!a) { const s0 = sysOf(selSys), s1 = sysOf(r.sys), ang = Math.atan2(s1.y - s0.y, s1.x - s0.x), ex = b.x + Math.cos(ang) * 130, ey = b.y + Math.sin(ang) * 130; g.beginPath(); g.moveTo(ex, ey); g.lineTo(b.x, b.y); g.stroke(); g.setLineDash([]); g.globalAlpha = 1; g.fillStyle = '#4fa3ff'; g.font = '10px sans-serif'; g.textAlign = 'center'; g.fillText(`water from ${s1.name}`, ex, ey - 6); }
       g.setLineDash([]); g.globalAlpha = 1; g.lineWidth = 1;
     }
+  }
+  // RELAYS in this system (2026-10-22): place to place inside it; toward the other star when one end is elsewhere
+  for (const r of S.relays || []) {
+    const tp = placeOf(r.to); if (!tp) continue; const hi = relayHi && relayHi.to === r.to, col = hi ? '#4fa3ff' : '#ff9f43', alpha = hi ? 0.55 + 0.45 * Math.sin(performance.now() / 90) : 0.85;
+    const stub = (from, towardSys, label) => { const s0 = sysOf(selSys), s1 = sysOf(towardSys); if (!s0 || !s1) return; const ang = Math.atan2(s1.y - s0.y, s1.x - s0.x), ex = from.x + Math.cos(ang) * 120, ey = from.y + Math.sin(ang) * 120; g.beginPath(); g.moveTo(from.x, from.y); g.lineTo(ex, ey); g.stroke(); g.setLineDash([]); g.fillStyle = col; g.font = '10px sans-serif'; g.textAlign = 'center'; g.fillText(label, ex, ey - 6); g.setLineDash([6, 5]); };
+    g.strokeStyle = col; g.globalAlpha = alpha; g.lineWidth = hi ? 2.6 : 1.8; g.setLineDash([6, 5]);
+    for (const id of r.from) { const sp = placeOf(id); if (!sp) continue; const a = G.pos[id], b = G.pos[r.to];
+      if (sp.sys === selSys && tp.sys === selSys && a && b) { g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke(); }
+      else if (sp.sys === selSys && a) stub(a, tp.sys, `relays to ${tp.name}`);
+      else if (tp.sys === selSys && b) stub(b, sp.sys, `from ${sp.name}`); }
+    g.setLineDash([]); if (tp.sys === selSys && G.pos[r.to]) { const b = G.pos[r.to]; g.lineWidth = 2; g.setLineDash([3, 3]); g.beginPath(); g.arc(b.x, b.y, lookOf(tp).size + 10, 0, 7); g.stroke(); g.setLineDash([]); }
+    g.globalAlpha = 1; g.lineWidth = 1;
   }
   g.textAlign = 'center';
   for (const pl of here) {
@@ -1674,6 +1775,7 @@ function refresh() {
   if (tab === 'research') renderEmpire(c, true);    // the research panels live on their own tab now (the empire's renderer fills them)
   if (tab === 'colonies') renderColonies(c);
   if (tab === 'economy') renderEcoTab(c);
+  renderRelayBar();                                  // the relay pick's banner
   renderShipPop();                                   // the spec pop-up follows the state (an eon ended, a ship moved)
   renderColPop();                                    // the colony pop-up too
   renderFleetPop(true); renderSendBadge(); renderSysPop();   // the fleet pop-up, the send-here badge and the system pop-up on the maps
