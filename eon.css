@@ -254,6 +254,19 @@
 .syspop .sp em{font-style:normal;font-size:10px;color:#7ef3b0}
 /* the spec card (his ask, 2026-10-20): the picture and what kind of ship it is, the CHIPS as designed, the build beside them */
 #shipPop{width:640px}
+#ecoPop{position:fixed;z-index:92;left:50%;top:70px;transform:translateX(-50%);width:860px;max-width:calc(100vw - 24px);max-height:84vh;overflow:auto;background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:10px 14px;font-size:12px;box-shadow:0 14px 40px rgba(0,0,0,.65)}
+#ecoPop h2{display:flex;align-items:center;gap:8px;margin:0 0 6px;font-size:15px}
+#ecoPop h2 .x{margin-left:auto}
+#ecoPop .ecorow{display:grid;grid-template-columns:200px 1fr 90px;gap:10px;align-items:center;padding:6px 8px;border:1px solid var(--line);border-radius:8px;margin:4px 0;cursor:pointer;background:var(--panel)}
+#ecoPop .ecorow:hover{border-color:var(--accent)}
+#ecoPop .ecorow.on{border-color:var(--accent);background:#0f1a30}
+#ecoPop .ecorow.total{cursor:default;border-style:dashed;font-weight:700}
+#ecoPop .ecorow b{text-align:right;font-variant-numeric:tabular-nums}
+#ecoPop .ecodetail{margin:6px 0 2px;padding:6px 8px;border:1px dashed var(--line);border-radius:8px}
+#ecoPop table.eco{width:100%;border-collapse:collapse;font-size:12px}
+#ecoPop table.eco th{text-align:left;color:var(--muted);font-weight:600;padding:3px 6px;border-bottom:1px solid var(--line)}
+#ecoPop table.eco td{padding:3px 6px;border-bottom:1px solid rgba(255,255,255,.05);vertical-align:top}
+#ecoPop table.eco tr[data-shipctx]{cursor:context-menu}
 #shipPop .sec.head{display:flex;gap:12px;align-items:center;border-top:0;padding-top:0}
 #shipPop .sec.head canvas{width:180px;height:105px;border-radius:8px;background:#04070f;flex:none}
 #shipPop .spec2,#arenaWrap .shipinfo .spec2{display:grid;grid-template-columns:230px 1fr;gap:10px;align-items:start;margin-top:8px;padding-top:6px;border-top:1px dashed var(--line)}

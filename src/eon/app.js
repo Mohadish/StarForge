@@ -333,7 +333,7 @@ function renderEmpire(c, skipTetra) {
     ${row('Built this eon', builds.length ? builds.join(', ') : 'nothing finishes')}
     ${row('Integration', `${c.speed.toFixed(1)}% per eon${c.moved ? ' — the focus moved' : ''}`)}
     ${row('Cohesion', `+${c.cohesionGain.toFixed(1)} earned${c.moveCost > 0.05 ? `, −${c.moveCost.toFixed(1)} spent on the focus` : ''}`)}
-    ${row('Reserves', `${fmt(S.reserves || 0)} · excess +${fmt(c.income)} − upkeep ${fmt(c.upkeep.total)} <span class="tiny">(military ${fmt(c.upkeep.military)} · social ${fmt(c.upkeep.social)} · research ${fmt(c.upkeep.research)}${c.upkeep.water > 0.005 ? ` · water ${fmt(c.upkeep.water)}` : ''})</span> = <b class="${c.net < 0 ? 'up' : 'down'}">${c.net < 0 ? '−' : '+'}${fmt(Math.abs(c.net))}</b>${c.shortNext > 0.005 ? ` · <b class="up">${Math.round(c.shortNext * 100)} % will go unpaid</b>` : ''}${c.unpaid > 0.005 ? ` · <b class="up">last eon ${Math.round(c.unpaid * 100)} % unpaid: the fleet wears, people grumble, research slows</b>` : ''}`, c.net < 0 ? 'up' : '')}</div>`;
+    ${row('Reserves', `<button class="x" data-eco title="the economy: every colony's excess, every cost, line by line">💰 Economy</button> ${fmt(S.reserves || 0)} · excess +${fmt(c.income)} − upkeep ${fmt(c.upkeep.total)} <span class="tiny">(military ${fmt(c.upkeep.military)} · social ${fmt(c.upkeep.social)} · research ${fmt(c.upkeep.research)}${c.upkeep.water > 0.005 ? ` · water ${fmt(c.upkeep.water)}` : ''})</span> = <b class="${c.net < 0 ? 'up' : 'down'}">${c.net < 0 ? '−' : '+'}${fmt(Math.abs(c.net))}</b>${c.shortNext > 0.005 ? ` · <b class="up">${Math.round(c.shortNext * 100)} % will go unpaid</b>` : ''}${c.unpaid > 0.005 ? ` · <b class="up">last eon ${Math.round(c.unpaid * 100)} % unpaid: the fleet wears, people grumble, research slows</b>` : ''}`, c.net < 0 ? 'up' : '')}</div>`;
 
   $('eFields').innerHTML = `<div class="tiny" style="margin-bottom:8px">You have <b>${T.attention}</b> points of attention; <b>${c.free}</b> ${c.free === 1 ? 'is' : 'are'} unspent. Giving a field one more takes it from the spare ones, then from the field that has the most.
       The stars are how much there is to find — they come from the places you are studying, not from how hard you look.</div>`
@@ -722,6 +722,42 @@ function renderShipPop() {
   const r = el.getBoundingClientRect();
   el.style.left = Math.max(12, Math.min(POP.x + 12, innerWidth - r.width - 12)) + 'px'; el.style.top = Math.max(60, Math.min(POP.y + 12, innerHeight - r.height - 12)) + 'px';
 }
+// THE ECONOMY LEDGER (his ask, 2026-10-21: "a table where we can see all the colonies and how much income they produce, and what
+// everything costs — click a row for the details"): the eon's excess per colony against every upkeep line (military, social,
+// research, water), the net and the reserves. Click a row: its details — the military row lists every ship with its share and where
+// it is; water lists the hauls; research the labs; social the people. Read-only: it shows what compute() already figures.
+let ECO = null;                                       // { detail: 'income' | 'military' | 'social' | 'research' | 'water' | null }
+function openEcoPop() { ECO = { detail: null }; renderEcoPop(); }
+function closeEcoPop() { ECO = null; const el = $('ecoPop'); if (el) el.hidden = true; }
+function renderEcoPop() {
+  let el = $('ecoPop'); if (!el) { el = document.createElement('div'); el.id = 'ecoPop'; el.hidden = true; document.body.appendChild(el); }
+  if (!ECO || !LAST) { el.hidden = true; return; } const c = LAST, U = T.upkeep;
+  const cols = c.colonies.slice().sort((a, b) => b.toReserves - a.toReserves), place = id => placeOf(id), sysN = id => (S.systems.find(x => x.id === id) || {}).name || '?';
+  const line = (key, label, amount, note, sign) => `<div class="ecorow ${ECO.detail === key ? 'on' : ''}" data-ecorow="${key}"><span>${label}</span><span class="tiny">${note || ''}</span><b class="${sign}">${sign === 'up' ? '−' : '+'}${fmt(amount)}</b></div>`;
+  const whereOf = u => { if (u.dest) { const to = place(u.dest); return `under way to ${esc(to ? to.name : '?')} · ${plural(u.eta, 'eon')}`; } const pl = place(u.at), z = pl ? zoneOfSys(S, pl.sys) : 5; return `at ${esc(pl ? pl.name : '?')} (${esc(pl ? sysN(pl.sys) : '?')}, ${ZONE.names[z]})`; };
+  let detail = '';
+  if (ECO.detail === 'income') detail = `<table class="eco"><tr><th>colony</th><th>people</th><th>industry</th><th>to the line</th><th>factories</th><th>water</th><th>to the reserves</th></tr>${cols.map(p => `<tr><td><b>${esc(p.pl.name)}</b> <span class="tiny">${esc(sysN(p.pl.sys))}</span></td><td>${peopleWord(p.P.people)}</td><td>${fmt(p.industry)}</td><td>${fmt(p.queue.reduce((a, q) => a + (q.spend || 0), 0))}</td><td>${p.factories}${p.newFactories ? ` <span class="tiny">+${p.newFactories}</span>` : ''}</td><td>${p.water ? 'own' : p.waterNeed > 0 ? `${fmt(p.waterIn)} / ${fmt(p.waterNeed)} M` : '—'}</td><td><b>${fmt(p.toReserves)}</b></td></tr>`).join('')}</table>`;
+  if (ECO.detail === 'military') detail = `<div class="tiny" style="margin:4px 0">Every ship costs ${(U.military * 100).toFixed(1)} % of its worth an eon, wherever it is (a location rule is coming).</div><table class="eco"><tr><th>ship</th><th>design</th><th>worth</th><th>upkeep</th><th>where</th><th>stamina</th></tr>${c.ships.slice().sort((a, b) => b.t.cost - a.t.cost).map(s => `<tr data-shipctx="me|${s.u.id}"><td><b>${esc(s.u.name)}</b></td><td class="tiny">${esc(s.u.design.name)}</td><td>${fmt(s.t.cost)}</td><td><b>${fmt(s.t.cost * U.military)}</b></td><td class="tiny">${whereOf(s.u)}</td><td>${Math.round(s.u.st ?? 100)} %</td></tr>`).join('')}</table><div class="tiny">${plural(c.ships.length, 'ship')} · right-click a row for the ship's card</div>`;
+  if (ECO.detail === 'social') detail = `<div class="tiny" style="margin:4px 0">Every million people costs ${U.social} an eon.</div><table class="eco"><tr><th>colony</th><th>people</th><th>upkeep</th></tr>${cols.slice().sort((a, b) => b.P.people - a.P.people).map(p => `<tr><td><b>${esc(p.pl.name)}</b></td><td>${peopleWord(p.P.people)}</td><td><b>${fmt(p.P.people * U.social)}</b></td></tr>`).join('')}</table>`;
+  if (ECO.detail === 'research') detail = `<div class="tiny" style="margin:4px 0">Every point of research costs ${U.research} an eon${c.unpaid > 0.005 ? ` (slowed ${Math.round(c.unpaid * T.upkeep.slow * 100)} % by last eon's unpaid share)` : ''}.</div><table class="eco"><tr><th>source</th><th>research</th><th>upkeep</th></tr>${[...cols.filter(p => p.research > 0.05).map(p => [`${esc(p.pl.name)} <span class="tiny">labs on the ground</span>`, p.research]), ...c.ships.filter(s => !s.u.dest && s.t.research > 0).map(s => [`${esc(s.u.name)} <span class="tiny">labs in orbit, ${whereOf(s.u)}</span>`, s.t.research])].sort((a, b) => b[1] - a[1]).map(([n, v]) => `<tr><td>${n}</td><td>${fmt(v)}</td><td><b>${fmt(v * U.research)}</b></td></tr>`).join('')}</table>`;
+  if (ECO.detail === 'water') detail = `<table class="eco"><tr><th>to</th><th>from</th><th>M fed</th><th>chance</th><th>cost</th></tr>${cols.filter(p => p.waterRoutes && p.waterRoutes.length).flatMap(p => p.waterRoutes.map(r => `<tr><td><b>${esc(p.pl.name)}</b></td><td>${esc(r.name)} <span class="tiny">${r.kind}${r.ly ? ` · ${r.ly.toFixed(1)} ly` : ' · in-system'}</span></td><td>${fmt(r.amount)}</td><td>${Math.round((r.chance ?? 1) * 100)} %</td><td><b>${fmt((p.waterCost || 0) * (r.amount / Math.max(1e-9, p.waterRoutes.reduce((a, q) => a + q.amount, 0))))}</b></td></tr>`)).join('') || '<tr><td colspan="5" class="tiny">no water is hauled — every colony drinks its own</td></tr>'}</table>`;
+  el.innerHTML = `<h2>💰 The economy — eon ${S.eon}<button class="x" data-ecoclose title="close (Esc)">✕</button></h2>
+    <div class="tiny" style="margin-bottom:6px">What flows into the reserves this eon against what it costs to run the empire. Click a line for its details.</div>
+    ${line('income', 'Excess from the colonies', c.income, `${plural(c.colonies.length, 'colony')} · ${cols.slice(0, 3).map(p => `${esc(p.pl.name)} ${fmt(p.toReserves)}`).join(' · ')}${cols.length > 3 ? ' · …' : ''}`, 'down')}
+    ${line('military', 'Military upkeep', c.upkeep.military, `${plural(c.ships.length, 'ship')} worth ${fmt(c.ships.reduce((a, s) => a + s.t.cost, 0))}`, 'up')}
+    ${line('social', 'Social upkeep', c.upkeep.social, `${peopleWord(c.colonies.reduce((a, p) => a + p.P.people, 0))} people`, 'up')}
+    ${line('research', 'Research upkeep', c.upkeep.research, `${fmt(c.research)} points`, 'up')}
+    ${line('water', 'Water hauls', c.upkeep.water, `${cols.reduce((a, p) => a + ((p.waterRoutes || []).length), 0)} routes`, 'up')}
+    <div class="ecorow total"><span>Net</span><span class="tiny">reserves ${fmt(S.reserves || 0)} → ${fmt(Math.max(0, (S.reserves || 0) + c.net))}${c.shortNext > 0.005 ? ` · <b class="up">${Math.round(c.shortNext * 100)} % of the upkeep will go unpaid</b>` : ''}</span><b class="${c.net < 0 ? 'up' : 'down'}">${c.net < 0 ? '−' : '+'}${fmt(Math.abs(c.net))}</b></div>
+    ${detail ? `<div class="ecodetail">${detail}</div>` : ''}`;
+  el.hidden = false;
+}
+document.addEventListener('click', e => {
+  if (e.target.closest('[data-eco]')) { if (ECO) closeEcoPop(); else openEcoPop(); return; }
+  if (!ECO) return; const row = e.target.closest('[data-ecorow]'); if (row) { ECO.detail = ECO.detail === row.dataset.ecorow ? null : row.dataset.ecorow; return renderEcoPop(); }
+  if (e.target.closest('[data-ecoclose]')) return closeEcoPop();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && ECO) closeEcoPop(); });
 // a design AS DESIGNED: chipStripHtml lives in spec.js now (2026-10-21), so the arena's card shows the same strip
 function specBlock(E, k, d, ships, c) {
   const ds = designStats(E, d, c.caps), t = ds.t, tid = (k == null ? 'p' : 'pg' + k) + '|' + d.id; thumbShips.set(tid, paintedShip(d, c.caps));
@@ -1600,6 +1636,7 @@ function refresh() {
   if (tab === 'system') renderSystem(c);
   if (tab === 'design') renderDesign(c);
   renderShipPop();                                   // the spec pop-up follows the state (an eon ended, a ship moved)
+  renderEcoPop();                                    // the ledger too
   renderColPop();                                    // the colony pop-up too
   renderFleetPop(true); renderSendBadge(); renderSysPop();   // the fleet pop-up, the send-here badge and the system pop-up on the maps
 }
