@@ -2,6 +2,7 @@
 .eon-grid{display:grid;grid-template-columns:390px 1fr 430px;gap:10px;padding:10px;height:calc(100% - 54px - 60px)}
 .eon-sys{display:grid;grid-template-columns:1fr 470px;gap:10px;padding:10px;height:calc(100% - 54px - 60px)}
 .eon-one{display:grid;grid-template-columns:minmax(0,1100px);justify-content:center;gap:10px;padding:10px;height:calc(100% - 54px - 60px)}
+.eon-res{display:grid;grid-template-columns:minmax(280px,340px) minmax(220px,1fr) minmax(330px,390px);gap:10px;padding:10px;height:calc(100% - 54px - 60px)}
 .eon-two{display:grid;grid-template-columns:420px 1fr;gap:10px;padding:10px;height:calc(100% - 54px - 60px)}
 #colTab table.col{width:100%;border-collapse:collapse;font-size:12px}
 #colTab table.col th{text-align:left;color:var(--muted);font-weight:600;padding:4px 6px;border-bottom:1px solid var(--line);cursor:pointer;white-space:nowrap;user-select:none}
@@ -328,3 +329,41 @@
 #colTab .relay .chip{display:inline-flex;gap:4px;align-items:center;padding:2px 4px 2px 8px;border:1px solid var(--line);border-radius:999px;font-size:11px}
 #colTab .relay .chip button{padding:0 5px;font-size:11px;line-height:1.3}
 #colTab td.rel{color:#ff9f43}
+
+/* RESEARCH PROJECTS — the mock (projects.js, 2026-10-22) */
+#rBoard{position:relative;padding:0;overflow:hidden;background:radial-gradient(ellipse at 75% 50%,#13203d 0%,#0a1020 55%,#060a14 100%)}
+#rFlow{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.pjflow{animation:pjflow 1.4s linear infinite}
+@keyframes pjflow{to{stroke-dashoffset:-0.05}}
+#rNode{position:absolute;right:16px;top:50%;transform:translateY(-50%);width:min(200px,58%);min-height:170px;padding:12px;border:2px solid #4fa3ff;border-radius:14px;background:linear-gradient(#162543,#0b1426);box-shadow:0 0 30px rgba(79,163,255,.25);text-align:center;display:flex;flex-direction:column;justify-content:center;gap:5px}
+#rNode .pjicon{font-size:34px;line-height:1}
+#rNode .pjbar{height:10px;border-radius:6px;background:#0a1222;border:1px solid var(--line);overflow:hidden}
+#rNode .pjbar i{display:block;height:100%;background:linear-gradient(90deg,#4fa3ff,#7ef3b0)}
+.frow.rec{border-left:4px solid var(--rc);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--rc) 45%,transparent)}
+.frow .rtag2{font-size:10px;font-weight:700;color:var(--rc);margin-left:6px;white-space:nowrap}
+.pjmock{font-size:11px;padding:6px 8px;border:1px dashed #ffb347;border-radius:8px;color:#ffd9a8;background:rgba(255,179,71,.07);margin-bottom:8px}
+.pjfams{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin:6px 0 8px}
+.pjfams button{display:flex;gap:6px;align-items:center;text-align:left;padding:6px 8px;font-size:12px}
+.pjfams button span{font-size:16px;width:20px;text-align:center}
+.pjfams button.on{border-color:var(--good);background:rgba(126,243,176,.12);color:#fff}
+.pjname{display:flex;gap:6px;align-items:center;font-size:12px;margin-bottom:6px}
+.pjname input{flex:1;min-width:0}
+.pjaims label{display:grid;grid-template-columns:86px 1fr 54px;gap:6px;align-items:center;font-size:12px}
+.pjaims b{text-align:right}
+#rSide h3{margin:12px 0 4px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.pjrec{width:100%;border-collapse:collapse;font-size:12px}
+.pjrec th{text-align:left;color:var(--muted);font-weight:600;padding:2px 4px;border-bottom:1px solid var(--line)}
+.pjrec td{padding:3px 4px;border-bottom:1px solid rgba(255,255,255,.05);white-space:nowrap}
+.pjrec tr.slow td{background:rgba(255,121,121,.1)}
+.pjrec .dot,.pjboost .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:middle}
+.pjfc{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:4px 0}
+.pjfc div{border:1px solid var(--line);border-radius:8px;padding:5px 6px;background:var(--panel2);display:flex;flex-direction:column}
+.pjfc span{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.pjfc b{font-size:17px}
+.pjfc small{font-size:10px;color:var(--muted)}
+.pjboost{display:flex;flex-wrap:wrap;gap:4px}
+.pjboost button{font-size:11px;padding:3px 7px;border-radius:999px}
+.pjboost button.on{border-color:var(--good);background:rgba(126,243,176,.14);color:#fff}
+.pjlook{display:flex;flex-direction:column;gap:4px}
+.pjlook canvas{width:100%;max-width:300px;border-radius:8px;border:1px solid var(--line)}
+.pjbtns{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}

@@ -27,6 +27,7 @@ import { makeBrain } from './ai.js';
 import { designSpecHtml, modulesLine, chipStripHtml } from './spec.js';
 import { FACTORS, FACTOR_COLOR, SIZES, sizeClassOf, gridOf, habitabilityOf, habWord } from './districts.js';
 import { DEV, LEVEL1, KIND_WORD as SLOT_WORD, filletWhy, isFull, counts, planetOf, unitCap, districtInfo } from './colony.js';
+import { renderProjects } from './projects.js';
 import { drawSurface, focusTetra, drawTri as drawEffortTri, triFromPoint, triBall, toCanvas, districtAt as surfaceCellAt, mapSize } from './colonyview.js';
 mountNav('eon', { into: document.getElementById('topbar') });
 
@@ -343,7 +344,7 @@ function renderEmpire(c, skipTetra) {
     + c.fields.map(f => {
       const top = XS[f.lean.indexOf(Math.max(...f.lean))];
       const src = f.sources.filter(s => s.c > 0.06).slice(0, 3).map(s => `${esc(s.place.name)} ${pct(s.c)}`).join(' · ');
-      return `<div class="frow"><div class="top"><span class="name">${f.name}</span><span class="stepper"><button data-att="${f.id}" data-d="-1">−</button><b>${f.points}</b><button data-att="${f.id}" data-d="1">+</button></span></div>
+      return `<div class="frow" data-field="${f.id}"><div class="top"><span class="name">${f.name}</span><span class="stepper"><button data-att="${f.id}" data-d="-1">−</button><b>${f.points}</b><button data-att="${f.id}" data-d="1">+</button></span></div>
         <div title="with your attention on it: ${pct(f.chance)} to take a step forward this eon">${starRow(f.stars)} <span class="tiny">${f.stars.toFixed(1)} of 10</span></div>
         <div class="tiny">${src ? 'from ' + src : 'nothing worth the name where you are looking'} · found ${S.found[f.id]}</div>
         <div class="xbar" title="which way a find would lean under the current focus">${f.lean.map((l, i) => `<i style="width:${l * 100}%;background:${xColor(XS[i])}"></i>`).join('')}</div>
@@ -1774,7 +1775,7 @@ function refresh() {
   if (tab === 'galaxy') renderGalaxy(c);
   if (tab === 'system') renderSystem(c);
   if (tab === 'design') renderDesign(c);
-  if (tab === 'research') renderEmpire(c, true);    // the research panels live on their own tab now (the empire's renderer fills them)
+  if (tab === 'research') { renderEmpire(c, true); renderProjects(c, S); }   // the research panels live on their own tab now (the empire's renderer fills them); the project board (a mock)
   if (tab === 'colonies') renderColonies(c);
   if (tab === 'economy') renderEcoTab(c);
   renderRelayBar();                                  // the relay pick's banner
