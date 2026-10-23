@@ -4,7 +4,7 @@ import { $, clamp, fmt, signed, esc } from '../util.js';
 import { DOMAINS } from '../data/properties.js';
 import { XS, X_INFO, T, CENTER, FIELD_IDS, newState, compute, endEon, uid, isIntegrated, giveAttention, sendShip, recallShip, settle, starEons, sysDistance, worldOf,
   setSplit, setCampaign, setSkim, setDevFocus, queueAdd, queueCount, queueMove, queueDrop, canUndoSend, undoSend, regroupSend,
-  LY, VOY, SCALE, shipRange, forecast, fleetRange, sendFleet, lyBetween, peopleWord, upgrade, hostileIn, hostileWord, hostileWorth, ZONE, bubbles, zoneOfSys, effectiveLy, setRelay, unrelay, moveRelay, dropRelay, relayOf, relayAt } from './model.js';
+  explored, LY, VOY, SCALE, shipRange, forecast, fleetRange, sendFleet, lyBetween, peopleWord, upgrade, hostileIn, hostileWord, hostileWorth, ZONE, bubbles, zoneOfSys, effectiveLy, setRelay, unrelay, moveRelay, dropRelay, relayOf, relayAt } from './model.js';
 import { KINDS, KIND_IDS, CLASS_NAME, GANTRY, GUN, PRESETS, applyPreset, allCapsules, designStats, isRelevant, dockFit, reachBand, fitModule, autoFit, traverseOf } from './modules.js';
 import { GALAXY, STARS, galaxyOf } from './galaxy.js';
 import { createTetra } from './tetra.js';
@@ -312,7 +312,8 @@ function globeLoop(t = 0) {
   if (t - globeT > 33) { globeT = t;                    // about 30 frames a second is plenty for a slow turn
     if (ov.width !== cv.width || ov.height !== cv.height) { ov.width = cv.width; ov.height = cv.height; } ov.style.left = cv.offsetLeft + 'px'; ov.style.top = cv.offsetTop + 'px'; ov.style.width = cv.clientWidth + 'px'; ov.style.height = cv.clientHeight + 'px';
     const g = ov.getContext('2d'), G = cv._geo; g.clearRect(0, 0, ov.width, ov.height);
-    for (const pl of placesIn(selSys)) { if (!isGlobe(pl)) continue; const p = G.pos[pl.id]; if (!p) continue; const ph = (pl.id.charCodeAt(pl.id.length - 1) * 0.173) % 1;
+    const known = explored(S, selSys) || placesIn(selSys).some(pl => pl.colony);
+    for (const pl of placesIn(selSys)) { if (!known || !isGlobe(pl)) continue; const p = G.pos[pl.id]; if (!p) continue; const ph = (pl.id.charCodeAt(pl.id.length - 1) * 0.173) % 1;
       try { drawGlobe(g, globeOf(pl), p.x, p.y, sizeIn(pl), (t / 60000 + ph) % 1, airOf(pl)); } catch (e) { /* a texture that could not be made: the flat disc stays */ } }
   }
   globeRaf = requestAnimationFrame(globeLoop);
@@ -970,11 +971,12 @@ function renderSysPop() {
   const el = $('sysPop'); if (!el) return; el.hidden = true;
   if (!sysPop || tab !== 'galaxy' || (pickCount() && !RELAY) || !LAST) return;
   const G = $('gMap')._geo, p = G && G.pos[sysPop], s = sysOf(sysPop); if (!p || !s) return;
-  const places = placesIn(sysPop);
+  const places = placesIn(sysPop), known = explored(S, sysPop) || places.some(pl => pl.colony);
   const row = places.map(pl => { const lk = lookOf(pl), r = Math.round(Math.max(6, Math.min(15, lk.size * 1.1))), own = pl.colony ? null : ownerOfPlace(pl.id), ring = pl.colony ? myCol() : own ? own.col : 'transparent', pc = LAST.colonies.find(x => x.pl.id === pl.id) || (own && GODC && GODC[own.k] ? GODC[own.k].colonies.find(x => x.pl.id === pl.id) : null);
     const dry = pc && !pc.water && pc.waterIn < pc.waterNeed - 0.5;
-    return `<button class="sp ${pl.colony ? 'mine' : ''}" data-spplace="${pl.id}"><i style="width:${2 * r}px;height:${2 * r}px;background:${lk.color};outline:2px solid ${ring};outline-offset:2px"></i><small>${esc(pl.name)}</small>${pl.colony ? `<em>${peopleWord(pl.colony.people)}${dry ? ' · 💧!' : ''}</em>` : own ? `<em style="color:${own.col}">${esc(own.E.name)}${pc ? ' · ' + peopleWord(pc.P.people) : ''}${dry ? ' · 💧!' : ''}</em>` : ''}${relayTag(pl.id)}</button>`; }).join('');
-  el.innerHTML = `<div class="fphead"><b>${esc(s.name)}</b><span class="tiny">${STARS[s.type].name}</span><button class="x" data-opensys="${s.id}" title="the star-system screen">open ▸</button><button class="x" data-spclose title="close (or click outside)">✕</button></div><div class="sprow">${row}</div><div class="tiny">${RELAY ? '<b style="color:#ff9f43">⇢ Click the world the relay should gather at</b> · ' : ''}Hover a world for its details${places.some(pl => pl.colony) ? ' · click your colony to open it' : ''}${godEmpires() && places.some(pl => !pl.colony && ownerOfPlace(pl.id)) ? ' · click any colony to open it (God mode)' : ''} · click another to see it in the system.</div>`;
+    let globe = ''; if (known && isGlobe(pl)) { try { globe = `<img class="spglobe" src="${globeIcon(pl, worldOf(pl), gridOf(pl), pc ? pc.G : null, r, airOf(pl))}" style="outline:2px solid ${ring}" alt="">`; } catch (e) { globe = ''; } }   // EXPLORED: the world itself (2026-10-23)
+    return `<button class="sp ${pl.colony ? 'mine' : ''}" data-spplace="${pl.id}">${globe || `<i style="width:${2 * r}px;height:${2 * r}px;background:${lk.color};outline:2px solid ${ring};outline-offset:2px"></i>`}<small>${esc(pl.name)}</small>${pl.colony ? `<em>${peopleWord(pl.colony.people)}${dry ? ' · 💧!' : ''}</em>` : own ? `<em style="color:${own.col}">${esc(own.E.name)}${pc ? ' · ' + peopleWord(pc.P.people) : ''}${dry ? ' · 💧!' : ''}</em>` : ''}${relayTag(pl.id)}</button>`; }).join('');
+  el.innerHTML = `<div class="fphead"><b>${esc(s.name)}</b><span class="tiny">${STARS[s.type].name}${known ? '' : ' · <span title="no ship of yours has stopped here: its worlds are seen from afar">not explored</span>'}</span><button class="x" data-opensys="${s.id}" title="the star-system screen">open ▸</button><button class="x" data-spclose title="close (or click outside)">✕</button></div><div class="sprow">${row}</div><div class="tiny">${RELAY ? '<b style="color:#ff9f43">⇢ Click the world the relay should gather at</b> · ' : ''}Hover a world for its details${places.some(pl => pl.colony) ? ' · click your colony to open it' : ''}${godEmpires() && places.some(pl => !pl.colony && ownerOfPlace(pl.id)) ? ' · click any colony to open it (God mode)' : ''} · click another to see it in the system.</div>`;
   el.classList.toggle('relaypick', !!RELAY); el.hidden = false; placeOverlay(el, $('gMap'), p, 22);
 }
 document.addEventListener('mouseover', e => { const b = e.target.closest?.('[data-spplace], [data-sendplace]'), tip = $('cpTip'); if (!b) return; if (e.target.closest('[data-relaytag]') || !$('relayMenu').hidden) { tip.style.display = 'none'; return; } const pl = placeOf(b.dataset.spplace || b.dataset.sendplace); if (!pl) return; tip.innerHTML = placeTip(pl); tip.style.display = 'block'; const r = b.getBoundingClientRect(); tip.style.left = Math.min(innerWidth - 300, r.left) + 'px'; tip.style.top = (r.bottom + 6) + 'px'; });

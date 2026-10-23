@@ -406,3 +406,5 @@
 #colPop .cpli span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #colPop .cpli b{font-size:11px;font-variant-numeric:tabular-nums}
 #colPop .cpldot{display:block;width:18px;height:18px;margin:auto;border-radius:50%;background:#4fa3ff}
+/* an explored world in the galaxy pop-up: its globe (2026-10-23) */
+.syspop .sp .spglobe{display:block;margin:0 auto;border-radius:50%;outline-offset:-3px}

@@ -232,7 +232,8 @@ export function newState(seed = 7, o = {}) {           // o.galaxy: { count, rad
     ],
   };
   spawnHostiles(S);
-  S.slotLevels = { ...LEVEL1 };                         // the empire's four slot kinds, one global design each (colony.js); breakthroughs will raise them
+  S.slotLevels = { ...LEVEL1 };
+  S.explored = { [G.home]: 1 };                         // the home system is known; the rest once a ship has stopped there (markExplored)                         // the empire's four slot kinds, one global design each (colony.js); breakthroughs will raise them
   const home = S.places.find(p => p.id === 'home');
   home.colony = newColony(100, 120, home, true);
   home.fresh = perField(0.9);                          // two thousand years of looking at the same sky
@@ -643,6 +644,7 @@ export function upgrade(S) {
   if (!S.slotLevels) S.slotLevels = { ...LEVEL1 };
   for (const pl of S.places) if (pl.colony) migrateColony(S, pl);
   delete S.districts;
+  markExplored(S);                                      // an older save: what its ships and colonies have seen
   if (S.version >= 9) { if (!S.hostiles) spawnHostiles(S); return S; }
   const caps = allCapsules(S);
   for (const u of S.ships) {
@@ -842,6 +844,7 @@ export function endEon(S) {
   if (c.moved) rep.push({ kind: 'focus', text: `Society shifted its focus (−${c.moveCost.toFixed(1)} cohesion${c.shock > 0.5 ? ', a shock to the people' : ''})` + (c.setback ? ` — ${c.setback} step${c.setback > 1 ? 's' : ''} of research lost in every field` : '') });
   for (const pc of c.colonies) { const was = pc.pol, now = pc.polNext; pc.P.pol = now; for (const [k, word] of [['industry', 'industrial pollution — people sicken'], ['social', 'a docile society — industry and research slacken'], ['research', 'an aloof society — the builders slacken']]) if (now[k] >= 50 && was[k] < 50) rep.push({ kind: 'bad', text: `${pc.pl.name}: ${word}` }); }
   S.focusStart = [...S.focus];
+  markExplored(S);                                    // where the ships stopped this eon is known now
   S.report = rep; S.eon++;
   relayBuilt(S, built, rep);                         // after the eon turns: the relayed ships leave "this eon" (a departing fleet, still undoable)
   return rep;
@@ -861,6 +864,15 @@ export function setCampaign(S, placeId, pct, back = true) {
 }
 // the share of every colony's industry skimmed straight into the reserves (0–100 %)
 export function setSkim(S, pct) { S.skim = clamp((+pct || 0) / 100, 0, 1); return null; }
+// EXPLORED (his call, 2026-10-23: "if you visit a star system you immediately know all about it — you just need to get there"): every
+// system where a ship of yours has stopped, or where you have a colony (the home system from the start)
+export const explored = (S, sysId) => !!(S.explored && S.explored[sysId]);
+export function markExplored(S) {
+  const E = S.explored || (S.explored = {}), sysOfId = id => (S.places.find(p => p.id === id) || {}).sys;
+  if (S.homeSys && !E[S.homeSys]) E[S.homeSys] = S.eon || 1;
+  for (const pl of S.places) if (pl.colony && !E[pl.sys]) E[pl.sys] = S.eon;
+  for (const u of S.ships) if (!u.dest) { const s = sysOfId(u.at); if (s && !E[s]) E[s] = S.eon; }
+}
 export function setSplit(S, placeId, split) {
   const P = colonyAt(S, placeId); if (!P) return 'No colony there';
   const v = (split || []).slice(0, 4).map(x => Math.max(0, +x || 0)), t = v.reduce((a, x) => a + x, 0); if (v.length < 3 || !(t > 0)) return 'The effort is four shares';
