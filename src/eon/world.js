@@ -71,7 +71,7 @@ function others(W) {
     S.others = W.empires.filter(o => o !== S && !o.dead).map(o => {
       const c = cs.get(o), fleets = new Map();
       for (const s of c.ships) if (!s.u.dest) { const sys = sysOfPlace(o, s.u.at); const f = fleets.get(sys) || { sys, n: 0, worth: 0 }; f.n++; f.worth += s.t.cost; fleets.set(sys, f); }
-      return { empire: o.empire, name: o.name, color: empireColor(o), home: o.homeSys, colonies: o.places.filter(p => p.colony).map(p => ({ sys: p.sys, place: p.id, name: p.name, people: Math.round(p.colony.people * 10) / 10, home: p.id === o.homePlace, blockaded: p.colony.blockaded || 0 })), fleets: [...fleets.values()] };
+      return { empire: o.empire, name: o.name, color: empireColor(o), home: o.homeSys, sens: c.sens || 0, colonies: o.places.filter(p => p.colony).map(p => ({ sys: p.sys, place: p.id, name: p.name, people: Math.round(p.colony.people * 10) / 10, home: p.id === o.homePlace, blockaded: p.colony.blockaded || 0 })), fleets: [...fleets.values()] };
     });
   }
   return cs;

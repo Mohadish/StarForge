@@ -459,7 +459,7 @@ export function compute(S) {
   for (const s of ships) s.range = shipRange(s.t, fleetWarp(passive));               // STAR TRAVEL: each ship's reach between stars, light years
   const projects = projectPlans(S, fields, research);   // the projects under way: their research, quality, how long (research.js)
   return { colonies, ships, studied, research, sysResearch, fields, projects, diverted: div, points, warp: fleetWarp(passive), free: T.attention - points, cohesionGain, reach, moveDist, moveCost, moved, shock, steadyNext, setback, speed, upkeep, income, net, shortNext, unpaid,
-    people: colonies.reduce((a, c) => a + c.P.people, 0) + S.ships.reduce((a, u) => a + (u.people || 0), 0), passive, caps };
+    people: colonies.reduce((a, c) => a + c.P.people, 0) + S.ships.reduce((a, u) => a + (u.people || 0), 0), passive, caps, sens: sensorLevel(S, passive) };
 }
 
 // ---------------- the water ----------------
@@ -867,6 +867,25 @@ export function setSkim(S, pct) { S.skim = clamp((+pct || 0) / 100, 0, 1); retur
 // EXPLORED (his call, 2026-10-23: "if you visit a star system you immediately know all about it — you just need to get there"): every
 // system where a ship of yours has stopped, or where you have a colony (the home system from the start)
 export const explored = (S, sysId) => !!(S.explored && S.explored[sysId]);
+// SENSORS (his design, 2026-10-23). An empire's SENSOR LEVEL: one for every SENSE.per % of sensor range + resolution it knows (research:
+// Information → Sensors; the chance finds). What it KNOWS of a system it has not visited — 0 only its star · 1 how many worlds ·
+// 2 their sizes · 3 what kind of worlds · 4 everything, what there is to learn too — falls off with the system's zone of its sphere
+// (inside: 3) and climbs with its sensors; a visit (a ship that stopped there, a colony) tells everything at once. What it SEES of a
+// fleet — 0 nothing · 1 a blob, its worth roughly · 2 its worth and how many ships · 3 the ships · 4 everything (only in contact: a
+// ship of yours in the same system) — inside the sphere 3, in its bands 1, beyond them nothing; and the two sides' sensors push each
+// other: yours over theirs adds levels, theirs over yours takes them away (equal: the plain rule)
+export const SENSE = { per: 15 };
+export function sensorLevel(S, passive = null) { const p = passive || passiveOf(allCapsules(S)); return Math.max(0, Math.floor(((p.sensor_range || 0) + (p.sensor_resolution || 0)) / SENSE.per)); }
+export function knowledgeOf(S, sysId, sens = 0) {
+  if (explored(S, sysId) || S.places.some(p => p.colony && p.sys === sysId)) return 4;
+  const z = zoneOfSys(S, sysId); return Math.max(0, Math.min(sens >= 1 ? 4 : 3, 3 - z + sens));
+}
+export const KNOW_WORD = ['only its star is seen', 'how many worlds it has is known', 'its worlds and their sizes are known', 'its worlds are known — not what there is to learn', 'everything is known'];
+export function fleetSight(S, sysId, mySens = 0, theirSens = 0) {
+  if (S.ships.some(u => !u.dest && (S.places.find(p => p.id === u.at) || {}).sys === sysId)) return 4;   // in contact: everything
+  const z = zoneOfSys(S, sysId), base = [3, 1, 1, 1, 1, 0][Math.min(5, z)];
+  return clamp(base + (mySens - theirSens), 0, 3);
+}
 export function markExplored(S) {
   const E = S.explored || (S.explored = {}), sysOfId = id => (S.places.find(p => p.id === id) || {}).sys;
   if (S.homeSys && !E[S.homeSys]) E[S.homeSys] = S.eon || 1;
