@@ -389,3 +389,7 @@
 #techEvent .tecols td{padding:3px 6px;border-bottom:1px solid rgba(255,255,255,.05)}
 #techEvent .tebtns{display:flex;gap:6px;flex-wrap:wrap}
 #techEvent .tebtns button{min-width:70px}
+/* the skim to the reserves (2026-10-23) */
+#ecoTab .ecoskim{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center;padding:8px 10px;margin:0 0 8px;border:1px solid #ffd26a;border-radius:10px;background:rgba(255,210,106,.06)}
+#ecoTab .ecoskim label{display:grid;grid-template-columns:120px 220px 50px;gap:8px;align-items:center;font-weight:700}
+#ecoTab .ecoskim b{text-align:right}

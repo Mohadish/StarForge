@@ -359,7 +359,9 @@ export function compute(S) {
     const dev = blockaded ? 0 : people.development * DEV.perM * aloof * hungry;   // the builders' points this eon
     // THE PRODUCTION LINE (his ask, 2026-10-18): the top item takes the industry; a unit paid for leaves the rest to the next unit of the
     // same item (an item is N of one design), then to the next item; what nobody needs makes factories, then reserves
-    let left = blockaded ? 0 : industry, ahead = 0; const done = [], queue = [];
+    // THE SKIM (his ask, 2026-10-23): S.skim of every colony's industry goes straight to the reserves, before the production line
+    const skim = blockaded ? 0 : industry * clamp(S.skim || 0, 0, 1), lineIndustry = industry - skim;
+    let left = blockaded ? 0 : lineIndustry, ahead = 0; const done = [], queue = [];
     for (const item of P.queue) {
       const d = S.designs.find(x => x.id === item.designId);
       if (!d) { queue.push({ item, gone: true }); continue; }
@@ -378,15 +380,15 @@ export function compute(S) {
         built++; p = 0; j = 0;                       // a whole unit: the next one starts on what is left
       }
       if (!noDock) ahead += need + cost * (count - 1);
-      const eta = noDock ? Infinity : need <= 1e-6 ? Math.max(1, joinLeft) : industry > 0 ? Math.max(1, Math.ceil((aheadBefore + need) / industry - 1e-9)) + joinLeft : Infinity;
-      const etaAll = noDock ? Infinity : industry > 0 ? Math.max(1, Math.ceil(ahead / industry - 1e-9)) + joinLeft + joinNeed * (count - 1) : Infinity;
+      const eta = noDock ? Infinity : need <= 1e-6 ? Math.max(1, joinLeft) : lineIndustry > 0 ? Math.max(1, Math.ceil((aheadBefore + need) / lineIndustry - 1e-9)) + joinLeft : Infinity;
+      const etaAll = noDock ? Infinity : lineIndustry > 0 ? Math.max(1, Math.ceil(ahead / lineIndustry - 1e-9)) + joinLeft + joinNeed * (count - 1) : Infinity;
       queue.push({ item, d, ds, noDock, fit, sections, cost, count, need, spend, joining, joinNeed, joinLeft, built, finishes: built > 0, eta, etaAll, progressAfter: p, joinedAfter: j });
       for (let k = 0; k < built; k++) done.push({ item, d, ds, sections });
     }
     // ROOM: the homes on the surface (and the room the colony was born with); a world of homes is the ceiling
     const roomCap = P.baseHousing + flat.housing + (G ? roomOf(G, S.slotLevels || LEVEL1) : 0), houses = 0;
     // the industry nothing in the line needed builds FACTORIES (one per pop at most), and past that it piles up RESERVES — stored industry, the empire's money
-    const spare = left, canBuild = Math.max(0, Math.floor(mp) - (P.factories || 0)), newFactories = Math.min(canBuild, Math.floor(spare / T.factoryCost)), toReserves = spare - newFactories * T.factoryCost;
+    const spare = left, canBuild = Math.max(0, Math.floor(mp) - (P.factories || 0)), newFactories = Math.min(canBuild, Math.floor(spare / T.factoryCost)), toReserves = spare - newFactories * T.factoryCost + skim;
     // SUSTAIN: a big society needs industry and research at work for its own sake; short of it, unrest — people leave, the mood sours
     const ramp = Math.pow(clamp((mp - T.sustain.from) / (T.sustain.to - T.sustain.from), 0, 1), 2), needI = ramp * T.sustain.industry * mp, needR = ramp * T.sustain.research * mp;
     const short = Math.max(0, needI > 0 ? 1 - industry / needI : 0, needR > 0 ? 1 - research / needR : 0);
@@ -412,7 +414,7 @@ export function compute(S) {
     const noFood = !water && !(ws && ws.reach > 0);   // a dry world builds farms once water can reach it
     const next = G && !blockaded ? building(G, { noFood, lack }) : null;
     return { pl, P, people, factor, flat, industry, research, food, gantries, housing, full, queue, done, spare, eat, surplus, fed, hungry, dPeople, happiness, happyTarget,
-      work, idle, farmYield, grown, water, noFood, waterNeed, waterIn, waterRoutes: ws ? ws.routes : [], waterCost: ws ? ws.cost : 0, waterReach: ws ? ws.reach : 0, roomCap, houses, factories: P.factories || 0, newFactories, toReserves, needI, needR, short, pol, polNext, blockaded, cap, perUnit, grid, G, dev, staffed, want, lack, next, climate, refit };
+      work, idle, farmYield, grown, skim, water, noFood, waterNeed, waterIn, waterRoutes: ws ? ws.routes : [], waterCost: ws ? ws.cost : 0, waterReach: ws ? ws.reach : 0, roomCap, houses, factories: P.factories || 0, newFactories, toReserves, needI, needR, short, pol, polNext, blockaded, cap, perUnit, grid, G, dev, staffed, want, lack, next, climate, refit };
   });
   // who is studying what: research power on the ground and in orbit, place by place
   const ground = {}, orbit = {}, sysResearch = {}, sysOfPlace = Object.fromEntries(S.places.map(p => [p.id, p.sys]));
@@ -857,6 +859,8 @@ export function setCampaign(S, placeId, pct, back = true) {
   const p = clamp(+pct || 0, 0, 1), from = P.campaign ? P.campaign.from.slice() : P.split.slice(), [i, r, d, f] = from, moved = (i + r) * p;
   const to = [i * (1 - p), r * (1 - p), d + moved, f]; P.split = to; if (p > 0) P.campaign = { from, to: to.slice(), back: !!back, eon: S.eon }; else delete P.campaign; return null;
 }
+// the share of every colony's industry skimmed straight into the reserves (0–100 %)
+export function setSkim(S, pct) { S.skim = clamp((+pct || 0) / 100, 0, 1); return null; }
 export function setSplit(S, placeId, split) {
   const P = colonyAt(S, placeId); if (!P) return 'No colony there';
   const v = (split || []).slice(0, 4).map(x => Math.max(0, +x || 0)), t = v.reduce((a, x) => a + x, 0); if (v.length < 3 || !(t > 0)) return 'The effort is four shares';
