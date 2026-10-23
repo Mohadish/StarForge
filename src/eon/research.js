@@ -85,7 +85,21 @@ export const CHANNEL_ICON = { beam_power: 'damage', kinetic_penetration: 'pierce
   armor_integrity: 'armor', armor_deflection: 'armor', hull_integrity: 'hull', shield_capacity: 'shield', shield_recovery: 'recovery', shield_reach: 'shield',
   reactor_output: 'power', energy_storage: 'storage', power_efficiency: 'power', drive_efficiency: 'reach', thrust: 'speed', agility: 'evasion', evasion: 'evasion',
   computing: 'computing', synthetic_neural: 'computing', sensor_range: 'sensors', sensor_resolution: 'sensors', food: 'food', housing: 'homes', industry: 'works', science: 'labs',
-  cold: 'cold', heat: 'heat', radiation: 'radiation' };
+  cold: 'cold', heat: 'heat', radiation: 'radiation', affordability: 'cost' };
+// THE FOCUS AND THE PROJECTS (his call, 2026-10-23 — the sweep: the focus bent the chance finds but never the projects). A family's
+// AFFINITY: how much its channels lean the focus's way (a civil family by the channel it stands for — farms food yield, homes
+// habitability, works manufacturing, labs computing); the advisors favour it by that. And every finished project brings the FOCUS GIFT:
+// a boost in each corner's own direction, by how much the focus leans there — cheaper to build, less power drawn, sensors that reach
+// further, a truer aim (never instead of what you asked for; only with it)
+const XS4 = ['expand', 'exploit', 'explore', 'exterminate'];
+const STANDS_FOR = { farms: { food_yield: 1 }, farms_cold: { food_yield: 1 }, farms_hot: { food_yield: 1 }, farms_rad: { food_yield: 1 }, homes: { habitability: 1 }, works: { manufacturing: 1 }, labs: { computing: 1 } };
+export function focusAffinity(S, fam) {
+  const F = FAMILIES[fam], ch = F.channels || STANDS_FOR[fam] || {}; let a = 0, t = 0;
+  for (const [c, w] of Object.entries(ch)) { const i = XS4.indexOf(CHANNEL_X[c]); if (i < 0) continue; a += w * ((S.focus || [])[i] ?? 0.25); t += w; }
+  return t ? a / t : 0.25;
+}
+export const GIFT = { pct: 12, min: 2, ch: { expand: 'affordability', exploit: 'power_efficiency', explore: 'sensor_range', exterminate: 'accuracy' }, word: { affordability: 'cheaper to build', power_efficiency: 'less power drawn', sensor_range: 'sensors reach further', accuracy: 'a truer aim' } };
+export function giftOf(S) { return XS4.map((x, i) => ({ x, channel: GIFT.ch[x], icon: CHANNEL_ICON[GIFT.ch[x]] || 'power', word: GIFT.word[GIFT.ch[x]], pct: Math.round(GIFT.pct * ((S.focus || [])[i] ?? 0.25)) })).filter(g => g.pct >= GIFT.min).sort((a, b) => b.pct - a.pct); }
 // how much more a world under this hazard would farm if the crops' adaptation went from a to a2 (a full hazard)
 export const adaptGain = (hazard, a, a2) => { const p = CLIMATE[hazard] || 0; return (1 - p * (1 - Math.min(1, a2))) / Math.max(1e-6, 1 - p * (1 - Math.min(1, a))) - 1; };
 // what a generation would give, with the fields as they are: [{ channel, icon, pct }] in the family's order (the main one first)
@@ -165,7 +179,9 @@ export function advanceProjects(S, plans, rep) {
   for (const pl of finished) {
     S.gens = S.gens || {}; S.gens[pl.fam] = pl.gen; S.usedBoost = [...(S.usedBoost || []), ...pl.boosts.map(b => b.id)];
     const F = pl.F, top = Object.entries(F.recipe).sort((a, b) => b[1] - a[1])[0][0], ben = benefitsOf(S, null, pl.fam, pl.q);
-    const research = { fam: pl.fam, gen: pl.gen, name: pl.name, pcts: ben.map(b => b.pct), boosts: pl.boosts.map(b => b.name) };   // the report draws the paragraph with its icons from this
+    const gift = giftOf(S), giftProp = gift.length ? { name: 'Focus gift', rarity: 'common', what: "what the empire's focus brought with it", channels: gift.map(g => ({ channel: g.channel, pct: g.pct, x: CHANNEL_X[g.channel], how: `${pl.name}: ${g.word}`, prog: 100 })) } : null;
+    const research = { fam: pl.fam, gen: pl.gen, name: pl.name, pcts: ben.map(b => b.pct), boosts: pl.boosts.map(b => b.name), gift: gift.map(g => ({ icon: g.icon, pct: g.pct, word: g.word })) };   // the report draws the paragraph with its icons from this
+    if (giftProp && (F.adapt || F.level)) S.breakthroughs.unshift({ id: `pj${S.eon}${pl.fam}g`, name: `${pl.name} (focus gift)`, field: top, fieldName: DOMAINS[top].name, eon: S.eon, origin: 'a research project', under: null, project: pl.fam, props: [giftProp] });
     if (F.adapt) {
       S.adapt = S.adapt || {}; S.adapt[F.adapt] = Math.min(1, (S.adapt[F.adapt] || 0) + RESEARCH.adapt.base + RESEARCH.adapt.q * pl.q);
       rep.push({ kind: 'breakthrough', research, text: `Research done: ${pl.name} — farms on ${F.adapt === 'cold' ? 'cold' : F.adapt === 'heat' ? 'hot' : 'radiation-exposed'} worlds feed ${ben[0].pct} % more (quality ${Math.round(pl.q * 100)} %)` });
@@ -175,7 +191,7 @@ export function advanceProjects(S, plans, rep) {
     } else {
       const chans = ben.map(b => ({ channel: b.channel, pct: b.pct, x: CHANNEL_X[b.channel], how: `${pl.name}, built into every ${F.name.toLowerCase()}`, prog: 100 }));
       S.breakthroughs.unshift({ id: `pj${S.eon}${pl.fam}`, name: pl.name, field: top, fieldName: DOMAINS[top].name, eon: S.eon, origin: 'a research project', under: null, project: pl.fam,
-        props: [{ name: `${F.name}, generation ${pl.gen}`, rarity: 'common', what: 'developed on purpose', channels: chans }] });
+        props: [{ name: `${F.name}, generation ${pl.gen}`, rarity: 'common', what: 'developed on purpose', channels: chans }, ...(giftProp ? [giftProp] : [])] });
       rep.push({ kind: 'breakthrough', research, text: `Research done: ${pl.name} — ${chans.map(c => `${c.channel.replace(/_/g, ' ')} +${c.pct} %`).join(', ')} on every ${F.name.toLowerCase()} (quality ${Math.round(pl.q * 100)} %)` });
     }
   }
@@ -185,7 +201,8 @@ export function advanceProjects(S, plans, rep) {
 // THE ADVISORS: what the empire needs, read from the game — each with its reason, and how it would come out with the fields you have
 export function advisors(S, c) {
   const out = [], q = fam => qualityOf(S, c.fields, fam).q, busy = new Set((S.projects || []).map(p => p.fam));
-  const add = (fam, why, score) => { if (busy.has(fam)) return; const o = out.find(x => x.fam === fam); if (o) { if (score > o.score) { o.why = why; o.score = score; } return; } out.push({ fam, why, score, q: q(fam) }); };
+  const lean = fam => 0.7 + 1.2 * focusAffinity(S, fam);   // the focus's own families weigh more (2026-10-23)
+  const add = (fam, why, score0) => { if (busy.has(fam)) return; const score = score0 * lean(fam); const o = out.find(x => x.fam === fam); if (o) { if (score > o.score) { o.why = why; o.score = score; } return; } out.push({ fam, why, score, q: q(fam) }); };
   const names = list => list.slice(0, 2).map(p => p.pl.name).join(', ') + (list.length > 2 ? ` and ${list.length - 2} more` : '');
   const hungry = c.colonies.filter(p => p.water && p.fed < 0.98); if (hungry.length) add('farms', `${names(hungry)} ${hungry.length > 1 ? 'are' : 'is'} hungry — food feeds ${Math.round(Math.min(...hungry.map(p => p.fed)) * 100)} %`, 3);
   for (const [hazard, fam, word] of [['cold', 'farms_cold', 'cold'], ['heat', 'farms_hot', 'hot'], ['radiation', 'farms_rad', 'open to radiation (thin or no air)']]) {   // the climate cuts the farms (districts.js)
@@ -207,5 +224,7 @@ export function advisors(S, c) {
     if (fam) add(fam, `a new find in ${b.fieldName} — ${b.name} — would carry it`, 2.1);
   }
   const best = Object.keys(FAMILIES).filter(k => !busy.has(k)).sort((a, b) => q(b) - q(a))[0]; if (best) add(best, `your fields favour it most: it would come out at ${Math.round(q(best) * 100)} %`, 1);
+  const fx = (S.focus || []).indexOf(Math.max(...(S.focus || [0.25]))), fName = ['Expansion', 'Exploitation', 'Exploration', 'Extermination'][fx];
+  const mine = Object.keys(FAMILIES).filter(k => !busy.has(k)).sort((a, b) => focusAffinity(S, b) - focusAffinity(S, a) || q(b) - q(a))[0]; if (mine && (S.focus || [])[fx] > 0.3) add(mine, `your focus is ${fName} — it leans that way`, 1.4);
   return out.sort((a, b) => b.score - a.score).slice(0, 5);
 }

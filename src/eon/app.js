@@ -29,7 +29,7 @@ import { FACTORS, FACTOR_COLOR, SIZES, sizeClassOf, gridOf, habitabilityOf, habW
 import { DEV, LEVEL1, KIND_WORD as SLOT_WORD, filletWhy, isFull, counts, planetOf, unitCap, districtInfo, jobsOf, bOf } from './colony.js';
 import { renderResearch, initResearch, researchDoneHtml } from './projects.js';
 import { FAMILIES as RFAM } from './research.js';
-import { icon as ticon, slotIcon, personIcon } from './techicons.js';
+import { icon as ticon, slotIcon, personIcon, ICON_COLOR } from './techicons.js';
 import { globeTexture, drawGlobe, globeIcon } from './globe.js';
 initResearch({ save: () => save(), refresh: () => refresh() });   // the Research tab's orders save and redraw like every other
 import { TRI_COLOR, drawSurface, focusTetra, drawTri as drawEffortTri, triFromPoint, triBall, toCanvas, districtAt as surfaceCellAt, mapSize } from './colonyview.js';
@@ -357,6 +357,12 @@ function renderTop(c) {
 
 const starRow = v => { const n = Math.round(v); return `<span class="stars">${'★'.repeat(n)}<i>${'★'.repeat(10 - n)}</i></span>`; };
 
+// WHAT THE EMPIRE KNOWS, IN ITS COLONIES (2026-10-23, model.js knowHow): every find and project, saturating — the works, the farms, the
+// homes, the growth, the labs, the upkeep
+function knowHowHtml(K) {
+  if (!K) return ''; const p = v => Math.round((v - 1) * 100), items = [['works', 'industry', K.industry], ['food', 'food', K.food], ['homes', 'homes', K.housing], ['growth', 'growth', K.growth], ['labs', 'research', K.research]];
+  return items.map(([ic, w, v]) => `<span class="bnf" style="--bc:${ICON_COLOR[ic]}" title="what your finds and projects add to every colony's ${w}">${ticon(ic, { size: 15 })}<b>+${p(v)} %</b></span> ${w}`).join(' · ') + ` · <span class="bnf" style="--bc:${ICON_COLOR.upkeep}" title="maintenance: the fleet's and the people's upkeep">${ticon('upkeep', { size: 15 })}<b>−${Math.round((1 - 1 / K.upkeep) * 100)} %</b></span> upkeep`;
+}
 function renderEmpire(c, skipTetra) {
   const left = S.cohesion - c.moveCost;
   $('eFocus').innerHTML = `<div class="fx">${XS.map((x, i) => `<div style="border-color:${xColor(x)}"><span style="color:${xColor(x)}">${X_INFO[x].name}</span><b>${pct(S.focus[i])}</b><button class="x" data-fplus="${i}" title="a step toward ${X_INFO[x].name}, at the cost of the other three">+</button></div>`).join('')}</div>
@@ -366,6 +372,7 @@ function renderEmpire(c, skipTetra) {
   const on = (c.projects || []).map(p => `${esc(p.name)} ${p.p.inf} % · ${p.gain > 0 ? `${p.eons} eon${p.eons === 1 ? '' : 's'}` : 'stalled'}`).join(' · ');
   $('ePredict').innerHTML = `<div class="card">
     ${row('Research', `${Math.round(c.research)} an eon${on ? ' — ' + on : ' — <span class="up">no project under way</span> (the Research tab)'}`)}
+    ${row('Know-how', knowHowHtml(c.knowHow))}
     ${row('Built this eon', builds.length ? builds.join(', ') : 'nothing finishes')}
     ${row('Integration', `${c.speed.toFixed(1)}% per eon${c.moved ? ' — the focus moved' : ''}`)}
     ${row('Cohesion', `+${c.cohesionGain.toFixed(1)} earned${c.moveCost > 0.05 ? `, −${c.moveCost.toFixed(1)} spent on the focus` : ''}`)}

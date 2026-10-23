@@ -303,7 +303,7 @@ const gain = power => clamp(0.4 + power / 50, 0, 2.5);            // how much th
 
 // ---------------- what this eon will do (nothing is changed here) ----------------
 export function compute(S) {
-  const caps = allCapsules(S), passive = passiveOf(caps);
+  const caps = allCapsules(S), passive = passiveOf(caps), KH = knowHow(passive);   // what the empire knows, for its colonies
 
   const ships = S.ships.map(u => ({ u, t: designStats(S, u.design, caps).t }));
 
@@ -339,7 +339,7 @@ export function compute(S) {
     const refit = G ? { old: outdatedUnits(G, S.slotLevels || LEVEL1, adaptOf(S, pl)), at: G.rf || null } : { old: [], at: null };
     // THE EFFORT — A TETRAHEDRON (his call, 2026-10-23: "we need people to work the fields"): industry, research, development and FOOD.
     // An older colony's triangle gets its fourth corner once: as many farmers as feed everyone (and a little over)
-    const farmYield = cap.farmJobs > 1e-9 ? cap.food / cap.farmJobs : 0;   // M fed by one M at the farms
+    const farmYield = cap.farmJobs > 1e-9 ? cap.food / cap.farmJobs * KH.food : 0;   // M fed by one M at the farms (food yield known: more)
     if (!Array.isArray(P.split) || P.split.length < 4) { const old = (P.split || [1, 1, 1]).slice(0, 3), t = old.reduce((a, v) => a + v, 0) || 1, f = farmShare(mp, farmYield, water); P.split = [...old.map(v => v / t * (1 - f)), f]; }
     const [si, sr, sd, sf] = P.split;
     // the unhappy stop working for the empire — but the farmers still farm: people feed themselves whatever the mood (no starvation spiral)
@@ -353,9 +353,9 @@ export function compute(S) {
     const grown = farmYield * employed(people.food, cap.farmJobs);   // M fed
     const eat = mp * T.foodPerHead, food = water ? grown * T.foodPerHead + flat.social * T.foodPerSocial : Math.min(grown, waterIn) * T.foodPerHead, surplus = water ? food - eat : Math.max(0, food - eat);
     const fed = water ? clamp(food / Math.max(1e-9, eat), 0, 1) : 1, hungry = 1 - DISTRICT.hunger * (1 - fed);   // a hungry planet works worse (his strain)
-    const industry = Math.max(0, employed(people.industry, cap.industry) * factor * docile * hungry + flat.industry + (P.factories || 0) * T.factoryOut - flat.upkeep);   // the factories: a flat trickle each
-    const research = employed(people.research, cap.science) * factor * docile * hungry + flat.research;
-    const housing = P.baseHousing + flat.housing + cap.housing;
+    const industry = Math.max(0, employed(people.industry, cap.industry) * factor * docile * hungry * KH.industry + flat.industry + (P.factories || 0) * T.factoryOut - flat.upkeep);   // the factories: a flat trickle each
+    const research = employed(people.research, cap.science) * factor * docile * hungry * KH.research + flat.research;
+    const housing = P.baseHousing + flat.housing + cap.housing * KH.housing;
     const blockaded = P.blockaded || 0;              // BLOCKADED by another empire's fleet (world.js): nothing gets built, nothing reaches the reserves, nobody grows, the mood sours
     const dev = blockaded ? 0 : people.development * DEV.perM * aloof * hungry;   // the builders' points this eon
     // THE PRODUCTION LINE (his ask, 2026-10-18): the top item takes the industry; a unit paid for leaves the rest to the next unit of the
@@ -387,7 +387,7 @@ export function compute(S) {
       for (let k = 0; k < built; k++) done.push({ item, d, ds, sections });
     }
     // ROOM: the homes on the surface (and the room the colony was born with); a world of homes is the ceiling
-    const roomCap = P.baseHousing + flat.housing + (G ? roomOf(G, S.slotLevels || LEVEL1) : 0), houses = 0;
+    const roomCap = P.baseHousing + flat.housing + (G ? roomOf(G, S.slotLevels || LEVEL1) * KH.housing : 0), houses = 0;
     // the industry nothing in the line needed builds FACTORIES (one per pop at most), and past that it piles up RESERVES — stored industry, the empire's money
     const spare = left, canBuild = Math.max(0, Math.floor(mp) - (P.factories || 0)), newFactories = Math.min(canBuild, Math.floor(spare / T.factoryCost)), toReserves = spare - newFactories * T.factoryCost + skim;
     // SUSTAIN: a big society needs industry and research at work for its own sake; short of it, unrest — people leave, the mood sours
@@ -396,7 +396,7 @@ export function compute(S) {
     // GROWTH IN PERCENT (his rule, 2026-10-20: "a very healthy growth rate is like 5 %… 7–8 % at most, a living world, fully developed"):
     // GROWTH.base an eon, × the world (living best, harsh worlds slower), × health (science across the cells), slowing as the homes
     // fill — and never more people than the spare food can feed. Hungry, a share of the people dies
-    const rate = GROWTH.base * (GROWTH.world[worldOf(pl)] ?? 1) * (1 + DISTRICT.health * cap.scienceShare), roomLeft = Math.max(0, Math.min(1, (1 - mp / Math.max(1e-6, housing)) / GROWTH.crowd));   // full speed until the homes are crowded, then it tapers
+    const rate = GROWTH.base * (GROWTH.world[worldOf(pl)] ?? 1) * (1 + DISTRICT.health * cap.scienceShare) * KH.growth, roomLeft = Math.max(0, Math.min(1, (1 - mp / Math.max(1e-6, housing)) / GROWTH.crowd));   // full speed until the homes are crowded, then it tapers
     let dPeople = fed >= 1 - 1e-9 ? Math.min(mp * rate * roomLeft, Math.max(0, food - eat) / T.foodPerHead) : -mp * GROWTH.starve * (1 - fed);
     const full = mp >= housing - 1e-6;
     if (dPeople > 0) dPeople = Math.max(0, Math.min(dPeople, housing - mp));        // nowhere to live = no growth
@@ -426,7 +426,7 @@ export function compute(S) {
   const research = (colonies.reduce((a, c) => a + c.research, 0) + ships.reduce((a, s) => a + (s.u.dest ? 0 : s.t.research), 0)) * (1 - T.upkeep.slow * unpaid);
   // the UPKEEP of the eon against the excess that flows to the reserves, and what is left after the reserves have covered the rest
   const fleetWorth = ships.reduce((a, s) => a + s.t.cost, 0), pops0 = colonies.reduce((a, p) => a + p.P.people, 0);
-  const upkeep = { military: fleetWorth * T.upkeep.military, social: pops0 * T.upkeep.social, research: research * T.upkeep.research, water: [...WS.values()].reduce((a, w) => a + w.cost, 0) };
+  const upkeep = { military: fleetWorth * T.upkeep.military / KH.upkeep, social: pops0 * T.upkeep.social / KH.upkeep, research: research * T.upkeep.research, water: [...WS.values()].reduce((a, w) => a + w.cost, 0) };
   upkeep.total = upkeep.military + upkeep.social + upkeep.research + upkeep.water;   // the water haul is paid like the rest (his ask: "start seeing the reserves go")
   const income = colonies.reduce((a, p) => a + p.toReserves, 0), net = income - upkeep.total, after = (S.reserves || 0) + net;
   const shortNext = after < 0 && upkeep.total > 0 ? clamp(-after / upkeep.total, 0, 1) : 0;
@@ -459,7 +459,7 @@ export function compute(S) {
   for (const s of ships) s.range = shipRange(s.t, fleetWarp(passive));               // STAR TRAVEL: each ship's reach between stars, light years
   const projects = projectPlans(S, fields, research);   // the projects under way: their research, quality, how long (research.js)
   return { colonies, ships, studied, research, sysResearch, fields, projects, diverted: div, points, warp: fleetWarp(passive), free: T.attention - points, cohesionGain, reach, moveDist, moveCost, moved, shock, steadyNext, setback, speed, upkeep, income, net, shortNext, unpaid,
-    people: colonies.reduce((a, c) => a + c.P.people, 0) + S.ships.reduce((a, u) => a + (u.people || 0), 0), passive, caps, sens: sensorLevel(S, passive) };
+    people: colonies.reduce((a, c) => a + c.P.people, 0) + S.ships.reduce((a, u) => a + (u.people || 0), 0), passive, caps, sens: sensorLevel(S, passive), knowHow: KH };
 }
 
 // ---------------- the water ----------------
@@ -886,6 +886,13 @@ export function fleetSight(S, sysId, mySens = 0, theirSens = 0) {
   const z = zoneOfSys(S, sysId), base = [3, 1, 1, 1, 1, 0][Math.min(5, z)];
   return clamp(base + (mySens - theirSens), 0, 3);
 }
+// WHAT THE EMPIRE KNOWS, IN ITS COLONIES (his call, 2026-10-23 — the sweep showed Expansion's and Exploitation's finds feeding nothing):
+// the empire-wide boosts (every integrated find, every project) now reach the districts — manufacturing, mining and labour efficiency the
+// works, food yield the farms, habitability the homes, growth the growth, computing the labs, maintenance the upkeep. They pile up to
+// hundreds of percent in a long game, so each is SATURATING: BOOST.cap × p / (p + BOOST.half) — +44 % at 100, +80 % at 300, never +120 %
+export const BOOST = { cap: 1.2, half: 150 };
+export const boostOf = p => BOOST.cap * Math.max(0, p) / (Math.max(0, p) + BOOST.half);
+export function knowHow(passive) { const p = k => passive[k] || 0; return { industry: 1 + boostOf(p('manufacturing') + p('mining_yield') + p('labor_efficiency')), food: 1 + boostOf(p('food_yield')), housing: 1 + boostOf(p('habitability')), growth: 1 + boostOf(p('growth')), research: 1 + boostOf(p('computing')), upkeep: 1 + boostOf(p('maintenance')) }; }
 export function markExplored(S) {
   const E = S.explored || (S.explored = {}), sysOfId = id => (S.places.find(p => p.id === id) || {}).sys;
   if (S.homeSys && !E[S.homeSys]) E[S.homeSys] = S.eon || 1;

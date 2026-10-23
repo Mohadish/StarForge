@@ -9,7 +9,7 @@ import fs from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
-const here = dirname(fileURLToPath(import.meta.url)), OUT = join(here, 'out', 'sweep');
+const here = dirname(fileURLToPath(import.meta.url)), OUT = process.env.SWEEP_OUT || join(here, 'out', 'sweep');   // SWEEP_OUT: another folder for another sweep
 const FOCI = ['expand', 'exploit', 'explore', 'exterm', 'mid'];
 
 if (process.argv[2] === '--one') {
