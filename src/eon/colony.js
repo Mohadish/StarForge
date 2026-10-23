@@ -95,9 +95,13 @@ export function unitsFromCells(old, { pid, kind }) {
 // the CAPACITIES of a surface (M people): what its units employ, house and feed — each its kind's capacity × its ground × the empire's
 // level of the kind × how far it is built × the world's own multiplier for the kind (mul — the farms' CLIMATE, districts.js).
 // scienceShare: the share of the units that are labs (health, care — model.js)
+// THE FARMS NEED HANDS (his call, 2026-10-23): a farm district has jobs for UNIT.cap.food / FARM.feeds M — one farmer feeds FARM.feeds
+// people on ground of grade 0.5; better ground, research and a kinder climate make every farmer feed more (the jobs stay the same)
+export const FARM = { feeds: 4 };
+export const jobsOf = (G, k) => G.units[k] === 'food' ? UNIT.cap.food / FARM.feeds * bOf(G, k) : 0;
 export function capsOf(G, { levels = LEVEL1, mul = {} } = {}) {
-  const D = planetOf(G), cap = { industry: 0, food: 0, housing: 0, science: 0, units: 0, scienceShare: 0 }, perUnit = {};
-  for (const k in G.units) { const kind = G.units[k], out = unitCap(D, +k, kind, levels) * bOf(G, k) * (mul[kind] ?? 1); cap[kind] += out; cap.units++; if (kind === 'science') cap.scienceShare++; perUnit[k] = out; }
+  const D = planetOf(G), cap = { industry: 0, food: 0, housing: 0, science: 0, units: 0, scienceShare: 0, farmJobs: 0 }, perUnit = {};
+  for (const k in G.units) { const kind = G.units[k], out = unitCap(D, +k, kind, levels) * bOf(G, k) * (mul[kind] ?? 1); cap[kind] += out; if (kind === 'food') cap.farmJobs += jobsOf(G, k); cap.units++; if (kind === 'science') cap.scienceShare++; perUnit[k] = out; }
   cap.scienceShare = cap.units ? cap.scienceShare / cap.units : 0;
   return { cap, perUnit };
 }

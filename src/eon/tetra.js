@@ -103,7 +103,7 @@ export function createTetra(canvas, { labels, colors, getState, onChange, onRele
     e.preventDefault(); canvas.setPointerCapture(e.pointerId); last = p;
     if (Math.hypot(p.x - hit.ball.x, p.y - hit.ball.y) < 18 || Math.hypot(p.x - hit.eff.x, p.y - hit.eff.y) < 14) { mode = 'ball'; return; }
     const i = hit.C.findIndex(c => Math.hypot(p.x - (c.x + (c.x - cx) * 0.16), p.y - (c.y + (c.y - cy) * 0.16)) < 34 || Math.hypot(p.x - c.x, p.y - c.y) < 14);
-    if (i >= 0) { pull(i); mode = null; return; }      // pull one step toward that corner
+    if (i >= 0) { pull(i); mode = null; if (onRelease) onRelease(); return; }      // pull one step toward that corner (and keep it: 2026-10-23, a click on a name did not save)
     const seg = (a, b) => { const dx = b.x - a.x, dy = b.y - a.y, t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy || 1))); return Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy); };
     for (let a = 0; a < 4; a++) for (let b = a + 1; b < 4; b++) if (seg(hit.C[a], hit.C[b]) < 7) { const w = [0, 0, 0, 0]; w[a] = 0.5; w[b] = 0.5; move(w); mode = null; if (onRelease) onRelease(); return; }   // an EDGE: half and half
     mode = 'rotate';

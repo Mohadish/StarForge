@@ -47,5 +47,30 @@ export function icon(name, { color = ICON_COLOR[name] || 'currentColor', size = 
   const body = ICONS[name]; if (!body) return '';
   return `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:${color};vertical-align:-0.2em">${title ? `<title>${title}</title>` : ''}${body}</svg>`;
 }
+// THE COLONY'S DISTRICTS AS ICONS (his ask, 2026-10-23): a building per district, its kind's colour — strong when people are in it,
+// faint when it stands empty — with who is in it on a badge: a person (bust) in a home, a hard hat on a farm, a works or a lab.
+// fill 0..1: how full (a badge at half strength when partly); built < 1: a district still going up (dashed). Placeholders.
+const BUILDING = {
+  home:  'M3 11.5l7.5-6.5 7.5 6.5V20H3z',
+  city:  'M2 20V9h4v11M7 20V5h5v15M13 20v-9h5v9',
+  farm:  'M2 19c3-2.5 6-3.5 9-3.5s6 1 9 3.5M2 15.5c3-2 6-3 9-3s6 1 9 3M3 12c2.6-1.6 5.4-2.4 8-2.4s5.4.8 8 2.4',
+  works: 'M2 20V11l5 3v-3l5 3v-3l5 3V5h3v15z',
+  lab:   'M3 20v-3a8 8 0 0 1 16 0v3zM11 9V4M9 4h4',
+};
+const BADGE = {
+  bust: c => `<circle cx="17" cy="17" r="6.6" fill="#0b1222"/><circle cx="17" cy="14.9" r="2" fill="${c}"/><path d="M13.3 21.2c.5-2.1 1.9-3.3 3.7-3.3s3.2 1.2 3.7 3.3" fill="${c}"/>`,
+  hat:  c => `<circle cx="17" cy="17" r="6.6" fill="#0b1222"/><path d="M12.6 19.1h8.8" stroke="${c}" stroke-width="1.8" stroke-linecap="round"/><path d="M13.6 18.6a3.4 3.4 0 0 1 6.8 0z" fill="${c}"/><path d="M17 15.2v-1" stroke="${c}" stroke-width="1.4" stroke-linecap="round"/>`,
+};
+export function slotIcon(kind, col, { fill = 0, built = 1, badge = null, badgeCol = '#fff', size = 20, title = '' } = {}) {
+  const d = BUILDING[kind]; if (!d) return '';
+  const solid = kind === 'farm' ? '' : ` fill="${col}" fill-opacity="${fill > 0.01 ? 0.85 : 0.22}"`, dash = built < 0.999 ? ' stroke-dasharray="2 1.6"' : '';
+  const b = badge && fill > 0.01 ? `<g opacity="${fill >= 0.999 ? 1 : 0.55}">${BADGE[badge](badgeCol)}</g>` : '';
+  return `<svg class="slot" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${col}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"${title ? '' : ''}>${title ? `<title>${title}</title>` : ''}<path d="${d}"${solid}${dash}${kind === 'farm' ? ` stroke-opacity="${fill > 0.01 ? 1 : 0.4}"` : ''}/>${b}</svg>`;
+}
+// a worker or a person on his own: a hard hat with no building (works past the jobs, at half), a head with nothing on it (does not work)
+export function personIcon(kind, col, { size = 18, title = '' } = {}) {
+  const body = kind === 'hat' ? `<path d="M5 15h14" stroke-width="2"/><path d="M6.5 14.5a5.5 5.5 0 0 1 11 0z" fill="${col}"/><path d="M12 9V7.6"/><path d="M8 18.5c1-1.6 2.4-2.3 4-2.3s3 .7 4 2.3"/>` : `<circle cx="12" cy="8.5" r="3.4" fill="${col}" fill-opacity=".35"/><path d="M5.5 20c.9-3.6 3.3-5.5 6.5-5.5s5.6 1.9 6.5 5.5" fill="${col}" fill-opacity=".35"/>`;
+  return `<svg class="slot" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${col}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${title ? `<title>${title}</title>` : ''}${body}</svg>`;
+}
 // a benefit as a chip: the icon, the number, the word ("⚔ +18 % damage")
 export const benefit = (name, pct, word, { big = false } = {}) => `<span class="bnf${big ? ' big' : ''}" style="--bc:${ICON_COLOR[name] || '#ccc'}">${icon(name, { size: big ? 22 : 16 })}<b>${pct > 0 ? '+' : ''}${pct} %</b> ${word}</span>`;

@@ -88,7 +88,7 @@ export function invade(W, S, placeId) {
   S.ships = S.ships.filter(u => !ships.includes(u));
   if (power > militia) {                                                          // TAKEN: their people are gone, the troops settle, their buildings stand
     const was = pl.colony;
-    mine.colony = { ...JSON.parse(JSON.stringify(was)), people: troops, queue: [], happiness: 60, split: [1 / 3, 1 / 3, 1 / 3], pol: { industry: 0, research: 0, social: 0 } }; delete mine.colony.blockaded;
+    mine.colony = { ...JSON.parse(JSON.stringify(was)), people: troops, queue: [], happiness: 60, split: [0.25, 0.15, 0.3, 0.3], pol: { industry: 0, research: 0, social: 0 } }; delete mine.colony.blockaded;
     for (const u of ships) mine.colony.structures.push({ id: uid('u'), name: 'Landed ' + u.name, klass: 'structure', design: u.design, eon: S.eon, landed: true, grade: Math.max(0.05, (u.st ?? 100) / 100) });
     delete pl.colony;
     const text = `Invasion of ${where}: ${S.name}'s ${peopleWord(troops)} troops against ${O.name}'s militia of ${peopleWord(militia)} — the colony is ${S.name}'s; ${peopleWord(was.people)} of ${O.name}'s people are gone${home ? ' — its HOMEWORLD' : ''}`;

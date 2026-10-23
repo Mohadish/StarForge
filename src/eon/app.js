@@ -26,11 +26,11 @@ import { WORLD, MAX_EMPIRES, createWorld, worldEndEon, worldSnapshot, worldResto
 import { makeBrain } from './ai.js';
 import { designSpecHtml, modulesLine, chipStripHtml } from './spec.js';
 import { FACTORS, FACTOR_COLOR, SIZES, sizeClassOf, gridOf, habitabilityOf, habWord } from './districts.js';
-import { DEV, LEVEL1, KIND_WORD as SLOT_WORD, filletWhy, isFull, counts, planetOf, unitCap, districtInfo } from './colony.js';
+import { DEV, LEVEL1, KIND_WORD as SLOT_WORD, filletWhy, isFull, counts, planetOf, unitCap, districtInfo, jobsOf, bOf } from './colony.js';
 import { renderResearch, initResearch, researchDoneHtml } from './projects.js';
-import { icon as ticon } from './techicons.js';
+import { icon as ticon, slotIcon, personIcon } from './techicons.js';
 initResearch({ save: () => save(), refresh: () => refresh() });   // the Research tab's orders save and redraw like every other
-import { drawSurface, focusTetra, drawTri as drawEffortTri, triFromPoint, triBall, toCanvas, districtAt as surfaceCellAt, mapSize } from './colonyview.js';
+import { TRI_COLOR, drawSurface, focusTetra, drawTri as drawEffortTri, triFromPoint, triBall, toCanvas, districtAt as surfaceCellAt, mapSize } from './colonyview.js';
 mountNav('eon', { into: document.getElementById('topbar') });
 
 const KEY = 'forge.eon.v8';
@@ -1259,7 +1259,7 @@ function renderSystem(c) {
 // design's own picture, its name and numbers, a progress bar; the top card is being built; drag to re-order, − n ＋ for how many of
 // it, ✕ to drop it, ⚡ to buy the rest from the reserves; '＋ Add construction project' lists your ships, platforms and docks.
 // The rules and the pictures are colony.js and colonyview.js — the same ones the sandbox (planet.html) runs.
-let cpTetra = null, colPop = null, colPopK = null, cpHover = -1, cpAdd = false, cpDrag = null, cpDragEnd = 0;   // colPopK: whose colony (null = yours; in God mode any empire's, read-only)
+let cpTetra = null, cpEffort = null, colPop = null, colPopK = null, cpHover = -1, cpAdd = false, cpDrag = null, cpDragEnd = 0;   // colPopK: whose colony (null = yours; in God mode any empire's, read-only)
 const cpE = () => colPopK == null ? S : W && W.empires[colPopK], cpC = () => colPopK == null ? LAST : GODC && GODC[colPopK], cpRO = () => colPopK != null;
 const WORLD_KIND = { living: 'living', ocean: 'ocean', ice: 'ice', other: 'barren' };
 const cpColony = () => { const c = cpC(); return colPop && c ? c.colonies.find(x => x.pl.id === colPop) || null : null; };
@@ -1267,7 +1267,7 @@ const cpWhy = pc => ({ staffed: pc.staffed, fed: pc.fed, housing: pc.housing, pe
 const cpSkeleton = () => `<div class="cpbox"><div class="cphead"><b id="cpName"></b><span id="cpMeta"></span><button class="go" data-cpend title="end the eon — the colony stays open">End eon ▸</button><button class="x" data-cpclose title="close (Esc, or click outside)">✕</button></div>
   <div class="cpgrid"><div class="cpmain">
     <div class="cprow2"><div class="cpcard cpwidget"><h3>Colony development focus <button class="x cpi" data-cphelp="focus" title="how this works">ⓘ</button></h3><div class="cphelp" data-help="focus" hidden>Drag the ball in the tetrahedron: the builders build toward it. Click an edge for half and half of its two corners (the food–housing edge: 50 % food, 50 % housing), a corner's name to pull toward it, empty space to turn it. Double-click the ball: a quarter each. A corner the colony cannot use is cut off and holds the ball back (hover it: why).</div><canvas id="cpRect" width="250" height="250" style="cursor:grab;touch-action:none"></canvas></div>
-      <div class="cpcard cpwidget"><h3>Effort — the people <button class="x cpi" data-cphelp="effort" title="how this works">ⓘ</button></h3><div class="cphelp" data-help="effort" hidden>Drag the ball: how the people split their effort — industry (the works and the production line), research (the labs), development (the builders who raise the next slot). Double-click the ball: a third each.</div><canvas id="cpTri" width="250" height="250"></canvas></div></div>
+      <div class="cpcard cpwidget"><h3>Effort — the people <button class="x cpi" data-cphelp="effort" title="how this works">ⓘ</button></h3><div class="cphelp" data-help="effort" hidden>Drag the ball: how the people who work split — industry (the works and the production line), research (the labs), development (the builders who raise the next district) and food (the farmers: a farm gives nothing without them). Click an edge for half and half, a corner's name to pull toward it, empty space to turn it; double-click the ball: a quarter each. Unhappy people do not work at all.</div><canvas id="cpTri" width="250" height="250" style="cursor:grab;touch-action:none"></canvas></div></div>
     <div class="cpcard cpmapcard"><button class="x cpi cpi-map" data-cphelp="map" title="how to read the planet">ⓘ</button><div class="cphelp" data-help="map" hidden>The planet: every district that can be built on takes ONE unit — industry, food, housing or science. The builders raise them by themselves toward the focus (the pyramid), each on the free ground that suits its kind best, spreading out from the landing. ⚒ the unit going up (or the next one), ✕ one being torn down, ○ the landing. Hover a district: its ground, what stands on it, what each kind would give there. Sea, the polar caps and chasms take nothing.</div><canvas id="cpMap"></canvas></div>
     <div class="cpcard" id="cpOut"></div></div>
   <div class="cpcard cpqueue" id="cpQueue"></div></div></div>`;
@@ -1285,8 +1285,10 @@ function openColPop(placeId, k = null) {
     cv.addEventListener('pointerup', () => { if (cpDrag) { cpDrag = null; cpDragEnd = performance.now(); save(); refresh(); } });
   };
   cpTetra = focusTetra($('cpRect'), { getG: () => cpColony()?.G, noFood: () => !!cpColony()?.noFood, onChange: w => { if (cpRO()) return; setDevFocus(S, colPop, w); LAST = compute(S); renderColPop(true); }, onRelease: () => { if (cpRO()) return; cpDragEnd = performance.now(); save(); refresh(); } });   // the focus TETRAHEDRON (2026-10-20)
-  dragOn($('cpTri'), (x, y) => { const t = triFromPoint(x, y); setSplit(S, colPop, [t.industry, t.research, t.development]); });
-  $('cpTri').addEventListener('dblclick', e => { if (cpRO()) return; const pc = cpColony(); if (!pc) return; const b = triBall({ industry: pc.P.split[0], research: pc.P.split[1], development: pc.P.split[2] }), [x, y] = toCanvas($('cpTri'), e); if (Math.hypot(x - b.x, y - b.y) > 22) return; setSplit(S, colPop, [1, 1, 1]); save(); refresh(); });   // double-click the ball: a third each (his ask, 2026-10-20)
+  // THE EFFORT — A TETRAHEDRON (his call, 2026-10-23): industry, research, development and food — the same control as the focus
+  cpEffort = createTetra($('cpTri'), { labels: ['industry', 'research', 'development', 'food'], colors: [TRI_COLOR.industry, TRI_COLOR.research, TRI_COLOR.development, FACTOR_COLOR.food],
+    getState: () => { const pc = cpColony(), w = pc ? pc.P.split.slice(0, 4) : [0.25, 0.25, 0.25, 0.25]; while (w.length < 4) w.push(0.25); return { w, w0: w, reach: 9 }; },
+    onChange: w => { if (cpRO()) return; setSplit(S, colPop, w); LAST = compute(S); renderColPop(true); }, onRelease: () => { if (cpRO()) return; cpDragEnd = performance.now(); save(); refresh(); } });
   const map = $('cpMap');
   map.addEventListener('mousemove', e => {
     const pc = cpColony(); if (!pc) return; const i = surfaceCellAt(map, pc.G, e), tip = $('cpTip');
@@ -1313,8 +1315,8 @@ function renderColPop(fromTetra = false) {
   $('cpMeta').title = habWord(habitabilityOf(pl));
   drawSurface($('cpMap'), G, { next: pc.next, hover: cpHover, frameColor: cpFrame(), planet: cpPlanet(pc) });
   if (cpTetra && !fromTetra) cpTetra.draw(); $('cpRect').title = FACTORS.map(k => filletWhy(G, k, cpWhy(pc))).join('\n') + '\n(drag the ball · click a corner to pull toward it · drag empty space to turn it)';
-  drawEffortTri($('cpTri'), { industry: P.split[0], research: P.split[1], development: P.split[2] });
-  $('cpTri').title = `industry: ${fmt(pc.people.industry)} M hands for ${fmt(pc.cap.industry)} M of works · research: ${fmt(pc.people.research)} M for ${fmt(pc.cap.science)} M of labs · development: ${fmt(pc.people.development)} M builders → ${pc.dev.toFixed(1)} points an eon`;
+  if (cpEffort) cpEffort.draw();
+  $('cpTri').title = `industry: ${fmt(pc.people.industry)} M hands for ${fmt(pc.cap.industry)} M of works · research: ${fmt(pc.people.research)} M for ${fmt(pc.cap.science)} M of labs · development: ${fmt(pc.people.development)} M builders → ${pc.dev.toFixed(1)} points an eon · food: ${fmt(pc.people.food)} M farmers for ${fmt(pc.cap.farmJobs)} M of farm jobs${pc.idle > 0.05 ? ` · ${fmt(pc.idle)} M do not work (unhappy)` : ''}`;
   $('cpOut').innerHTML = cpOutHtml(pc);
   $('cpQueue').innerHTML = cpQueueHtml(pc); fillThumbs($('cpQueue'));
 }
@@ -1325,22 +1327,24 @@ function cpOutHtml(pc) {
   const plates = Math.ceil(eatM / 20), fedPlates = Math.min(plates, Math.ceil(Math.min(fedM, eatM) / 20)), grain = Math.floor(Math.max(0, fedM - eatM) / 20);
   const where = k => { const inf = districtInfo(G, k); return inf ? inf.ground : '?'; }, lvN = S.slotLevels || LEVEL1;
   const nextLine = pc.blockaded ? '<b class="up">blockaded — nothing is built</b>'
-    : !next ? (isFull(G) ? `the world is fully developed and in balance — ${fmt(pc.people.development)} M builders stand idle: move them in the triangle` : 'nothing to build')
+    : !next ? (isFull(G) ? `the world is fully developed and in balance — ${fmt(pc.people.development)} M builders stand idle: move them in the effort` : 'nothing to build')
     : next.demolish ? `tearing down a <b style="color:${FACTOR_COLOR[next.demolish]}">${SLOT_WORD[next.demolish]}</b> district (${where(next.unit)}, ${DEV.demolish} pts), then <b style="color:${FACTOR_COLOR[next.kind]}">${SLOT_WORD[next.kind]}</b> goes up in its place (${DEV.cost} pts)`
     : `${next.partial ? 'going up' : 'next'}: <b style="color:${FACTOR_COLOR[next.kind]}">${SLOT_WORD[next.kind]}</b> on ${where(next.unit)}${next.partial ? ` — ${next.b < 0.1 ? (next.b * 100).toFixed(1) : Math.round(next.b * 100)} % built` : ''} · ${pc.dev > 0 ? `adds about ${peopleWord(unitCap(planetOf(G), next.unit, next.kind, lvN) * (next.kind === 'food' ? (pc.climate?.mul ?? 1) : 1) * pc.dev / DEV.cost)} ${next.kind === 'housing' ? 'of homes' : next.kind === 'food' ? 'fed' : next.kind === 'industry' ? 'of works' : 'of labs'} an eon${(1 - (next.b || 0)) * DEV.cost / pc.dev < 200 ? `, done in ${plural(Math.max(1, Math.ceil((1 - (next.b || 0)) * DEV.cost / pc.dev)), 'eon')}` : ''}` : 'nobody builds'}`;   // a slot going up gives its share as it goes (2026-10-20)
   const pol = pc.pol.industry + pc.pol.social + pc.pol.research > 1 ? ` · pollution: <span title="an industrial world: people sicken">industrial ${Math.round(pc.pol.industry)}</span> · <span title="the development corner held past half: industry and research slacken">docile ${Math.round(pc.pol.social)}</span> · <span title="the research corner held past half: the builders slacken">aloof ${Math.round(pc.pol.research)}</span>` : '';
   return `
-    ${cpBar('people', P.people, pc.housing, FACTOR_COLOR.housing, `${peopleWord(P.people)} / ${peopleWord(pc.housing)} <span class="tiny">homes · ${pc.dPeople >= 0 ? '+' : '−'}${peopleWord(Math.abs(pc.dPeople))}</span>`)}
-    ${pc.water ? cpBar('food', Math.min(fedM, eatM), eatM, FACTOR_COLOR.food, `${fmt(fedM)} / ${fmt(eatM)} M <span class="tiny">fed / eat</span>`) + `<div class="icons" title="a plate = 20 M people eating (dim: unfed); a sheaf = 20 M more fed than live here — a surplus for the colonies round it (logistics, later)">${reps('🍽', fedPlates)}<span class="dim">${reps('🍽', plates - fedPlates)}</span> ${reps('🌾', grain, 30)}${pc.fed < 1 ? ` <b class="up" style="font-size:12px">hungry — works at ${Math.round(pc.hungry * 100)} %</b>` : ''}</div>`
-      : cpWaterHtml(pc) + (pc.waterNeed > 0 ? cpBar('food', Math.min(fedM, eatM), eatM, FACTOR_COLOR.food, `${fmt(fedM)} / ${fmt(eatM)} M <span class="tiny">fed / eat</span>`) + `<div class="icons">${reps('🍽', fedPlates)}<span class="dim">${reps('🍽', plates - fedPlates)}</span> ${reps('🌾', grain, 30)}</div>` : '')}
+    ${cpPeopleRow(pc)}
+    ${cpFoodRow(pc)}
+    ${pc.water ? `<div class="icons" title="a plate = 20 M people eating (dim: unfed); a sheaf = 20 M more fed than live here — a surplus for the colonies round it (logistics, later)">${reps('🍽', fedPlates)}<span class="dim">${reps('🍽', plates - fedPlates)}</span> ${reps('🌾', grain, 30)}${pc.fed < 1 ? ` <b class="up" style="font-size:12px">hungry — works at ${Math.round(pc.hungry * 100)} %</b>` : ''}</div>`
+      : cpWaterHtml(pc) + (pc.waterNeed > 0 ? `<div class="icons">${reps('🍽', fedPlates)}<span class="dim">${reps('🍽', plates - fedPlates)}</span> ${reps('🌾', grain, 30)}</div>` : '')}
     ${cpClimate(pc)}
-    ${cpBar('industry', Math.min(pc.people.industry, pc.cap.industry), pc.cap.industry, FACTOR_COLOR.industry, `${fmt(pc.industry)} <span class="tiny">${fmt(pc.people.industry)} M hands / ${fmt(pc.cap.industry)} M works</span>`)}
+    ${cpWorkRow(pc, 'industry')}
     <div class="icons" title="a gear = 10 industry; a wrench = 10 of it into the production line; money = 10 into the reserves (credits)">${reps('⚙', pc.industry / 10)} <span class="tiny">→</span> ${reps('🔧', toLine / 10)}${reps('💰', pc.toReserves / 10)}<span class="tiny"> ${Math.round(toLine)} to the line${pc.newFactories ? ` · ${pc.newFactories} factor${pc.newFactories === 1 ? 'y' : 'ies'} built` : ''} · ${Math.round(pc.toReserves)} to the reserves</span></div>
-    ${cpBar('science', Math.min(pc.people.research, pc.cap.science), pc.cap.science, FACTOR_COLOR.science, `${fmt(pc.research)} <span class="tiny">${fmt(pc.people.research)} M / ${fmt(pc.cap.science)} M labs</span>`)}
+    ${cpWorkRow(pc, 'science')}
     <div class="icons" title="a microscope or a tube = 10 research">${Array.from({ length: Math.min(40, Math.round(pc.research / 10)) }, (_, i) => i % 2 ? '🧪' : '🔬').join('')}</div>
     ${cpBar('building', next ? next.b || 0 : 0, 1, '#f5a3c7', `${pc.dev.toFixed(1)} <span class="tiny">pts/eon · ${fmt(pc.people.development)} M builders</span>`)}
     <div class="icons" title="a hammer = one builder point an eon (a district costs ${DEV.cost}, tearing one down ${DEV.demolish})">${reps('🔨', pc.dev)}</div>
     <div class="tiny" style="margin:0 0 6px 92px">${nextLine}</div>
+    ${cpIdleRow(pc)}
     <div class="tiny">happiness ${Math.round(P.happiness)} · ${pc.factories} factor${pc.factories === 1 ? 'y' : 'ies'}${pc.needI > 0 ? ` · sustain ${fmt(pc.needI)} industry / ${fmt(pc.needR)} research${pc.short > 0.005 ? ` <b class="up">${Math.round(pc.short * 100)} % short — unrest</b>` : ' ✓'}` : ''}${pol}${pc.blockaded ? ` · <b class="up">blockaded ${pc.blockaded} of ${WORLD.siege} eons</b>` : ''}</div>`;
 }
 // THE WATER of a dry world (his design, 2026-10-18): what its farms could use, what arrives and from where, what the haul costs —
@@ -1396,6 +1400,45 @@ const NOTE_ICON = { move: '⇢', build: '🔨', battle: '⚔', bad: '⚠', break
 function notesFromEon() {
   const extra = W && !REPLAY && !SIM ? (W.events || []).filter(ev => ev.eon === W.eon - 1 && (ev.text || '').includes(S.name) && !S.report.some(r => r.text === ev.text)) : [];
   NOTES = [...(S.report || []), ...extra].filter(r => NOTE_ICON[r.kind] && !r.minor).map((r, i) => ({ ...r, i })); notesAll = false; renderNotes();
+}
+// THE OUTPUT AS DISTRICTS (his ask, 2026-10-23): a building per district of the kind, strong when people are in it, faint when it
+// stands empty, a person (homes) or a hard hat (farms, works, labs) on the ones in use; the people fill the biggest first. A big world
+// draws one icon for several districts (the tooltip says how many). Workers past the jobs stand beside the buildings (they work at
+// half); the people who do not work at all (unhappy) get their own row
+const ROW_MAX = 36;
+function cpUnits(pc, kind) {
+  const G = pc.G; return Object.keys(G.units).filter(k => G.units[k] === kind).map(k => ({ k: +k, cap: kind === 'food' ? jobsOf(G, k) : (pc.perUnit[k] || 0), built: bOf(G, k) })).sort((a, b) => b.cap - a.cap || a.k - b.k);
+}
+function cpFill(items, supply) { let left = supply; return items.map(it => { const f = it.cap > 1e-9 ? Math.max(0, Math.min(1, left / it.cap)) : 0; left -= f * it.cap; return { ...it, f }; }); }
+function cpIcons(items, kind, col, badge, badgeCol, word) {
+  const n = items.length, g = Math.max(1, Math.ceil(n / ROW_MAX)), out = [];
+  for (let i = 0; i < n; i += g) { const grp = items.slice(i, i + g), cap = grp.reduce((a, x) => a + x.cap, 0), f = cap > 1e-9 ? grp.reduce((a, x) => a + x.f * x.cap, 0) / cap : 0, built = Math.min(...grp.map(x => x.built));
+    out.push(slotIcon(kind, col, { fill: f, built, badge, badgeCol, title: `${grp.length > 1 ? grp.length + ' ' + word + 's' : (grp[0].k < 0 ? 'the old city' : word)}: ${peopleWord(cap * f)} of ${peopleWord(cap)}${built < 0.999 ? ' · still going up' : ''}` })); }
+  return out.join('');
+}
+const cpRowHtml = (label, col, icons, num, extra = '') => `<div class="cprow"><span class="cplab" style="color:${col}">${label}</span><div class="cpslots">${icons}${extra}</div><b class="cpnum">${num}</b></div>`;
+function cpPeopleRow(pc) {
+  const P = pc.P, homes = cpUnits(pc, 'housing'), base = P.baseHousing + (pc.flat?.housing || 0), items = cpFill([...(base > 0.01 ? [{ k: -1, cap: base, built: 1 }] : []), ...homes], P.people), full = P.people >= pc.housing - 0.01;
+  const icons = items.map(it => it.k < 0 ? slotIcon('city', FACTOR_COLOR.housing, { fill: it.f, badge: 'bust', badgeCol: '#fff', title: `the old city: ${peopleWord(it.cap * it.f)} of ${peopleWord(it.cap)}` }) : null);
+  const rest = cpIcons(items.filter(it => it.k >= 0), 'home', FACTOR_COLOR.housing, 'bust', '#fff', 'home district');
+  return cpRowHtml('people', FACTOR_COLOR.housing, icons.filter(Boolean).join('') + rest, `${peopleWord(P.people)} / ${peopleWord(pc.housing)} <span class="tiny">${pc.dPeople >= 0 ? '+' : '−'}${peopleWord(Math.abs(pc.dPeople))}</span>`, full ? '<b class="up cpfull" title="no room left — the people cannot grow until homes are built">❗</b>' : '');
+}
+function cpFoodRow(pc) {
+  const farms = cpFill(cpUnits(pc, 'food'), pc.people.food), extra = Math.max(0, pc.people.food - pc.cap.farmJobs), per = farms.length ? pc.cap.farmJobs / farms.length : 1, nx = Math.min(12, Math.round(extra / Math.max(0.01, per)));
+  const xs = nx ? '<span class="cpplus">+</span>' + Array.from({ length: nx }, () => personIcon('hat', FACTOR_COLOR.food, { title: 'farmers past the farm jobs — they grow at half' })).join('') : '';
+  const fedM = pc.food / T.foodPerHead;
+  return cpRowHtml('food', FACTOR_COLOR.food, cpIcons(farms, 'farm', FACTOR_COLOR.food, 'hat', FACTOR_COLOR.food, 'farm district') || '<span class="tiny">no farms yet</span>', `${fmt(fedM)} / ${fmt(pc.P.people)} M <span class="tiny">fed / eat</span>`, xs);
+}
+function cpWorkRow(pc, kind) {
+  const hands = kind === 'industry' ? pc.people.industry : pc.people.research, items = cpFill(cpUnits(pc, kind), hands), jobs = kind === 'industry' ? pc.cap.industry : pc.cap.science, col = FACTOR_COLOR[kind];
+  const extra = Math.max(0, hands - jobs), per = items.length ? jobs / items.length : 1, nx = Math.min(12, Math.round(extra / Math.max(0.01, per)));
+  const xs = nx ? '<span class="cpplus">+</span>' + Array.from({ length: nx }, () => personIcon('hat', col, { title: `${kind === 'industry' ? 'workers' : 'researchers'} past the jobs — they work at half` })).join('') : '';
+  return cpRowHtml(kind, col, cpIcons(items, kind === 'industry' ? 'works' : 'lab', col, 'hat', col, kind === 'industry' ? 'works district' : 'lab district') || `<span class="tiny">no ${kind === 'industry' ? 'works' : 'labs'} yet</span>`, `${fmt(kind === 'industry' ? pc.industry : pc.research)} <span class="tiny">${fmt(hands)} M at ${fmt(jobs)} M jobs</span>`, xs);
+}
+function cpIdleRow(pc) {
+  if (!(pc.idle > 0.05)) return '';
+  const homes = cpUnits(pc, 'housing'), per = homes.length ? homes.reduce((a, x) => a + x.cap, 0) / homes.length : Math.max(1, pc.P.people / 4), n = Math.max(1, Math.min(24, Math.round(pc.idle / per)));
+  return cpRowHtml('not working', '#9aa6bd', Array.from({ length: n }, () => personIcon('head', '#9aa6bd', { title: 'unhappy — they do not work' })).join(''), `${fmt(pc.idle)} M <span class="tiny">unhappy (${Math.round(pc.P.happiness)})</span>`);
 }
 // THE CLIMATE under the food bar (2026-10-23, districts.js): what cuts this world's farms, how far the crops are adapted, what is left
 function cpClimate(pc) {

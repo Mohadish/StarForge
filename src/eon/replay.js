@@ -6,7 +6,7 @@ import { startProject, setInfluence, dropProject } from './research.js';
 import { sendFleet, giveAttention, settle, compute, setSplit, setDevFocus, queueAdd, queueCount, queueMove, queueDrop, setRelay, unrelay, moveRelay, dropRelay } from './model.js';
 
 export const REPLAY_VERSION = 1;
-// { type: 'split', place, split: [i, r, s] } · { type: 'design', design } (a whole design: replaces one with the same id) ·
+// { type: 'split', place, split: [i, r, d, f] } (the effort: industry, research, development, food — an older log's three keep the farmers) · { type: 'design', design } (a whole design: replaces one with the same id) ·
 // { type: 'build', place, design } · { type: 'buynow', place, index } (the queue's n-th item paid from the reserves) ·
 // { type: 'send', design, n, from: sysId, to: sysId } (n resting ships of that design in `from` to the star of `to`) ·
 // { type: 'focus', w } · { type: 'attention', field, d } · THE COLONY (2026-10-18, colony.js): { type: 'devfocus', place, w: [i, f, h, s] } (the

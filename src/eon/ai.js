@@ -9,7 +9,7 @@
 // figure out the best tactic against what you saw"): the fleet is built to a MIX; after every battle the head classifies the
 // enemy's ships by the tactics cycle and leans its next ships to the COUNTER (fleetplan.js: brute > screen > hit&run > range >
 // replen > brute). tools/play/world.mjs runs it headless and logs the orders; app.js runs it live. No DOM, no clock, no Math.random.
-import { T, SCALE, compute, lyBetween, fleetRange, shipRange, zoneOfSys, effectiveLy, waterOf, starsNear } from './model.js';
+import { T, SCALE, compute, lyBetween, fleetRange, shipRange, zoneOfSys, effectiveLy, waterOf, starsNear, farmShare } from './model.js';
 import { applyWorldAction, heldByAnother } from './world.js';
 import { designFromStacks } from './battle.js';
 import { designStats, autoFit, fitModule } from './modules.js';
@@ -116,6 +116,7 @@ export function makeBrain(W, S, opts = {}) {
 
   const HOME = S.homeSys, HOMEPLACE = S.homePlace || 'home';
   const leans = new Map();                             // each colony's development lean: crowded / hungry, held with a margin
+  const lastSplits = new Map();   // the effort last ordered, colony by colony
   let rally = HOME, target = null, path = null, kind = 'war', stale = 0, lastSplit = null, lastFocusEon = -99, colony = null, lastProgress = 0, waitingNoted = false, shortHold = 0, lastMove = 0, assault = null, lastMixWord = '';
   const B = { settled: 0, lost: 0, taken: 0, invasions: 0, stuckSince: 0, shipsBefore: 0 };
   for (const k of Object.keys(D)) act({ type: 'design', design: shipDesign(k) }); act({ type: 'design', design: dockDesign() });
@@ -144,7 +145,13 @@ export function makeBrain(W, S, opts = {}) {
     if (shortHold > 0) split = [0.6, 0.25, 0.15];
     if (pc.G && pc.cap.units >= planetOf(pc.G).net - 1) split = [0.5, 0.4, 0.1];   // a (nearly) full world — a district torn down for re-making does not count   // industry held at half: past it, industrial pollution builds and its sickness caps the people (384 M on every home, 2026-10-18)
     const sum = split.reduce((a, v) => a + v, 0); split = split.map(v => v / sum);
-    if (!lastSplit || split.some((v, i) => Math.abs(v - lastSplit[i]) > 0.02)) { act({ type: 'split', place: HOMEPLACE, split }); lastSplit = split; }
+    // THE FARMERS (2026-10-23, the effort is a tetrahedron): every colony keeps as many at the farms as feed it and a little over (a few
+    // more while it is hungry); the rest split as above at home, development-heavy on a young colony
+    for (const col of c.colonies) {
+      const f = Math.min(0.75, farmShare(col.P.people, col.farmYield, col.water) + (col.water && col.fed < 0.98 ? 0.05 : 0)), base = col.pl.id === HOMEPLACE ? split : [0.3, 0.15, 0.55];
+      const want = [...base.map(v => v * (1 - f)), f], was = lastSplits.get(col.pl.id);
+      if (!was || want.some((v, i) => Math.abs(v - was[i]) > 0.02)) { act({ type: 'split', place: col.pl.id, split: want }); lastSplits.set(col.pl.id, want); }
+    }
     // THE SURFACE (colony.js): every colony's development focus leans toward what it lacks — homes when the people press the housing,
     // farms when the food runs short, works when the industry hands outnumber the works, labs when the researchers do; the centre
     // otherwise (a bit of everything). The fillet keeps a lean from running to a corner the colony cannot use.

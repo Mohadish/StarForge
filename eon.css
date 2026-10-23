@@ -370,3 +370,11 @@
 .bnf b{color:#fff;font-weight:800;font-size:11.5px}
 .pjfind{color:#ffd26a;font-size:11px}
 .cpclim{margin:-2px 0 6px 92px;display:flex;flex-wrap:wrap;gap:2px 6px;align-items:center}
+/* the colony's output as district icons (app.js cpPeopleRow & co, 2026-10-23) */
+#colPop .cprow{display:grid;grid-template-columns:84px 1fr 170px;gap:8px;align-items:center;padding:3px 0;font-size:13px}
+#colPop .cplab{font-weight:600}
+#colPop .cpslots{display:flex;flex-wrap:wrap;gap:1px 2px;align-items:center;min-height:22px}
+#colPop .cpslots .slot{display:block}
+#colPop .cpnum{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+#colPop .cpplus{color:var(--muted);margin:0 3px;font-weight:700}
+#colPop .cpfull{margin-left:4px;font-size:15px}

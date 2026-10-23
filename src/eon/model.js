@@ -48,6 +48,9 @@ export const T = {
   // military (a share of the fleet's worth an eon), social (per million people), research (per point). Unpaid, the fleet wears,
   // people grumble and research slows, each by the unpaid share. Structures' own upkeep stays what it was: industry on the spot.
   upkeep: { military: 0.002, social: 0.01, research: 0.03, wear: 10, grumble: 20, slow: 0.3 },
+  // WHO WORKS (his call, 2026-10-23: unrest = people who do not work): at happiness ≥ 60 everyone works; below it the share falls to
+  // work.min at 0 (they strike, drift, sit it out); above 60 the ones who work do a little more (×bonus up to +25 % at 100)
+  work: { base: 0.4, min: 0.4, bonusFrom: 60, bonusPer: 160 },
   ground: { militia: 0.01, ratio: 5, mood: 20 },     // CONQUEST (his rule, 2026-10-16): a colony's militia = 1 in 100 of its people; a trooper landed is worth 5 of them (his 5:1); a blockade sours the mood by 20
   attention: 10,           // points of research attention to hand out between the nine fields
   steps: 10,               // hidden steps a field needs for one breakthrough
@@ -167,7 +170,8 @@ function rand(S) {
 const perField = v => Object.fromEntries(FIELD_IDS.map(f => [f, typeof v === 'function' ? v(f) : v]));
 // a colony: its people, the room it was born with, the planet's triangle (industry / research / DEVELOPMENT), the production line —
 // and its SURFACE (colony.js): the planet's districts, one unit each, the development focus, the fillet (`home`: the homeworld's old city)
-export const newColony = (people, baseHousing = 0, pl = null, home = false) => ({ people, baseHousing, split: [1 / 3, 1 / 3, 1 / 3], happiness: 60, queue: [], structures: [], factories: 0, surface: pl ? surfaceFor(pl, home, home ? null : people) : null });   // a landing: what the ship brought (colony.js SHELTER)
+// split: the EFFORT (2026-10-23, a tetrahedron) — industry, research, development, FOOD (the farmers)
+export const newColony = (people, baseHousing = 0, pl = null, home = false) => ({ people, baseHousing, split: [0.2, 0.15, 0.35, 0.3], happiness: 60, queue: [], structures: [], factories: 0, surface: pl ? surfaceFor(pl, home, home ? null : people) : null });   // a landing: what the ship brought (colony.js SHELTER)
 export function surfaceFor(pl, home = false, arrivals = null) { const g = gridOf(pl); return g ? newSurface({ w: g.w, h: g.h, pid: pl.id, kind: worldOf(pl), home, arrivals }) : null; }
 // an OLDER colony gets a surface: cells of four slots (2026-10-18 → 10-21) are laid again as districts (colony.js unitsFromCells);
 // before them, cells developed to district designs (each four slots by its design's mix, largest remainders first); before that: no
@@ -301,7 +305,9 @@ export function compute(S) {
   const WS = waterSupply(S, ships, caps, shock);
   // colonies
   const colonies = S.places.filter(pl => pl.colony).map(pl => {
-    const P = pl.colony, [si, sr, sd] = P.split, mp = P.people, factor = clamp(0.5 + P.happiness / 120, 0.5, 1.25);
+    const P = pl.colony, mp = P.people;
+    // WHO WORKS (T.work): the unhappy share sits it out; the rest split by the EFFORT tetrahedron below
+    const work = clamp(T.work.base + P.happiness / 100, T.work.min, 1), factor = 1 + Math.max(0, P.happiness - T.work.bonusFrom) / T.work.bonusPer;
     // pollution's drag (a share held past half for long builds its own up): industrial — people sicken; docile (the development
     // corner) — industry and research slacken; aloof (the research corner) — the builders slacken
     const pol = P.pol || { industry: 0, research: 0, social: 0 }, docile = 1 - T.pol.max * pol.social / 100, aloof = 1 - T.pol.max * pol.research / 100;
@@ -313,20 +319,27 @@ export function compute(S) {
       for (const gt of t.gantries) gantries.push({ ...gt, of: u.name, at: pl.name });
     }
     for (const { u, t } of ships) if (!u.dest && u.at === pl.id) for (const gt of t.gantries) gantries.push({ ...gt, of: u.name, at: pl.name });
-    const people = { industry: mp * si, research: mp * sr, development: mp * sd };
     // THE SURFACE (his design, 2026-10-18; one unit per DISTRICT since 2026-10-22 — colony.js): industry / food / housing / science
     // on the planet's own districts, each as good as its ground. The units are the CAPACITY — works and labs that employ the triangle's
     // hands (the rest work at idle), homes, farms that feed; the triangle is the EFFORT, and its third corner, DEVELOPMENT, builds the
     // next unit toward the colony's development focus. No penalties inside the surface (his call 2026-10-22: no "pure", no "short of hands").
     // THE CLIMATE (2026-10-23, districts.js): a cold, hot or airless world's farms give less — until research adapts the crops (S.adapt)
     const G = surfaceOf(S, pl), water = waterOf(pl), grid = gridOf(pl), climate = farmClimate(pl, S.adapt || {});
-    const { cap, perUnit } = G ? capsOf(G, { levels: S.slotLevels || LEVEL1, mul: { food: climate.mul } }) : { cap: { industry: 0, food: 0, housing: 0, science: 0, units: 0, scienceShare: 0 }, perUnit: {} };
+    const { cap, perUnit } = G ? capsOf(G, { levels: S.slotLevels || LEVEL1, mul: { food: climate.mul } }) : { cap: { industry: 0, food: 0, housing: 0, science: 0, units: 0, scienceShare: 0, farmJobs: 0 }, perUnit: {} };
+    // THE EFFORT — A TETRAHEDRON (his call, 2026-10-23: "we need people to work the fields"): industry, research, development and FOOD.
+    // An older colony's triangle gets its fourth corner once: as many farmers as feed everyone (and a little over)
+    const farmYield = cap.farmJobs > 1e-9 ? cap.food / cap.farmJobs : 0;   // M fed by one M at the farms
+    if (!Array.isArray(P.split) || P.split.length < 4) { const old = (P.split || [1, 1, 1]).slice(0, 3), t = old.reduce((a, v) => a + v, 0) || 1, f = farmShare(mp, farmYield, water); P.split = [...old.map(v => v / t * (1 - f)), f]; }
+    const [si, sr, sd, sf] = P.split;
+    const people = { industry: mp * si * work, research: mp * sr * work, development: mp * sd * work, food: mp * sf * work }, idle = mp * (1 - work);
     // FOOD from the farms (the M people they feed; a landed ship's social systems add theirs) — only where there is water (his spec,
     // 2026-10-16): without it the settlers live on their stores — no food, no growth, no famine — until supply lines exist (later)
     // …and on a DRY world (his rule, 2026-10-18) the farms grow on the water brought in (waterSupply): as much of them as it reaches;
     // short of it the colony still lives on its stores — no famine — but does not grow past what the water feeds
     const ws = water ? null : WS.get(pl.id), waterNeed = ws ? ws.need : 0, waterIn = ws ? ws.in : 0;
-    const eat = mp * T.foodPerHead, food = water ? cap.food * T.foodPerHead + flat.social * T.foodPerSocial : Math.min(cap.food, waterIn) * T.foodPerHead, surplus = water ? food - eat : Math.max(0, food - eat);
+    // the FARMERS work the farm districts' jobs; past them they still grow something, at idle (employed)
+    const grown = farmYield * employed(people.food, cap.farmJobs);   // M fed
+    const eat = mp * T.foodPerHead, food = water ? grown * T.foodPerHead + flat.social * T.foodPerSocial : Math.min(grown, waterIn) * T.foodPerHead, surplus = water ? food - eat : Math.max(0, food - eat);
     const fed = water ? clamp(food / Math.max(1e-9, eat), 0, 1) : 1, hungry = 1 - DISTRICT.hunger * (1 - fed);   // a hungry planet works worse (his strain)
     const industry = Math.max(0, employed(people.industry, cap.industry) * factor * docile * hungry + flat.industry + (P.factories || 0) * T.factoryOut - flat.upkeep);   // the factories: a flat trickle each
     const research = employed(people.research, cap.science) * factor * docile * hungry + flat.research;
@@ -388,7 +401,7 @@ export function compute(S) {
     const noFood = !water && !(ws && ws.reach > 0);   // a dry world builds farms once water can reach it
     const next = G && !blockaded ? building(G, { noFood, lack }) : null;
     return { pl, P, people, factor, flat, industry, research, food, gantries, housing, full, queue, done, spare, eat, surplus, fed, hungry, dPeople, happiness, happyTarget,
-      water, noFood, waterNeed, waterIn, waterRoutes: ws ? ws.routes : [], waterCost: ws ? ws.cost : 0, waterReach: ws ? ws.reach : 0, roomCap, houses, factories: P.factories || 0, newFactories, toReserves, needI, needR, short, pol, polNext, blockaded, cap, perUnit, grid, G, dev, staffed, want, lack, next, climate };
+      work, idle, farmYield, grown, water, noFood, waterNeed, waterIn, waterRoutes: ws ? ws.routes : [], waterCost: ws ? ws.cost : 0, waterReach: ws ? ws.reach : 0, roomCap, houses, factories: P.factories || 0, newFactories, toReserves, needI, needR, short, pol, polNext, blockaded, cap, perUnit, grid, G, dev, staffed, want, lack, next, climate };
   });
   // who is studying what: research power on the ground and in orbit, place by place
   const ground = {}, orbit = {}, sysResearch = {}, sysOfPlace = Object.fromEntries(S.places.map(p => [p.id, p.sys]));
@@ -820,9 +833,12 @@ export function endEon(S) {
 // THE COLONY'S ORDERS (his pop-up, 2026-10-18): the triangle, the development focus (the dot on the rectangle), a cell's plan, and the
 // production line — add N of a design, change how many, move an item up or down the line
 const colonyAt = (S, placeId) => (S.places.find(p => p.id === placeId) || {}).colony || null;
+// the share of the people the farms need to feed everyone (and a little over) — for an older colony's fourth corner and the AI
+export function farmShare(people, farmYield, water = true) { if (!water) return 0.12; if (!(farmYield > 0)) return 0.05; return clamp(1.12 / farmYield, 0.05, 0.7); }
 export function setSplit(S, placeId, split) {
   const P = colonyAt(S, placeId); if (!P) return 'No colony there';
-  const v = (split || []).slice(0, 3).map(x => Math.max(0, +x || 0)), t = v.reduce((a, x) => a + x, 0); if (v.length !== 3 || !(t > 0)) return 'A split is three shares';
+  const v = (split || []).slice(0, 4).map(x => Math.max(0, +x || 0)), t = v.reduce((a, x) => a + x, 0); if (v.length < 3 || !(t > 0)) return 'The effort is four shares';
+  if (v.length === 3) { const f = Array.isArray(P.split) && P.split.length >= 4 ? P.split[3] : 0.25; P.split = [...v.map(x => x / t * (1 - f)), f]; return null; }   // an older order's triangle: the farmers stay as they are
   P.split = v.map(x => x / t); return null;
 }
 // the development focus: four weights (industry, food, housing, science — the tetrahedron, 2026-10-20); an older order's x, y (the
