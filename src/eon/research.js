@@ -13,6 +13,7 @@
 // · ADVISORS read the empire and suggest what it needs (hungry, crowded, idle hands, ships breaking down, hostile fleets, a new find…).
 import { DOMAINS, CHANNEL_X } from '../data/properties.js';
 import { counts } from './colony.js';
+import { CLIMATE } from './districts.js';
 
 export const FIELD_IDS = Object.keys(DOMAINS);
 export const FIELD_COL = { materials: '#c9a27a', fabrication: '#ffb347', energy: '#ffd84f', electrics: '#7fd8ff', optics: '#c79bff', thermal: '#ff7a59', motion: '#5fe0b4', life: '#8fd16a', information: '#4fa3ff' };
@@ -21,6 +22,7 @@ export const RESEARCH = {
   strength: { base: 0.55, potential: 0.6, perFind: 0.04, booster: 0.06, boosters: 3 },   // a field's strength for a project; at most 3 finds boost one project
   mag: 10,                                   // % a generation adds to its family's main channel at quality 1 (the other channels by their weight)
   level: { base: 0.4, q: 0.6 },              // a civil generation raises its kind's level by base + q × quality (a level = +25 % output)
+  adapt: { base: 0.25, q: 0.25 },            // a climate generation adapts the crops by base + q × quality (of 1: fully adapted, the hazard gone)
   profileBase: 0.03,                         // every field has something to learn wherever you look
   selfStudy: 0.5,                            // a colony studies its own world this much by its character
   lucky: { after: 70, span: 30 },            // no find for 70 eons: a lucky break grows likelier every eon, certain by 100 (his call: "people want things to happen")
@@ -34,7 +36,7 @@ export const CATEGORIES = [
   { id: 'energy', name: 'Energy', fams: ['shield', 'reactor'] },
   { id: 'propulsion', name: 'Propulsion', fams: ['drive', 'thruster'] },
   { id: 'information', name: 'Information', fams: ['computer', 'sensors'] },
-  { id: 'civil', name: 'Civil', fams: ['farms', 'homes', 'works', 'labs'] },
+  { id: 'civil', name: 'Civil', fams: ['farms', 'farms_cold', 'farms_hot', 'farms_rad', 'homes', 'works', 'labs'] },
 ];
 export const FAMILIES = {
   beam:     { name: 'Energy weapon',    icon: '⚡', base: 'Lance',   recipe: { energy: 0.4, optics: 0.35, thermal: 0.25 }, channels: { beam_power: 1, weapon_range: 0.6, rate_of_fire: 0.6 } },
@@ -48,6 +50,10 @@ export const FAMILIES = {
   computer: { name: 'Weapons computer', icon: '▣', base: 'Oracle',  recipe: { electrics: 0.4, information: 0.4, optics: 0.2 }, channels: { targeting: 1, computing: 0.6, synthetic_neural: 0.4 } },
   sensors:  { name: 'Sensors',          icon: '◉', base: 'Argus',   recipe: { optics: 0.45, information: 0.35, electrics: 0.2 }, channels: { sensor_range: 1, sensor_resolution: 0.6 } },
   farms:    { name: 'Farms',            icon: '🌾', base: 'Harvest', recipe: { life: 0.6, thermal: 0.2, materials: 0.2 }, level: 'food' },
+  // THE CLIMATE'S CROPS (his call 2026-10-23): each generation ADAPTS the farms to one hazard (districts.js CLIMATE) — the cut it makes shrinks
+  farms_cold: { name: 'Frost-hardy crops', icon: '❄', base: 'Rime',   recipe: { life: 0.5, thermal: 0.3, materials: 0.2 }, adapt: 'cold' },
+  farms_hot:  { name: 'Heat-proof crops',  icon: '☀', base: 'Ember',  recipe: { life: 0.45, thermal: 0.35, fabrication: 0.2 }, adapt: 'heat' },
+  farms_rad:  { name: 'Shielded farms',    icon: '☢', base: 'Mantle', recipe: { life: 0.4, materials: 0.3, motion: 0.3 }, adapt: 'radiation' },
   homes:    { name: 'Homes',            icon: '⌂', base: 'Hearth',  recipe: { materials: 0.4, life: 0.3, information: 0.3 }, level: 'housing' },
   works:    { name: 'Works',            icon: '⚙', base: 'Foundry', recipe: { fabrication: 0.5, electrics: 0.3, materials: 0.2 }, level: 'industry' },
   labs:     { name: 'Labs',             icon: '🔬', base: 'Lyceum',  recipe: { information: 0.5, electrics: 0.3, optics: 0.2 }, level: 'science' },
@@ -70,16 +76,23 @@ const TEXT = {
   farms:    T3('New strains and closed soil cycles: every farm district feeds {0} more.', 'Layered fields under light: every farm district feeds {0} more.', 'Crops bred for the world they stand on: every farm district feeds {0} more.'),
   homes:    T3('Lighter frames and shared walls: every home district houses {0} more.', 'Towers that breathe: every home district houses {0} more.', 'Homes grown, not built: every home district houses {0} more.'),
   works:    T3('Better tooling on the lines: every works district turns out {0} more.', 'Lines that run themselves through the night: every works district turns out {0} more.', 'Machines that build machines: every works district turns out {0} more.'),
+  farms_cold: T3('Frost-hardy strains and heated soil: farms on cold worlds feed {0} more.', 'Crops that sleep through the frost and wake with the light: farms on cold worlds feed {0} more.', 'Greenhouses that keep their own summer: farms on cold worlds feed {0} more.'),
+  farms_hot:  T3('Deep-rooted, waxy-leaved strains: farms on hot worlds feed {0} more.', 'Shade lattices and night harvests: farms on hot worlds feed {0} more.', 'Crops that drink the heat: farms on hot worlds feed {0} more.'),
+  farms_rad:  T3('Buried fields under a shield of rock and water: farms under open radiation feed {0} more.', 'Strains that mend their own seeds: farms under hard radiation feed {0} more.', 'A field lattice that turns the radiation aside: farms under open radiation feed {0} more.'),
   labs:     T3('Shared instruments and quicker methods: every lab district studies {0} more.', 'Labs that talk to each other: every lab district studies {0} more.', 'Thinking machines in every lab: every lab district studies {0} more.'),
 };
 export const CHANNEL_ICON = { beam_power: 'damage', kinetic_penetration: 'pierce', warhead_yield: 'damage', weapon_range: 'range', rate_of_fire: 'rate', accuracy: 'accuracy', targeting: 'accuracy',
   armor_integrity: 'armor', armor_deflection: 'armor', hull_integrity: 'hull', shield_capacity: 'shield', shield_recovery: 'recovery', shield_reach: 'shield',
   reactor_output: 'power', energy_storage: 'storage', power_efficiency: 'power', drive_efficiency: 'reach', thrust: 'speed', agility: 'evasion', evasion: 'evasion',
-  computing: 'computing', synthetic_neural: 'computing', sensor_range: 'sensors', sensor_resolution: 'sensors', food: 'food', housing: 'homes', industry: 'works', science: 'labs' };
+  computing: 'computing', synthetic_neural: 'computing', sensor_range: 'sensors', sensor_resolution: 'sensors', food: 'food', housing: 'homes', industry: 'works', science: 'labs',
+  cold: 'cold', heat: 'heat', radiation: 'radiation' };
+// how much more a world under this hazard would farm if the crops' adaptation went from a to a2 (a full hazard)
+export const adaptGain = (hazard, a, a2) => { const p = CLIMATE[hazard] || 0; return (1 - p * (1 - Math.min(1, a2))) / Math.max(1e-6, 1 - p * (1 - Math.min(1, a))) - 1; };
 // what a generation would give, with the fields as they are: [{ channel, icon, pct }] in the family's order (the main one first)
 export function benefitsOf(S, fields, fam, q = null) {
   const F = FAMILIES[fam]; if (q == null) q = qualityOf(S, fields, fam).q;
   if (F.level) return [{ channel: F.level, icon: CHANNEL_ICON[F.level], pct: Math.round((RESEARCH.level.base + RESEARCH.level.q * q) * 25) }];
+  if (F.adapt) { const a = (S.adapt || {})[F.adapt] || 0, a2 = a + RESEARCH.adapt.base + RESEARCH.adapt.q * q; return [{ channel: F.adapt, icon: 'food', icon2: CHANNEL_ICON[F.adapt], pct: Math.max(1, Math.round(adaptGain(F.adapt, a, a2) * 100)) }]; }
   return Object.entries(F.channels).map(([channel, w]) => ({ channel, icon: CHANNEL_ICON[channel], pct: Math.max(1, Math.round(RESEARCH.mag * w * q)) }));
 }
 // the paragraph's text for a generation: the template with {i} still in it (the UI fills them)
@@ -153,7 +166,10 @@ export function advanceProjects(S, plans, rep) {
     S.gens = S.gens || {}; S.gens[pl.fam] = pl.gen; S.usedBoost = [...(S.usedBoost || []), ...pl.boosts.map(b => b.id)];
     const F = pl.F, top = Object.entries(F.recipe).sort((a, b) => b[1] - a[1])[0][0], ben = benefitsOf(S, null, pl.fam, pl.q);
     const research = { fam: pl.fam, gen: pl.gen, name: pl.name, pcts: ben.map(b => b.pct), boosts: pl.boosts.map(b => b.name) };   // the report draws the paragraph with its icons from this
-    if (F.level) {
+    if (F.adapt) {
+      S.adapt = S.adapt || {}; S.adapt[F.adapt] = Math.min(1, (S.adapt[F.adapt] || 0) + RESEARCH.adapt.base + RESEARCH.adapt.q * pl.q);
+      rep.push({ kind: 'breakthrough', research, text: `Research done: ${pl.name} — farms on ${F.adapt === 'cold' ? 'cold' : F.adapt === 'heat' ? 'hot' : 'radiation-exposed'} worlds feed ${ben[0].pct} % more (quality ${Math.round(pl.q * 100)} %)` });
+    } else if (F.level) {
       const up = RESEARCH.level.base + RESEARCH.level.q * pl.q; S.slotLevels = S.slotLevels || {}; S.slotLevels[F.level] = (S.slotLevels[F.level] || 1) + up;
       rep.push({ kind: 'breakthrough', research, text: `Research done: ${pl.name} — every ${F.level === 'food' ? 'farm' : F.level === 'housing' ? 'home' : F.level === 'industry' ? 'works' : 'lab'} district gives ${ben[0].pct} % more (quality ${Math.round(pl.q * 100)} %)` });
     } else {
@@ -172,6 +188,10 @@ export function advisors(S, c) {
   const add = (fam, why, score) => { if (busy.has(fam)) return; const o = out.find(x => x.fam === fam); if (o) { if (score > o.score) { o.why = why; o.score = score; } return; } out.push({ fam, why, score, q: q(fam) }); };
   const names = list => list.slice(0, 2).map(p => p.pl.name).join(', ') + (list.length > 2 ? ` and ${list.length - 2} more` : '');
   const hungry = c.colonies.filter(p => p.water && p.fed < 0.98); if (hungry.length) add('farms', `${names(hungry)} ${hungry.length > 1 ? 'are' : 'is'} hungry — food feeds ${Math.round(Math.min(...hungry.map(p => p.fed)) * 100)} %`, 3);
+  for (const [hazard, fam, word] of [['cold', 'farms_cold', 'cold'], ['heat', 'farms_hot', 'hot'], ['radiation', 'farms_rad', 'open to radiation (thin or no air)']]) {   // the climate cuts the farms (districts.js)
+    if (((S.adapt || {})[hazard] || 0) >= 0.999) continue; const hit = c.colonies.filter(p => p.climate && p.climate.parts.some(x => x.hazard === hazard && x.cut > 0.02) && p.cap.food > 0);
+    if (hit.length) add(fam, `${names(hit)} ${hit.length > 1 ? 'are' : 'is'} ${word} — ${hit.length > 1 ? 'their' : 'its'} farms give ${Math.round(Math.min(...hit.map(p => p.climate.mul)) * 100)} % of what they would`, hit.some(p => p.water ? p.fed < 0.98 : p.waterNeed > 0) ? 2.8 : 1.9 + (1 - Math.min(...hit.map(p => p.climate.mul))));   // hungry: urgent; else as much as the climate cuts
+  }
   const crowded = c.colonies.filter(p => p.P.people > 0.9 * p.housing); if (crowded.length) add('homes', `${names(crowded)} ${crowded.length > 1 ? 'are' : 'is'} crowded — ${Math.round(crowded[0].P.people)} of ${Math.round(crowded[0].housing)} M homes taken`, 2.6);
   const idle = c.colonies.filter(p => p.people.industry > p.cap.industry * 1.1); if (idle.length) add('works', `${Math.round(idle.reduce((a, p) => a + p.people.industry - p.cap.industry, 0))} M hands have no works to work in (${names(idle)})`, 2.2);
   const idleR = c.colonies.filter(p => p.people.research > p.cap.science * 1.1); if (idleR.length) add('labs', `${Math.round(idleR.reduce((a, p) => a + p.people.research - p.cap.science, 0))} M researchers have no labs (${names(idleR)})`, 2);

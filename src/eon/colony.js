@@ -93,10 +93,11 @@ export function unitsFromCells(old, { pid, kind }) {
   return G;
 }
 // the CAPACITIES of a surface (M people): what its units employ, house and feed — each its kind's capacity × its ground × the empire's
-// level of the kind × how far it is built. scienceShare: the share of the units that are labs (health, care — model.js)
-export function capsOf(G, { levels = LEVEL1 } = {}) {
+// level of the kind × how far it is built × the world's own multiplier for the kind (mul — the farms' CLIMATE, districts.js).
+// scienceShare: the share of the units that are labs (health, care — model.js)
+export function capsOf(G, { levels = LEVEL1, mul = {} } = {}) {
   const D = planetOf(G), cap = { industry: 0, food: 0, housing: 0, science: 0, units: 0, scienceShare: 0 }, perUnit = {};
-  for (const k in G.units) { const kind = G.units[k], out = unitCap(D, +k, kind, levels) * bOf(G, k); cap[kind] += out; cap.units++; if (kind === 'science') cap.scienceShare++; perUnit[k] = out; }
+  for (const k in G.units) { const kind = G.units[k], out = unitCap(D, +k, kind, levels) * bOf(G, k) * (mul[kind] ?? 1); cap[kind] += out; cap.units++; if (kind === 'science') cap.scienceShare++; perUnit[k] = out; }
   cap.scienceShare = cap.units ? cap.scienceShare / cap.units : 0;
   return { cap, perUnit };
 }

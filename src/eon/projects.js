@@ -18,15 +18,15 @@ const richWord = p => p >= 0.5 ? '<b style="color:#7ef3b0">rich</b>' : p >= 0.25
 const qClass = q => q >= 1 ? 'down' : q < 0.8 ? 'up' : '';
 // THE PARAGRAPH (his ask 2026-10-23): the technology in words, every number in it carried by its icon — read it, or just look at the
 // icons. ben: [{ icon, pct }] in the family's order; boosts: the names of the finds it is built on
-const token = (ic, pct) => `<span class="bnf" style="--bc:${ICON_COLOR[ic] || '#ccc'}">${icon(ic, { size: 15 })}<b>+${pct} %</b></span>`;
+const token = (ic, pct, ic2 = null) => `<span class="bnf" style="--bc:${ICON_COLOR[ic2 || ic] || '#ccc'}">${icon(ic, { size: 15 })}${ic2 ? icon(ic2, { size: 15 }) : ''}<b>+${pct} %</b></span>`;   // ic2: where it counts (❄ cold worlds…)
 export function paragraph(fam, gen, ben, boosts = []) {
-  const html = esc(textOf(fam, gen)).replace(/\{(\d)\}/g, (m, i) => ben[+i] ? token(ben[+i].icon, ben[+i].pct) : '');
+  const html = esc(textOf(fam, gen)).replace(/\{(\d)\}/g, (m, i) => ben[+i] ? token(ben[+i].icon, ben[+i].pct, ben[+i].icon2) : '');
   return `<p class="pjdesc">${html}${boosts.length ? ` <span class="pjfind">✦ Built on ${boosts.map(esc).join(', ')}.</span>` : ''}</p>`;
 }
 // a finished project in the eon's report: its name and its paragraph with the numbers it came out with
 export function researchDoneHtml(r) {
   const F = FAMILIES[r.fam]; if (!F) return esc(r.name || '');
-  const ben = F.level ? [{ icon: CHANNEL_ICON[F.level], pct: r.pcts[0] }] : Object.keys(F.channels).map((ch, i) => ({ icon: CHANNEL_ICON[ch], pct: r.pcts[i] }));
+  const ben = F.adapt ? [{ icon: 'food', icon2: CHANNEL_ICON[F.adapt], pct: r.pcts[0] }] : F.level ? [{ icon: CHANNEL_ICON[F.level], pct: r.pcts[0] }] : Object.keys(F.channels).map((ch, i) => ({ icon: CHANNEL_ICON[ch], pct: r.pcts[i] }));
   return `<b>Research done: ${F.icon} ${esc(r.name)}</b>${paragraph(r.fam, r.gen, ben, r.boosts || [])}`;
 }
 
@@ -58,7 +58,7 @@ function famCard(S, c, fam, why = null) {
     ${why ? `<div class="tiny pjwhy">${esc(why)}</div>` : ''}
     <div class="pjrecipe">${ch.map(x => `<span title="strength ${x.strength.toFixed(2)} — to find where you look ${Math.round(x.potential * 100)} %, ${x.found} found${x.nb ? `, ${x.nb} new find${x.nb > 1 ? 's' : ''}` : ''}"><i class="fdot" style="background:${FIELD_COL[x.id]}"></i>${esc(c.fields.find(f => f.id === x.id)?.name || x.id)} ${Math.round(x.w * 100)} %</span>`).join('')}</div>
     ${paragraph(fam, generationOf(S, fam), benefitsOf(S, c.fields, fam, q), boosts.map(b => b.name))}
-    <div class="tiny">${needOf(S, fam)} research · ${F.level ? `every ${F.level === 'food' ? 'farm' : F.level === 'housing' ? 'home' : F.level === 'industry' ? 'works' : 'lab'} district` : `every ${esc(F.name.toLowerCase())} you have`}, from the day it is done</div>
+    <div class="tiny">${needOf(S, fam)} research · ${F.adapt ? `every farm on a ${F.adapt === 'cold' ? 'cold' : F.adapt === 'heat' ? 'hot' : 'radiation-exposed'} world${S.adapt?.[F.adapt] ? ` (already ${Math.round(S.adapt[F.adapt] * 100)} % adapted)` : ''}` : F.level ? `every ${F.level === 'food' ? 'farm' : F.level === 'housing' ? 'home' : F.level === 'industry' ? 'works' : 'lab'} district` : `every ${esc(F.name.toLowerCase())} you have`}, from the day it is done</div>
     <button class="go" data-pjstart="${fam}">Start</button></div>`;
 }
 function pickerHtml(S, c) {

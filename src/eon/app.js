@@ -28,6 +28,7 @@ import { designSpecHtml, modulesLine, chipStripHtml } from './spec.js';
 import { FACTORS, FACTOR_COLOR, SIZES, sizeClassOf, gridOf, habitabilityOf, habWord } from './districts.js';
 import { DEV, LEVEL1, KIND_WORD as SLOT_WORD, filletWhy, isFull, counts, planetOf, unitCap, districtInfo } from './colony.js';
 import { renderResearch, initResearch, researchDoneHtml } from './projects.js';
+import { icon as ticon } from './techicons.js';
 initResearch({ save: () => save(), refresh: () => refresh() });   // the Research tab's orders save and redraw like every other
 import { drawSurface, focusTetra, drawTri as drawEffortTri, triFromPoint, triBall, toCanvas, districtAt as surfaceCellAt, mapSize } from './colonyview.js';
 mountNav('eon', { into: document.getElementById('topbar') });
@@ -1293,7 +1294,7 @@ function openColPop(placeId, k = null) {
     if (i < 0) { tip.style.display = 'none'; return; }
     const inf = districtInfo(pc.G, i); if (!inf) { tip.style.display = 'none'; return; }
     const D = planetOf(pc.G), lv = S.slotLevels || LEVEL1, verb = { housing: 'houses', food: 'feeds', industry: 'works for', science: 'labs for' };
-    tip.innerHTML = `<b>${inf.landing ? 'the landing · ' : ''}${esc(inf.ground)}</b><br>${inf.unit ? `<b style="color:${FACTOR_COLOR[inf.unit]}">${SLOT_WORD[inf.unit]}</b>${inf.b < 1 ? ` — ${inf.b < 0.1 ? (inf.b * 100).toFixed(1) : Math.round(inf.b * 100)} % built` : ''} · ${verb[inf.unit]} ${peopleWord(pc.perUnit[i] || 0)}` : inf.buildable ? 'free ground — nothing built yet' : `<span class="up">nothing can be built: ${inf.why}</span>`}${inf.buildable ? `<br><span class="tiny">one unit here would give: ${FACTORS.map(k => `<span style="color:${FACTOR_COLOR[k]}">${SLOT_WORD[k]} ${peopleWord(unitCap(D, i, k, lv))}</span>`).join(' · ')}</span>` : ''}`;
+    tip.innerHTML = `<b>${inf.landing ? 'the landing · ' : ''}${esc(inf.ground)}</b><br>${inf.unit ? `<b style="color:${FACTOR_COLOR[inf.unit]}">${SLOT_WORD[inf.unit]}</b>${inf.b < 1 ? ` — ${inf.b < 0.1 ? (inf.b * 100).toFixed(1) : Math.round(inf.b * 100)} % built` : ''} · ${verb[inf.unit]} ${peopleWord(pc.perUnit[i] || 0)}` : inf.buildable ? 'free ground — nothing built yet' : `<span class="up">nothing can be built: ${inf.why}</span>`}${inf.buildable ? `<br><span class="tiny">one unit here would give: ${FACTORS.map(k => `<span style="color:${FACTOR_COLOR[k]}">${SLOT_WORD[k]} ${peopleWord(unitCap(D, i, k, lv) * (k === 'food' ? (pc.climate?.mul ?? 1) : 1))}</span>`).join(' · ')}</span>` : ''}`;
     tip.style.display = 'block'; tip.style.left = Math.min(innerWidth - 300, e.clientX + 14) + 'px'; tip.style.top = (e.clientY + 14) + 'px';
   });
   map.addEventListener('mouseleave', () => { cpHover = -1; $('cpTip').style.display = 'none'; const pc = cpColony(); if (pc) drawSurface(map, pc.G, { next: pc.next, frameColor: cpFrame(), planet: cpPlanet(pc) }); });
@@ -1326,12 +1327,13 @@ function cpOutHtml(pc) {
   const nextLine = pc.blockaded ? '<b class="up">blockaded — nothing is built</b>'
     : !next ? (isFull(G) ? `the world is fully developed and in balance — ${fmt(pc.people.development)} M builders stand idle: move them in the triangle` : 'nothing to build')
     : next.demolish ? `tearing down a <b style="color:${FACTOR_COLOR[next.demolish]}">${SLOT_WORD[next.demolish]}</b> district (${where(next.unit)}, ${DEV.demolish} pts), then <b style="color:${FACTOR_COLOR[next.kind]}">${SLOT_WORD[next.kind]}</b> goes up in its place (${DEV.cost} pts)`
-    : `${next.partial ? 'going up' : 'next'}: <b style="color:${FACTOR_COLOR[next.kind]}">${SLOT_WORD[next.kind]}</b> on ${where(next.unit)}${next.partial ? ` — ${next.b < 0.1 ? (next.b * 100).toFixed(1) : Math.round(next.b * 100)} % built` : ''} · ${pc.dev > 0 ? `adds about ${peopleWord(unitCap(planetOf(G), next.unit, next.kind, lvN) * pc.dev / DEV.cost)} ${next.kind === 'housing' ? 'of homes' : next.kind === 'food' ? 'fed' : next.kind === 'industry' ? 'of works' : 'of labs'} an eon${(1 - (next.b || 0)) * DEV.cost / pc.dev < 200 ? `, done in ${plural(Math.max(1, Math.ceil((1 - (next.b || 0)) * DEV.cost / pc.dev)), 'eon')}` : ''}` : 'nobody builds'}`;   // a slot going up gives its share as it goes (2026-10-20)
+    : `${next.partial ? 'going up' : 'next'}: <b style="color:${FACTOR_COLOR[next.kind]}">${SLOT_WORD[next.kind]}</b> on ${where(next.unit)}${next.partial ? ` — ${next.b < 0.1 ? (next.b * 100).toFixed(1) : Math.round(next.b * 100)} % built` : ''} · ${pc.dev > 0 ? `adds about ${peopleWord(unitCap(planetOf(G), next.unit, next.kind, lvN) * (next.kind === 'food' ? (pc.climate?.mul ?? 1) : 1) * pc.dev / DEV.cost)} ${next.kind === 'housing' ? 'of homes' : next.kind === 'food' ? 'fed' : next.kind === 'industry' ? 'of works' : 'of labs'} an eon${(1 - (next.b || 0)) * DEV.cost / pc.dev < 200 ? `, done in ${plural(Math.max(1, Math.ceil((1 - (next.b || 0)) * DEV.cost / pc.dev)), 'eon')}` : ''}` : 'nobody builds'}`;   // a slot going up gives its share as it goes (2026-10-20)
   const pol = pc.pol.industry + pc.pol.social + pc.pol.research > 1 ? ` · pollution: <span title="an industrial world: people sicken">industrial ${Math.round(pc.pol.industry)}</span> · <span title="the development corner held past half: industry and research slacken">docile ${Math.round(pc.pol.social)}</span> · <span title="the research corner held past half: the builders slacken">aloof ${Math.round(pc.pol.research)}</span>` : '';
   return `
     ${cpBar('people', P.people, pc.housing, FACTOR_COLOR.housing, `${peopleWord(P.people)} / ${peopleWord(pc.housing)} <span class="tiny">homes · ${pc.dPeople >= 0 ? '+' : '−'}${peopleWord(Math.abs(pc.dPeople))}</span>`)}
     ${pc.water ? cpBar('food', Math.min(fedM, eatM), eatM, FACTOR_COLOR.food, `${fmt(fedM)} / ${fmt(eatM)} M <span class="tiny">fed / eat</span>`) + `<div class="icons" title="a plate = 20 M people eating (dim: unfed); a sheaf = 20 M more fed than live here — a surplus for the colonies round it (logistics, later)">${reps('🍽', fedPlates)}<span class="dim">${reps('🍽', plates - fedPlates)}</span> ${reps('🌾', grain, 30)}${pc.fed < 1 ? ` <b class="up" style="font-size:12px">hungry — works at ${Math.round(pc.hungry * 100)} %</b>` : ''}</div>`
       : cpWaterHtml(pc) + (pc.waterNeed > 0 ? cpBar('food', Math.min(fedM, eatM), eatM, FACTOR_COLOR.food, `${fmt(fedM)} / ${fmt(eatM)} M <span class="tiny">fed / eat</span>`) + `<div class="icons">${reps('🍽', fedPlates)}<span class="dim">${reps('🍽', plates - fedPlates)}</span> ${reps('🌾', grain, 30)}</div>` : '')}
+    ${cpClimate(pc)}
     ${cpBar('industry', Math.min(pc.people.industry, pc.cap.industry), pc.cap.industry, FACTOR_COLOR.industry, `${fmt(pc.industry)} <span class="tiny">${fmt(pc.people.industry)} M hands / ${fmt(pc.cap.industry)} M works</span>`)}
     <div class="icons" title="a gear = 10 industry; a wrench = 10 of it into the production line; money = 10 into the reserves (credits)">${reps('⚙', pc.industry / 10)} <span class="tiny">→</span> ${reps('🔧', toLine / 10)}${reps('💰', pc.toReserves / 10)}<span class="tiny"> ${Math.round(toLine)} to the line${pc.newFactories ? ` · ${pc.newFactories} factor${pc.newFactories === 1 ? 'y' : 'ies'} built` : ''} · ${Math.round(pc.toReserves)} to the reserves</span></div>
     ${cpBar('science', Math.min(pc.people.research, pc.cap.science), pc.cap.science, FACTOR_COLOR.science, `${fmt(pc.research)} <span class="tiny">${fmt(pc.people.research)} M / ${fmt(pc.cap.science)} M labs</span>`)}
@@ -1394,6 +1396,12 @@ const NOTE_ICON = { move: '⇢', build: '🔨', battle: '⚔', bad: '⚠', break
 function notesFromEon() {
   const extra = W && !REPLAY && !SIM ? (W.events || []).filter(ev => ev.eon === W.eon - 1 && (ev.text || '').includes(S.name) && !S.report.some(r => r.text === ev.text)) : [];
   NOTES = [...(S.report || []), ...extra].filter(r => NOTE_ICON[r.kind] && !r.minor).map((r, i) => ({ ...r, i })); notesAll = false; renderNotes();
+}
+// THE CLIMATE under the food bar (2026-10-23, districts.js): what cuts this world's farms, how far the crops are adapted, what is left
+function cpClimate(pc) {
+  const C = pc.climate; if (!C || C.mul > 0.999) return '';
+  const word = x => x.hazard === 'cold' ? 'cold world' : x.hazard === 'heat' ? 'hot world' : x.base >= 0.34 ? 'no air — radiation' : 'thin air — radiation';
+  return `<div class="tiny cpclim" title="research can adapt the crops: the Research tab, Civil">${C.parts.map(x => `${ticon(x.hazard, { size: 15 })} ${word(x)} <b class="up">−${Math.round(x.cut * 100)} %</b>${x.adapt > 0 ? ` <span style="opacity:.75">(crops ${Math.round(x.adapt * 100)} % adapted)</span>` : ''}`).join(' · ')} — the farms give <b>${Math.round(C.mul * 100)} %</b></div>`;
 }
 function renderNotes() {
   const el = $('notes'); if (!el) return;

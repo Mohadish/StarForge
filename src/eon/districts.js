@@ -53,6 +53,21 @@ export function habitabilityOf(pl) {
   if (w === 'moon') return { atmosphere: pick('thin', 'none', 0.2), water: pl.water != null ? (pl.water ? 'ice' : 'none') : (r(3) < 0.4 ? 'ice' : 'none'), organics: false, temp: pick('cold', 'mild', 0.7) };
   return { atmosphere: pick('thin', 'none', 0.35), water: r(2) < 0.1 ? 'ice' : 'none', organics: false, temp: pick('cold', 'mild', 0.5) };   // barren
 }
+// CLIMATE (his call, 2026-10-23): a world's COLD, HEAT and RADIATION (no air to stop it; a thin one lets half through) cut what its
+// farms give — each by its share, multiplied; research ADAPTS the crops (S.adapt: 0 none … 1 fully adapted, research.js)
+export const CLIMATE = { cold: 0.3, heat: 0.3, radiation: 0.35, thinAir: 0.5 };
+export function hazardsOf(pl) {
+  const h = habitabilityOf(pl), out = {};
+  if (h.temp === 'cold') out.cold = CLIMATE.cold; if (h.temp === 'hot') out.heat = CLIMATE.heat;
+  if (h.atmosphere === 'none') out.radiation = CLIMATE.radiation; else if (h.atmosphere === 'thin') out.radiation = CLIMATE.radiation * CLIMATE.thinAir;
+  return out;
+}
+// what the farms of a world give for its climate, after the crops' adaptation: { mul, parts: [{ hazard, base, adapt, cut }] }
+export function farmClimate(pl, adapt = {}) {
+  let mul = 1; const parts = [];
+  for (const [hazard, base] of Object.entries(hazardsOf(pl))) { const a = Math.max(0, Math.min(1, adapt[hazard] || 0)), cut = base * (1 - a); mul *= 1 - cut; parts.push({ hazard, base, adapt: a, cut }); }
+  return { mul, parts };
+}
 export const habWord = h => `${h.atmosphere === 'none' ? 'no atmosphere' : h.atmosphere + ' atmosphere'} · ${h.water === 'none' ? 'no water' : h.water === 'ice' ? 'water as ice' : 'liquid water'} · ${h.organics ? 'organics' : 'no organics'} · ${h.temp}`;
 // a cell's effective shares after the square's trade-offs and the focus shock (0–1 of a full cell each)
 export function cellEffect(mix, shock = 0) {

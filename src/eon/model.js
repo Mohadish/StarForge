@@ -20,7 +20,7 @@
 import { PROPERTIES, DOMAINS, CHANNEL_X, RARITY } from '../data/properties.js';
 import { designStats, allCapsules, passiveOf, dockFit, fleetWarp } from './modules.js';
 import { generateGalaxy } from './galaxy.js';
-import { DISTRICT, FACTORS, gridOf, employed } from './districts.js';
+import { DISTRICT, FACTORS, gridOf, employed, farmClimate } from './districts.js';
 import { newSurface, unitsFromCells, capsOf, roomOf, building, developStep, creepFillet, isFull, rectWeights, DEV, FILLET, LEVEL1, KIND_WORD } from './colony.js';
 import { sizeFatigue, createBattle, shipFromDesign, rng32 } from './battle.js';
 import { naturalFlows, divertedOf, projectPlans, advanceProjects, FAMILIES as RFAM, RESEARCH } from './research.js';
@@ -318,8 +318,9 @@ export function compute(S) {
     // on the planet's own districts, each as good as its ground. The units are the CAPACITY — works and labs that employ the triangle's
     // hands (the rest work at idle), homes, farms that feed; the triangle is the EFFORT, and its third corner, DEVELOPMENT, builds the
     // next unit toward the colony's development focus. No penalties inside the surface (his call 2026-10-22: no "pure", no "short of hands").
-    const G = surfaceOf(S, pl), water = waterOf(pl), grid = gridOf(pl);
-    const { cap, perUnit } = G ? capsOf(G, { levels: S.slotLevels || LEVEL1 }) : { cap: { industry: 0, food: 0, housing: 0, science: 0, units: 0, scienceShare: 0 }, perUnit: {} };
+    // THE CLIMATE (2026-10-23, districts.js): a cold, hot or airless world's farms give less — until research adapts the crops (S.adapt)
+    const G = surfaceOf(S, pl), water = waterOf(pl), grid = gridOf(pl), climate = farmClimate(pl, S.adapt || {});
+    const { cap, perUnit } = G ? capsOf(G, { levels: S.slotLevels || LEVEL1, mul: { food: climate.mul } }) : { cap: { industry: 0, food: 0, housing: 0, science: 0, units: 0, scienceShare: 0 }, perUnit: {} };
     // FOOD from the farms (the M people they feed; a landed ship's social systems add theirs) — only where there is water (his spec,
     // 2026-10-16): without it the settlers live on their stores — no food, no growth, no famine — until supply lines exist (later)
     // …and on a DRY world (his rule, 2026-10-18) the farms grow on the water brought in (waterSupply): as much of them as it reaches;
@@ -387,7 +388,7 @@ export function compute(S) {
     const noFood = !water && !(ws && ws.reach > 0);   // a dry world builds farms once water can reach it
     const next = G && !blockaded ? building(G, { noFood, lack }) : null;
     return { pl, P, people, factor, flat, industry, research, food, gantries, housing, full, queue, done, spare, eat, surplus, fed, hungry, dPeople, happiness, happyTarget,
-      water, noFood, waterNeed, waterIn, waterRoutes: ws ? ws.routes : [], waterCost: ws ? ws.cost : 0, waterReach: ws ? ws.reach : 0, roomCap, houses, factories: P.factories || 0, newFactories, toReserves, needI, needR, short, pol, polNext, blockaded, cap, perUnit, grid, G, dev, staffed, want, lack, next };
+      water, noFood, waterNeed, waterIn, waterRoutes: ws ? ws.routes : [], waterCost: ws ? ws.cost : 0, waterReach: ws ? ws.reach : 0, roomCap, houses, factories: P.factories || 0, newFactories, toReserves, needI, needR, short, pol, polNext, blockaded, cap, perUnit, grid, G, dev, staffed, want, lack, next, climate };
   });
   // who is studying what: research power on the ground and in orbit, place by place
   const ground = {}, orbit = {}, sysResearch = {}, sysOfPlace = Object.fromEntries(S.places.map(p => [p.id, p.sys]));
@@ -452,7 +453,7 @@ function waterSupply(S, ships, caps, shock) {
     src.push({ id: u.id, name: u.name, at: pl.id, sys: pl.sys, kind: 'harvest', left: t.industry * WATER.perIndustry });
   }
   for (const pl of dry) {
-    const G = surfaceOf(S, pl), need = G ? Math.min(capsOf(G, { levels: S.slotLevels || LEVEL1 }).cap.food, pl.colony.people * WATER.margin) : 0;   // by the MOUTHS (his rule, 2026-10-20), not by the farms' size
+    const G = surfaceOf(S, pl), need = G ? Math.min(capsOf(G, { levels: S.slotLevels || LEVEL1, mul: { food: farmClimate(pl, S.adapt || {}).mul } }).cap.food, pl.colony.people * WATER.margin) : 0;   // by the MOUTHS (his rule, 2026-10-20), not by the farms' size
     const options = src.filter(s => s.left > 1e-9).map(s => {
       const ly = s.sys === pl.sys ? 0 : lyBetween(S, s.sys, pl.sys), chance = ly ? clamp(chanceAt(effectiveLy(S, s.sys, pl.sys), VOY.range * warp), 0, 1) : 1, per = ly ? WATER.perLy * ly : WATER.inSystem;
       return { s, ly, chance, per, unit: per / Math.max(chance, 1e-6) };
