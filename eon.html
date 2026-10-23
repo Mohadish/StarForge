@@ -43,18 +43,19 @@
 <!-- COLONIES: every colony in one table — sort, filter, pick several and give them the same construction project -->
 <main id="tab-colonies" class="eon-one hidden"><section id="colTab"></section></main>
 
-<!-- RESEARCH: where the attention goes; the PROJECT board (projects.js — a mock, 2026-10-22): the fields' channels flow into what you
-     want to make; on the right the project itself, and what was found -->
+<!-- RESEARCH (projects.js + research.js, 2026-10-23): the fields with the research flowing through them; the BOARD with the projects under
+     way, each fed by its recipe's fields; "＋ New research project" opens the advisors' suggestions and your own pick -->
 <main id="tab-research" class="eon-res hidden">
   <section id="rFieldsSec">
-    <h2>Research — where the attention goes</h2>
+    <h2>Research — where it flows</h2>
     <div id="eFields"></div>
   </section>
-  <section id="rBoard"><svg id="rFlow" xmlns="http://www.w3.org/2000/svg"></svg><div id="rNode"></div></section>
-  <section id="rSide">
-    <div id="rProj"></div>
-    <h2 style="margin-top:16px">Breakthroughs found</h2>
-    <div id="eBreaks"></div>
+  <section id="rBoard">
+    <svg id="rFlow" xmlns="http://www.w3.org/2000/svg"></svg>
+    <button class="go pjnew" data-pjnew title="what to develop next — your advisors have ideas">＋ New research project</button>
+    <div id="rNodes"></div>
+    <div id="rEmpty" class="pjempty">No research project under way — all the research flows by itself.<br><b>＋ New research project</b>: your advisors have ideas.</div>
+    <div id="rPick" hidden></div>
   </section>
 </main>
 

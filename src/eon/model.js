@@ -7,9 +7,11 @@
 // in the system. Working a place wears its potential down — never to nothing.
 //
 // BREAKTHROUGHS are never chosen and there is no bar to watch. Each field has a POTENTIAL made of
-// every place you are studying. Each eon a field has a chance — potential × the share of attention
-// you give it — to make one hidden step forward; ten steps make a breakthrough. Leave a place and
-// the steps stay but the chance drops. Move the empire's focus and some steps are lost.
+// every place you are studying. Each eon a field has a chance — potential × the share of the empire's
+// research flowing through it — to make one hidden step forward; ten steps make a breakthrough. Leave a
+// place and the steps stay but the chance drops. Move the empire's focus and some steps are lost.
+// 2026-10-23 (research.js): no points of attention — research flows by where the labs are, and through
+// the RECIPES of the PROJECTS you start; nothing found for 70 eons, a lucky break grows likelier.
 // The focus (Expansion / Exploitation / Exploration / Extermination) decides what a find is good for.
 //
 // INTEGRATION. What you find is slowly worked into what everyone simply knows: about 1% an eon,
@@ -21,6 +23,7 @@ import { generateGalaxy } from './galaxy.js';
 import { DISTRICT, FACTORS, gridOf, employed } from './districts.js';
 import { newSurface, unitsFromCells, capsOf, roomOf, building, developStep, creepFillet, isFull, rectWeights, DEV, FILLET, LEVEL1, KIND_WORD } from './colony.js';
 import { sizeFatigue, createBattle, shipFromDesign, rng32 } from './battle.js';
+import { naturalFlows, divertedOf, projectPlans, advanceProjects, FAMILIES as RFAM, RESEARCH } from './research.js';
 import { composePlan, buildPlan, naturalShips, planStrip, TACTIC_IDS, TACTICS } from './fleetplan.js';
 
 export const XS = ['expand', 'exploit', 'explore', 'exterminate'];
@@ -405,11 +408,16 @@ export function compute(S) {
 
   // potential of each field = every place being studied, combined
   const points = FIELD_IDS.reduce((a, f) => a + (S.attention[f] || 0), 0);
+  // WHERE THE RESEARCH FLOWS (research.js, 2026-10-23): by itself, by where the labs are; and through the recipes of the projects,
+  // each taking its influence's share of the empire's research. A field's share of the flow is its chance to step toward a find
+  const nat = naturalFlows(S, colonies, ships), div = divertedOf(S), natK = nat.total > 0 ? research / nat.total : 0;
+  const pulled = Object.fromEntries(FIELD_IDS.map(f => [f, 0]));
+  for (const p of S.projects || []) { const F = RFAM[p.fam]; if (F) for (const [f, w] of Object.entries(F.recipe)) pulled[f] += research * (p.inf || 0) / 100 * w; }
   const fields = FIELD_IDS.map(f => {
     const sources = studied.filter(s => s.power > 0).map(s => ({ place: s.pl, c: Math.min(1, Math.max(T.floor, s.pl.mult[f] * s.pl.fresh[f] * gain(s.power))) }));
     const potential = 1 - sources.reduce((a, s) => a * (1 - s.c), 1);
-    const share = (S.attention[f] || 0) / T.attention;
-    return { id: f, name: DOMAINS[f].name, potential, stars: potential * 10, share, chance: potential * share, points: S.attention[f] || 0,
+    const natural = nat.by[f] * natK * (1 - div), flow = natural + pulled[f], share = research > 0 ? flow / research : 0;
+    return { id: f, name: DOMAINS[f].name, potential, stars: potential * 10, share, chance: potential * share, points: S.attention[f] || 0, flow, natural, pulled: pulled[f], from: nat.from[f],
       sources: sources.sort((a, b) => b.c - a.c), lean: leanOf(f, S.focus) };
   });
 
@@ -421,7 +429,8 @@ export function compute(S) {
   const setback = Math.floor(moveDist * T.focusSetback);
   const speed = T.integrate * (1 + Math.min(steadyNext, 10) * T.steadyBonus) * clamp(Math.sqrt(research / 33), 0.5, 3);
   for (const s of ships) s.range = shipRange(s.t, fleetWarp(passive));               // STAR TRAVEL: each ship's reach between stars, light years
-  return { colonies, ships, studied, research, sysResearch, fields, points, warp: fleetWarp(passive), free: T.attention - points, cohesionGain, reach, moveDist, moveCost, moved, shock, steadyNext, setback, speed, upkeep, income, net, shortNext, unpaid,
+  const projects = projectPlans(S, fields, research);   // the projects under way: their research, quality, how long (research.js)
+  return { colonies, ships, studied, research, sysResearch, fields, projects, diverted: div, points, warp: fleetWarp(passive), free: T.attention - points, cohesionGain, reach, moveDist, moveCost, moved, shock, steadyNext, setback, speed, upkeep, income, net, shortNext, unpaid,
     people: colonies.reduce((a, c) => a + c.P.people, 0) + S.ships.reduce((a, u) => a + (u.people || 0), 0), passive, caps };
 }
 
@@ -761,7 +770,11 @@ export function endEon(S) {
   // the focus moved: some of what was half-understood is lost
   if (c.setback > 0) for (const f of FIELD_IDS) S.steps[f] = Math.max(0, S.steps[f] - c.setback);
 
-  // research: every field you give attention to may take one hidden step
+  // the PROJECTS take their research; one that is through becomes its family's next generation (research.js)
+  advanceProjects(S, c.projects, rep);
+  // research: every field the research flows through may take one hidden step
+  if (S.lastFind == null) S.lastFind = S.eon;
+  let foundNow = false;
   for (const f of c.fields) {
     if (!(f.chance > 0) || rand(S) >= f.chance) continue;
     if (++S.steps[f.id] < T.steps) { rep.push({ kind: 'step', text: `Researchers report progress in ${f.name}` }); continue; }
@@ -774,8 +787,21 @@ export function endEon(S) {
     let helped = 0;
     const mine = new Set(b.props.flatMap(p => p.channels.map(ch => ch.channel)));
     eachChannel(S, ch => { if (mine.has(ch.channel) && ch.prog < 100) { ch.prog = Math.min(99.9, ch.prog + T.reinforce); ch.helped = (ch.helped || 0) + 1; helped++; } });
-    S.breakthroughs.unshift(b);
+    S.breakthroughs.unshift(b); foundNow = true; S.lastFind = S.eon;
     rep.push({ kind: 'breakthrough', text: `Breakthrough in ${f.name}, found at ${b.origin}: ${b.name}` + (helped ? ` — helps integrate ${helped} older capsule${helped > 1 ? 's' : ''}` : ''), id: b.id });
+  }
+  // A LUCKY BREAK (his call, 2026-10-23: "people want things to happen"): nothing found for RESEARCH.lucky.after eons — every eon after
+  // that a growing chance of a small find in the busiest field, certain by after + span
+  const dry = S.eon - S.lastFind;
+  if (!foundNow && dry >= RESEARCH.lucky.after && c.research > 0) {
+    const x = (dry - RESEARCH.lucky.after) / RESEARCH.lucky.span;
+    if (rand(S) < Math.min(1, 0.05 + x * x)) {
+      const f = c.fields.slice().sort((a, b) => b.share * (0.2 + b.potential) - a.share * (0.2 + a.potential) || (a.id < b.id ? -1 : 1))[0];
+      S.found[f.id]++; S.steps[f.id] = 0; S.lastFind = S.eon;
+      const src = f.sources[0], b = rollBreakthrough(S, f.id, c.research * 0.5, src ? src.place.name : 'Home');
+      S.breakthroughs.unshift(b);
+      rep.push({ kind: 'breakthrough', text: `A lucky break in ${f.name}, at ${b.origin}: ${b.name}`, id: b.id });
+    }
   }
 
   // the reserves: the eon's excess in, the upkeep out; what the reserves cannot cover goes unpaid and bites next eon

@@ -14,6 +14,7 @@ import { applyWorldAction, heldByAnother } from './world.js';
 import { designFromStacks } from './battle.js';
 import { designStats, autoFit, fitModule } from './modules.js';
 import { planetOf } from './colony.js';
+import { advisors } from './research.js';
 
 const chip = (kind, h, role = null, id) => ({ id, type: kind.startsWith('weapon') || kind === 'hangar' ? 'weapon' : 'trait', kind, h, role });
 // the family: `cls` = its place in the tactics cycle; the lancer is the long-reach pool on its own
@@ -155,6 +156,8 @@ export function makeBrain(W, S, opts = {}) {
       const w = raw.map(v => Math.round(v / tw * 100) / 100), now = G.wf || [0.25, 0.25, 0.25, 0.25];
       if (w.some((v, i) => Math.abs(v - now[i]) > 0.01)) act({ type: 'devfocus', place: col.pl.id, w });
     }
+    // RESEARCH (2026-10-23, research.js): never idle — with nothing under way, the advisors' first suggestion takes all of it
+    if (!(S.projects || []).length && c.research > 0) { const adv = advisors(S, c)[0]; if (adv) act({ type: 'project', fam: adv.fam, inf: 100 }); }
     // the focus leans to its corner (opts.focus; Extermination by default), one step every ten eons once cohesion can pay for it, up to FOCUS_TOP; 'mid' never moves
     if (bias != null && bias >= 0 && S.cohesion >= 40 && W.eon - lastFocusEon >= 10 && S.focus[bias] < FOCUS_TOP) { const w = S.focus.slice(), step = 0.1; w[bias] += step; for (const i of [0, 1, 2, 3]) if (i !== bias) w[i] = Math.max(0, w[i] - step / 3); const t = w.reduce((a, v) => a + v, 0); act({ type: 'focus', w: w.map(v => v / t) }); lastFocusEon = W.eon; }
     const all = fleet(c), moving = all.some(s => s.u.dest), fleets = foeFleets(), cols = foeColonies();

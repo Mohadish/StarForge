@@ -2,6 +2,7 @@
 // order a player — or the AI player in tools/play — gives is one ACTION, and a game is a seed plus the actions eon by eon.
 // The same seed and the same actions give the same game (model.js draws every die from the state), so a log replays exactly.
 // applyAction runs one order on a state; the AI player and the game's Replay bar both use it. No DOM.
+import { startProject, setInfluence, dropProject } from './research.js';
 import { sendFleet, giveAttention, settle, compute, setSplit, setDevFocus, queueAdd, queueCount, queueMove, queueDrop, setRelay, unrelay, moveRelay, dropRelay } from './model.js';
 
 export const REPLAY_VERSION = 1;
@@ -52,7 +53,11 @@ export function applyAction(S, a) {
     case 'relaymove': return moveRelay(S, a.at, a.to);
     case 'relaydrop': return dropRelay(S, a.at);
     case 'focus': { S.focus = a.w.slice(); return null; }
-    case 'attention': { giveAttention(S, a.field, a.d); return null; }
+    case 'attention': { giveAttention(S, a.field, a.d); return null; }   // (no longer steers anything since 2026-10-23 — research flows by where the labs are)
+    // RESEARCH PROJECTS (2026-10-23, research.js): { type: 'project', fam, inf? } · { type: 'projinf', index, inf } · { type: 'projdrop', index }
+    case 'project': return startProject(S, a.fam, a.inf ?? null);
+    case 'projinf': return setInfluence(S, a.index, a.inf);
+    case 'projdrop': return dropProject(S, a.index);
     default: return 'unknown action ' + a.type;
   }
 }

@@ -27,7 +27,8 @@ import { makeBrain } from './ai.js';
 import { designSpecHtml, modulesLine, chipStripHtml } from './spec.js';
 import { FACTORS, FACTOR_COLOR, SIZES, sizeClassOf, gridOf, habitabilityOf, habWord } from './districts.js';
 import { DEV, LEVEL1, KIND_WORD as SLOT_WORD, filletWhy, isFull, counts, planetOf, unitCap, districtInfo } from './colony.js';
-import { renderProjects } from './projects.js';
+import { renderResearch, initResearch } from './projects.js';
+initResearch({ save: () => save(), refresh: () => refresh() });   // the Research tab's orders save and redraw like every other
 import { drawSurface, focusTetra, drawTri as drawEffortTri, triFromPoint, triBall, toCanvas, districtAt as surfaceCellAt, mapSize } from './colonyview.js';
 mountNav('eon', { into: document.getElementById('topbar') });
 
@@ -331,35 +332,15 @@ function renderEmpire(c, skipTetra) {
     <div class="tiny" style="margin-top:6px">${c.moved ? `Moving the focus this far costs <b>${c.moveCost.toFixed(1)}</b> cohesion (you have ${Math.round(S.cohesion)} %, ${Math.round(left)} % left)${c.shock > 0.5 ? ' — <b class="up">a shock to the people: happiness drops</b>' : ''}${c.setback ? `, and loses ${plural(c.setback, 'step')} of research in every field` : ''}.` : `The focus has not moved this eon${S.steady ? ` (steady for ${plural(S.steady, 'eon')})` : ''}.`}
     The dashed circle is as far as your cohesion reaches (${Math.round(S.cohesion)} % of the way from the centre to a corner; it climbs ${c.cohesionGain.toFixed(1)} this eon, slower the higher it is). <button class="x" data-freset title="back toward the centre, as far as the reach allows">⌖ centre</button></div>`;
   const builds = c.colonies.flatMap(p => p.done.map(d => `${d.d.name} at ${p.pl.name}`));
-  const on = c.fields.filter(f => f.points > 0).sort((a, b) => b.points - a.points).map(f => `${f.name} ${f.points}`).join(' · ');
+  const on = (c.projects || []).map(p => `${esc(p.name)} ${p.p.inf} % · ${p.gain > 0 ? `${p.eons} eon${p.eons === 1 ? '' : 's'}` : 'stalled'}`).join(' · ');
   $('ePredict').innerHTML = `<div class="card">
-    ${row('Attention on', on || '<span class="up">nothing — no field can advance</span>')}
+    ${row('Research', `${Math.round(c.research)} an eon${on ? ' — ' + on : ' — <span class="up">no project under way</span> (the Research tab)'}`)}
     ${row('Built this eon', builds.length ? builds.join(', ') : 'nothing finishes')}
     ${row('Integration', `${c.speed.toFixed(1)}% per eon${c.moved ? ' — the focus moved' : ''}`)}
     ${row('Cohesion', `+${c.cohesionGain.toFixed(1)} earned${c.moveCost > 0.05 ? `, −${c.moveCost.toFixed(1)} spent on the focus` : ''}`)}
     ${row('Reserves', `<button class="x" data-eco title="the Economy tab: every colony's excess, every cost, line by line">💰 Economy</button> ${fmt(S.reserves || 0)} · excess +${fmt(c.income)} − upkeep ${fmt(c.upkeep.total)} <span class="tiny">(military ${fmt(c.upkeep.military)} · social ${fmt(c.upkeep.social)} · research ${fmt(c.upkeep.research)}${c.upkeep.water > 0.005 ? ` · water ${fmt(c.upkeep.water)}` : ''})</span> = <b class="${c.net < 0 ? 'up' : 'down'}">${c.net < 0 ? '−' : '+'}${fmt(Math.abs(c.net))}</b>${c.shortNext > 0.005 ? ` · <b class="up">${Math.round(c.shortNext * 100)} % will go unpaid</b>` : ''}${c.unpaid > 0.005 ? ` · <b class="up">last eon ${Math.round(c.unpaid * 100)} % unpaid: the fleet wears, people grumble, research slows</b>` : ''}`, c.net < 0 ? 'up' : '')}</div>`;
 
-  $('eFields').innerHTML = `<div class="tiny" style="margin-bottom:8px">You have <b>${T.attention}</b> points of attention; <b>${c.free}</b> ${c.free === 1 ? 'is' : 'are'} unspent. Giving a field one more takes it from the spare ones, then from the field that has the most.
-      The stars are how much there is to find — they come from the places you are studying, not from how hard you look.</div>`
-    + c.fields.map(f => {
-      const top = XS[f.lean.indexOf(Math.max(...f.lean))];
-      const src = f.sources.filter(s => s.c > 0.06).slice(0, 3).map(s => `${esc(s.place.name)} ${pct(s.c)}`).join(' · ');
-      return `<div class="frow" data-field="${f.id}"><div class="top"><span class="name">${f.name}</span><span class="stepper"><button data-att="${f.id}" data-d="-1">−</button><b>${f.points}</b><button data-att="${f.id}" data-d="1">+</button></span></div>
-        <div title="with your attention on it: ${pct(f.chance)} to take a step forward this eon">${starRow(f.stars)} <span class="tiny">${f.stars.toFixed(1)} of 10</span></div>
-        <div class="tiny">${src ? 'from ' + src : 'nothing worth the name where you are looking'} · found ${S.found[f.id]}</div>
-        <div class="xbar" title="which way a find would lean under the current focus">${f.lean.map((l, i) => `<i style="width:${l * 100}%;background:${xColor(XS[i])}"></i>`).join('')}</div>
-        <div class="tiny">a find would lean <b style="color:${xColor(top)}">${X_INFO[top].name}</b></div></div>`;
-    }).join('');
-
-  const capOf = new Map(c.caps.map(cp => [cp.id, cp]));
-  const live = S.breakthroughs.filter(b => !isIntegrated(b)), known = S.breakthroughs.filter(isIntegrated);
-  $('eBreaks').innerHTML = live.map(b => `<div class="bt ${newIds.has(b.id) ? 'new' : ''}">
-      <div class="n"><span>${esc(b.name)}</span><span class="tiny">${b.fieldName} · ${esc(b.origin)} · ${b.eon ? 'eon ' + b.eon : 'known from the start'}${b.under ? ` · under <b style="color:${xColor(b.under)}">${X_INFO[b.under].name}</b>` : ''}</span></div>
-      ${b.props.map((p, pi) => `<div class="prop"><b>${esc(p.name)}</b> <span class="tiny">${p.rarity} — ${esc(p.what)}</span><br>
-        ${p.channels.map(ch => { const cp = capOf.get(`${b.id}|${pi}|${ch.channel}`); return capChip(cp) + ` title="${esc(ch.how)} · ${cp.done ? 'fully integrated' : `${pct(cp.a)} integrated, about ${plural(Math.ceil(cp.left / c.speed), 'eon')} to go at this pace`}${ch.helped ? ' · helped by ' + plural(ch.helped, 'later find') : ''}">${cp.name} +${ch.pct}%${cp.done ? ' ✓' : ''}</span>`; }).join('')}
-        ${p.muted ? `<span class="tiny">· ${p.muted} more too weak to show under that focus</span>` : ''}</div>`).join('')}</div>`).join('')
-    + (known.length ? `<h2 style="margin-top:12px">Fully integrated — in every design for free</h2><div class="known">${known.map(b => esc(b.name)).join(' · ')}</div>` : '')
-    + `<div class="tiny" style="margin-top:8px">The pale fill in a capsule is how far it has been integrated. Everyone already gets that share of it.</div>`;
+  // the research fields and the breakthroughs: the Research tab (projects.js) since 2026-10-23 — the finds stay in the background
   const icon = { breakthrough: '★', bad: '▼', integ: '◆', step: '›', move: '→', battle: '⚔' }, col = { breakthrough: 'var(--time)', bad: 'var(--bad)', integ: 'var(--good)', battle: 'var(--good)' };
   if (S.report?.length) $('eReport').innerHTML = `<div class="rep">${S.report.map(r => `<div>${icon[r.kind] || '·'} <span style="color:${col[r.kind] || 'inherit'}">${esc(r.text)}</span>${r.battle && (S.battles || []).some(b => b.id === r.battle) ? ` <button class="go" data-watch="${r.battle}" title="replay it, as it was fought">▶ Watch</button>` : ''}</div>`).join('')}</div>`;
   else $('eReport').textContent = S.eon > 1 ? 'A quiet eon.' : 'Nothing yet.';
@@ -1775,7 +1756,7 @@ function refresh() {
   if (tab === 'galaxy') renderGalaxy(c);
   if (tab === 'system') renderSystem(c);
   if (tab === 'design') renderDesign(c);
-  if (tab === 'research') { renderEmpire(c, true); renderProjects(c, S); }   // the research panels live on their own tab now (the empire's renderer fills them); the project board (a mock)
+  if (tab === 'research') renderResearch(c, S);       // the fields and the projects (projects.js, 2026-10-23)
   if (tab === 'colonies') renderColonies(c);
   if (tab === 'economy') renderEcoTab(c);
   renderRelayBar();                                  // the relay pick's banner
