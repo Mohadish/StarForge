@@ -10,6 +10,7 @@ import { T, newState, newColony, compute, endEon, uid, cloneDesign, hostileWorth
 import { shipFromDesign, createBattle, rng32 } from './battle.js';
 import { allCapsules, designStats } from './modules.js';
 import { applyAction } from './replay.js';
+import { hazardsOf } from './districts.js';
 
 // CONQUEST (his rule, 2026-10-16): no taking an alien colony by siege. A fleet holding a system where another empire has colonies
 // and no fleet BLOCKADES them (model.js: no growth, no building, the mood sours) — and that is all a fleet can do. To take a
@@ -44,6 +45,7 @@ function moveHome(S, pl) {
   pl.fresh = Object.fromEntries(Object.keys(pl.fresh).map(k => [k, 0.9])); pl.note = 'the homeworld — your people have lived here for 2,000 years';
   for (const s of S.systems) s.home = s.id === pl.sys;
   S.homeSys = pl.sys; S.homePlace = pl.id;
+  S.adapt = { ...(S.adapt || {}) }; for (const h of Object.keys(hazardsOf(pl))) S.adapt[h] = 1;   // a people's crops grew up with its own world's climate (2026-10-23: an ice homeworld starved)
 }
 // o.galaxy: { count, radius } (galaxy.js galaxyOf) — a bigger sector for more empires (his ask: 150 stars, five empires)
 export function createWorld(seedText, n = 2, o = {}) {

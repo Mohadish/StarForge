@@ -3,7 +3,7 @@
 // The same seed and the same actions give the same game (model.js draws every die from the state), so a log replays exactly.
 // applyAction runs one order on a state; the AI player and the game's Replay bar both use it. No DOM.
 import { startProject, setInfluence, dropProject } from './research.js';
-import { sendFleet, giveAttention, settle, compute, setSplit, setDevFocus, queueAdd, queueCount, queueMove, queueDrop, setRelay, unrelay, moveRelay, dropRelay } from './model.js';
+import { sendFleet, giveAttention, settle, compute, setSplit, setCampaign, setDevFocus, queueAdd, queueCount, queueMove, queueDrop, setRelay, unrelay, moveRelay, dropRelay } from './model.js';
 
 export const REPLAY_VERSION = 1;
 // { type: 'split', place, split: [i, r, d, f] } (the effort: industry, research, development, food — an older log's three keep the farmers) · { type: 'design', design } (a whole design: replaces one with the same id) ·
@@ -56,6 +56,7 @@ export function applyAction(S, a) {
     case 'attention': { giveAttention(S, a.field, a.d); return null; }   // (no longer steers anything since 2026-10-23 — research flows by where the labs are)
     // RESEARCH PROJECTS (2026-10-23, research.js): { type: 'project', fam, inf? } · { type: 'projinf', index, inf } · { type: 'projdrop', index }
     case 'project': return startProject(S, a.fam, a.inf ?? null);
+    case 'campaign': return setCampaign(S, a.place, a.pct, a.back !== false);   // { type: 'campaign', place, pct, back }: the effort to the builders for the refits (2026-10-23)
     case 'projinf': return setInfluence(S, a.index, a.inf);
     case 'projdrop': return dropProject(S, a.index);
     default: return 'unknown action ' + a.type;

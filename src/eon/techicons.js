@@ -61,11 +61,13 @@ const BADGE = {
   bust: c => `<circle cx="17" cy="17" r="6.6" fill="#0b1222"/><circle cx="17" cy="14.9" r="2" fill="${c}"/><path d="M13.3 21.2c.5-2.1 1.9-3.3 3.7-3.3s3.2 1.2 3.7 3.3" fill="${c}"/>`,
   hat:  c => `<circle cx="17" cy="17" r="6.6" fill="#0b1222"/><path d="M12.6 19.1h8.8" stroke="${c}" stroke-width="1.8" stroke-linecap="round"/><path d="M13.6 18.6a3.4 3.4 0 0 1 6.8 0z" fill="${c}"/><path d="M17 15.2v-1" stroke="${c}" stroke-width="1.4" stroke-linecap="round"/>`,
 };
-export function slotIcon(kind, col, { fill = 0, built = 1, badge = null, badgeCol = '#fff', size = 20, title = '' } = {}) {
+// old: behind the newest tech — an amber ⬆ in the corner (refit: 0..1 while the builders refit it — the arrow white, the outline dashed)
+export function slotIcon(kind, col, { fill = 0, built = 1, badge = null, badgeCol = '#fff', size = 20, title = '', old = false, refit = null } = {}) {
   const d = BUILDING[kind]; if (!d) return '';
-  const solid = kind === 'farm' ? '' : ` fill="${col}" fill-opacity="${fill > 0.01 ? 0.85 : 0.22}"`, dash = built < 0.999 ? ' stroke-dasharray="2 1.6"' : '';
+  const solid = kind === 'farm' ? '' : ` fill="${col}" fill-opacity="${fill > 0.01 ? 0.85 : 0.22}"`, dash = built < 0.999 || refit != null ? ' stroke-dasharray="2 1.6"' : '';
   const b = badge && fill > 0.01 ? `<g opacity="${fill >= 0.999 ? 1 : 0.55}">${BADGE[badge](badgeCol)}</g>` : '';
-  return `<svg class="slot" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${col}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"${title ? '' : ''}>${title ? `<title>${title}</title>` : ''}<path d="${d}"${solid}${dash}${kind === 'farm' ? ` stroke-opacity="${fill > 0.01 ? 1 : 0.4}"` : ''}/>${b}</svg>`;
+  const up = old || refit != null ? `<circle cx="5.6" cy="5.6" r="4.8" fill="#0b1222" stroke="none"/><path d="M5.6 8.4V3.2M3.4 5.3l2.2-2.2 2.2 2.2" stroke="${refit != null ? '#fff' : '#ffb347'}" stroke-width="1.7"/>` : '';
+  return `<svg class="slot" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${col}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">${title ? `<title>${title}</title>` : ''}<path d="${d}"${solid}${dash}${kind === 'farm' ? ` stroke-opacity="${fill > 0.01 ? 1 : 0.4}"` : ''}/>${b}${up}</svg>`;
 }
 // a worker or a person on his own: a hard hat with no building (works past the jobs, at half), a head with nothing on it (does not work)
 export function personIcon(kind, col, { size = 18, title = '' } = {}) {

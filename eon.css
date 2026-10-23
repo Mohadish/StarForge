@@ -378,3 +378,14 @@
 #colPop .cpnum{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
 #colPop .cpplus{color:var(--muted);margin:0 3px;font-weight:700}
 #colPop .cpfull{margin-left:4px;font-size:15px}
+/* the refits (2026-10-23) */
+#colPop .cprefit,.cprefit{color:#ffb347;font-size:11px;font-weight:700;margin-left:6px;white-space:nowrap}
+#techEvent{position:fixed;inset:0;z-index:120;display:flex;align-items:center;justify-content:center;background:rgba(3,6,14,.55)}
+#techEvent[hidden]{display:none}
+#techEvent .tebox{width:min(560px,92vw);max-height:80vh;overflow:auto;background:var(--panel2);border:2px solid #ffb347;border-radius:14px;padding:14px 16px;box-shadow:0 18px 50px rgba(0,0,0,.7)}
+#techEvent .tehead{display:flex;align-items:center;gap:8px;font-size:16px;margin-bottom:6px;color:#ffd9a8}
+#techEvent .tedone{padding:6px 0;border-bottom:1px solid var(--line)}
+#techEvent .tecols{width:100%;border-collapse:collapse;font-size:13px}
+#techEvent .tecols td{padding:3px 6px;border-bottom:1px solid rgba(255,255,255,.05)}
+#techEvent .tebtns{display:flex;gap:6px;flex-wrap:wrap}
+#techEvent .tebtns button{min-width:70px}

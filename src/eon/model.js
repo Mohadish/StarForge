@@ -20,8 +20,8 @@
 import { PROPERTIES, DOMAINS, CHANNEL_X, RARITY } from '../data/properties.js';
 import { designStats, allCapsules, passiveOf, dockFit, fleetWarp } from './modules.js';
 import { generateGalaxy } from './galaxy.js';
-import { DISTRICT, FACTORS, gridOf, employed, farmClimate } from './districts.js';
-import { newSurface, unitsFromCells, capsOf, roomOf, building, developStep, creepFillet, isFull, rectWeights, DEV, FILLET, LEVEL1, KIND_WORD } from './colony.js';
+import { DISTRICT, FACTORS, gridOf, employed, farmClimate, hazardsOf } from './districts.js';
+import { newSurface, unitsFromCells, capsOf, roomOf, building, developStep, creepFillet, isFull, rectWeights, DEV, FILLET, LEVEL1, KIND_WORD, ensureStamps, outdatedUnits } from './colony.js';
 import { sizeFatigue, createBattle, shipFromDesign, rng32 } from './battle.js';
 import { naturalFlows, divertedOf, projectPlans, advanceProjects, FAMILIES as RFAM, RESEARCH } from './research.js';
 import { composePlan, buildPlan, naturalShips, planStrip, TACTIC_IDS, TACTICS } from './fleetplan.js';
@@ -196,7 +196,15 @@ function migrateColony(S, pl) {
   P.surface = first >= 0 ? unitsFromCells({ ...G, cells: G.cells.filter(Boolean) }, { pid: pl.id, kind: worldOf(pl) }) : surfaceFor(pl);   // nothing built: a home and a farm (on a dry world the farm waits for water)
   return P.surface;
 }
-const surfaceOf = (S, pl) => migrateColony(S, pl);    // a world snapshot from before the slots meets the engine here (upgrade() does it for a save)
+// the crops' adaptation that matters on this world: only its own hazards (a mild world's farms are not refitted for the cold)
+const adaptOf = (S, pl) => { const h = hazardsOf(pl), out = {}; for (const k in (S.adapt || {})) if (h[k]) out[k] = S.adapt[k]; return out; };
+const surfaceOf = (S, pl) => { const G = migrateColony(S, pl); if (G) ensureStamps(G, S.slotLevels || LEVEL1, adaptOf(S, pl)); return G; };   // an older surface's districts count as up to date (2026-10-23)
+// A COLONY'S CAPACITIES: every district at the tech it was built or refitted at, every farm under the climate ITS crops are adapted to
+function colonyCaps(S, pl, G) {
+  const climate = farmClimate(pl, S.adapt || {}), memo = new Map();
+  const climFor = k => { const ad = G.ad && G.ad[k]; if (!ad) return climate.mul; const key = JSON.stringify(ad); if (!memo.has(key)) memo.set(key, farmClimate(pl, ad).mul); return memo.get(key); };
+  return { climate, ...capsOf(G, { levels: S.slotLevels || LEVEL1, unitMul: (k, kind) => kind === 'food' ? climFor(k) : 1 }) };
+}    // a world snapshot from before the slots meets the engine here (upgrade() does it for a save)
 
 // a starting design: a silhouette and a list of modules ({ kind, n?, w/h for a gantry, k for a reactor })
 function design(name, hull, kinds) {
@@ -324,14 +332,17 @@ export function compute(S) {
     // hands (the rest work at idle), homes, farms that feed; the triangle is the EFFORT, and its third corner, DEVELOPMENT, builds the
     // next unit toward the colony's development focus. No penalties inside the surface (his call 2026-10-22: no "pure", no "short of hands").
     // THE CLIMATE (2026-10-23, districts.js): a cold, hot or airless world's farms give less — until research adapts the crops (S.adapt)
-    const G = surfaceOf(S, pl), water = waterOf(pl), grid = gridOf(pl), climate = farmClimate(pl, S.adapt || {});
-    const { cap, perUnit } = G ? capsOf(G, { levels: S.slotLevels || LEVEL1, mul: { food: climate.mul } }) : { cap: { industry: 0, food: 0, housing: 0, science: 0, units: 0, scienceShare: 0, farmJobs: 0 }, perUnit: {} };
+    const G = surfaceOf(S, pl), water = waterOf(pl), grid = gridOf(pl);
+    const { cap, perUnit, climate } = G ? colonyCaps(S, pl, G) : { cap: { industry: 0, food: 0, housing: 0, science: 0, units: 0, scienceShare: 0, farmJobs: 0 }, perUnit: {}, climate: farmClimate(pl, S.adapt || {}) };
+    // THE REFITS (2026-10-23): the districts behind the newest tech, and the one the builders are refitting
+    const refit = G ? { old: outdatedUnits(G, S.slotLevels || LEVEL1, adaptOf(S, pl)), at: G.rf || null } : { old: [], at: null };
     // THE EFFORT — A TETRAHEDRON (his call, 2026-10-23: "we need people to work the fields"): industry, research, development and FOOD.
     // An older colony's triangle gets its fourth corner once: as many farmers as feed everyone (and a little over)
     const farmYield = cap.farmJobs > 1e-9 ? cap.food / cap.farmJobs : 0;   // M fed by one M at the farms
     if (!Array.isArray(P.split) || P.split.length < 4) { const old = (P.split || [1, 1, 1]).slice(0, 3), t = old.reduce((a, v) => a + v, 0) || 1, f = farmShare(mp, farmYield, water); P.split = [...old.map(v => v / t * (1 - f)), f]; }
     const [si, sr, sd, sf] = P.split;
-    const people = { industry: mp * si * work, research: mp * sr * work, development: mp * sd * work, food: mp * sf * work }, idle = mp * (1 - work);
+    // the unhappy stop working for the empire — but the farmers still farm: people feed themselves whatever the mood (no starvation spiral)
+    const people = { industry: mp * si * work, research: mp * sr * work, development: mp * sd * work, food: mp * sf }, idle = mp * (1 - sf) * (1 - work);
     // FOOD from the farms (the M people they feed; a landed ship's social systems add theirs) — only where there is water (his spec,
     // 2026-10-16): without it the settlers live on their stores — no food, no growth, no famine — until supply lines exist (later)
     // …and on a DRY world (his rule, 2026-10-18) the farms grow on the water brought in (waterSupply): as much of them as it reaches;
@@ -401,7 +412,7 @@ export function compute(S) {
     const noFood = !water && !(ws && ws.reach > 0);   // a dry world builds farms once water can reach it
     const next = G && !blockaded ? building(G, { noFood, lack }) : null;
     return { pl, P, people, factor, flat, industry, research, food, gantries, housing, full, queue, done, spare, eat, surplus, fed, hungry, dPeople, happiness, happyTarget,
-      work, idle, farmYield, grown, water, noFood, waterNeed, waterIn, waterRoutes: ws ? ws.routes : [], waterCost: ws ? ws.cost : 0, waterReach: ws ? ws.reach : 0, roomCap, houses, factories: P.factories || 0, newFactories, toReserves, needI, needR, short, pol, polNext, blockaded, cap, perUnit, grid, G, dev, staffed, want, lack, next, climate };
+      work, idle, farmYield, grown, water, noFood, waterNeed, waterIn, waterRoutes: ws ? ws.routes : [], waterCost: ws ? ws.cost : 0, waterReach: ws ? ws.reach : 0, roomCap, houses, factories: P.factories || 0, newFactories, toReserves, needI, needR, short, pol, polNext, blockaded, cap, perUnit, grid, G, dev, staffed, want, lack, next, climate, refit };
   });
   // who is studying what: research power on the ground and in orbit, place by place
   const ground = {}, orbit = {}, sysResearch = {}, sysOfPlace = Object.fromEntries(S.places.map(p => [p.id, p.sys]));
@@ -466,7 +477,7 @@ function waterSupply(S, ships, caps, shock) {
     src.push({ id: u.id, name: u.name, at: pl.id, sys: pl.sys, kind: 'harvest', left: t.industry * WATER.perIndustry });
   }
   for (const pl of dry) {
-    const G = surfaceOf(S, pl), need = G ? Math.min(capsOf(G, { levels: S.slotLevels || LEVEL1, mul: { food: farmClimate(pl, S.adapt || {}).mul } }).cap.food, pl.colony.people * WATER.margin) : 0;   // by the MOUTHS (his rule, 2026-10-20), not by the farms' size
+    const G = surfaceOf(S, pl), need = G ? Math.min(colonyCaps(S, pl, G).cap.food, pl.colony.people * WATER.margin) : 0;   // by the MOUTHS (his rule, 2026-10-20), not by the farms' size
     const options = src.filter(s => s.left > 1e-9).map(s => {
       const ly = s.sys === pl.sys ? 0 : lyBetween(S, s.sys, pl.sys), chance = ly ? clamp(chanceAt(effectiveLy(S, s.sys, pl.sys), VOY.range * warp), 0, 1) : 1, per = ly ? WATER.perLy * ly : WATER.inSystem;
       return { s, ly, chance, per, unit: per / Math.max(chance, 1e-6) };
@@ -721,8 +732,12 @@ export function endEon(S) {
     // THE SURFACE (colony.js): the builders' points buy districts toward the development focus (a full world tears one down and builds
     // the new kind the next eon); the fillet creeps toward what each corner can support. The districts finished this eon are reported.
     if (pc.G) {
-      const wasFull = isFull(pc.G), log = developStep(pc.G, pc.dev, { noFood: pc.noFood, lack: pc.lack }), n = {};
+      const wasFull = isFull(pc.G), log = developStep(pc.G, pc.dev, { noFood: pc.noFood, lack: pc.lack, levels: S.slotLevels || LEVEL1, adapt: adaptOf(S, pc.pl) }), n = {};
       for (const e of log) if (e.kind === 'unit') n[e.slot] = (n[e.slot] || 0) + 1;
+      const nr = log.filter(e => e.kind === 'refit').length, left = outdatedUnits(pc.G, S.slotLevels || LEVEL1, adaptOf(S, pc.pl)).length;
+      if (nr) rep.push({ kind: 'build', text: `${name}: ${nr === 1 ? 'a district' : nr + ' districts'} refitted to the newest tech${left ? ` — ${left} to go` : ' — all up to date'}`, place: pc.pl.id, colony: true, minor: !!left });
+      // THE CAMPAIGN (his ask, 2026-10-23): the effort was shifted to the builders for the refits — back where it was once they are done
+      if (P.campaign && !left) { const c0 = P.campaign; delete P.campaign; if (c0.back && P.split.every((v, i) => Math.abs(v - (c0.to[i] ?? 0)) < 1e-6)) { P.split = c0.from.slice(); rep.push({ kind: 'build', text: `${name}: the refits are done — the effort is back where it was`, place: pc.pl.id, colony: true }); } }
       const nb = Object.values(n).reduce((a, v) => a + v, 0); if (nb) rep.push({ kind: 'build', text: `${name}: ${nb === 1 ? 'a district' : nb + ' districts'} built — ${Object.entries(n).map(([k, v]) => `${v} ${KIND_WORD[k]}`).join(', ')}`, place: pc.pl.id, colony: true, minor: true });
       if (!wasFull && isFull(pc.G)) rep.push({ kind: 'build', text: `${name}: the whole world is developed — from now on the builders re-make it toward the focus, one district at a time`, place: pc.pl.id, colony: true });
       creepFillet(pc.G, pc.want);
@@ -835,6 +850,13 @@ export function endEon(S) {
 const colonyAt = (S, placeId) => (S.places.find(p => p.id === placeId) || {}).colony || null;
 // the share of the people the farms need to feed everyone (and a little over) — for an older colony's fourth corner and the AI
 export function farmShare(people, farmYield, water = true) { if (!water) return 0.12; if (!(farmYield > 0)) return 0.05; return clamp(1.12 / farmYield, 0.05, 0.7); }
+// THE CAMPAIGN (his ask, 2026-10-23: "move the effort toward development — 25, 50, 75, 100 %"): the given share of the colony's industry
+// and research hands goes to the builders (the farmers stay where they are); back (true): the effort returns when the refits are done
+export function setCampaign(S, placeId, pct, back = true) {
+  const P = colonyAt(S, placeId); if (!P || !Array.isArray(P.split) || P.split.length < 4) return 'No colony there';
+  const p = clamp(+pct || 0, 0, 1), from = P.campaign ? P.campaign.from.slice() : P.split.slice(), [i, r, d, f] = from, moved = (i + r) * p;
+  const to = [i * (1 - p), r * (1 - p), d + moved, f]; P.split = to; if (p > 0) P.campaign = { from, to: to.slice(), back: !!back, eon: S.eon }; else delete P.campaign; return null;
+}
 export function setSplit(S, placeId, split) {
   const P = colonyAt(S, placeId); if (!P) return 'No colony there';
   const v = (split || []).slice(0, 4).map(x => Math.max(0, +x || 0)), t = v.reduce((a, x) => a + x, 0); if (v.length < 3 || !(t > 0)) return 'The effort is four shares';

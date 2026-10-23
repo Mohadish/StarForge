@@ -3,7 +3,7 @@
 import { $, clamp, fmt, signed, esc } from '../util.js';
 import { DOMAINS } from '../data/properties.js';
 import { XS, X_INFO, T, CENTER, FIELD_IDS, newState, compute, endEon, uid, isIntegrated, giveAttention, sendShip, recallShip, settle, starEons, sysDistance, worldOf,
-  setSplit, setDevFocus, queueAdd, queueCount, queueMove, queueDrop, canUndoSend, undoSend, regroupSend,
+  setSplit, setCampaign, setDevFocus, queueAdd, queueCount, queueMove, queueDrop, canUndoSend, undoSend, regroupSend,
   LY, VOY, SCALE, shipRange, forecast, fleetRange, sendFleet, lyBetween, peopleWord, upgrade, hostileIn, hostileWord, hostileWorth, ZONE, bubbles, zoneOfSys, effectiveLy, setRelay, unrelay, moveRelay, dropRelay, relayOf, relayAt } from './model.js';
 import { KINDS, KIND_IDS, CLASS_NAME, GANTRY, GUN, PRESETS, applyPreset, allCapsules, designStats, isRelevant, dockFit, reachBand, fitModule, autoFit, traverseOf } from './modules.js';
 import { GALAXY, STARS, galaxyOf } from './galaxy.js';
@@ -28,6 +28,7 @@ import { designSpecHtml, modulesLine, chipStripHtml } from './spec.js';
 import { FACTORS, FACTOR_COLOR, SIZES, sizeClassOf, gridOf, habitabilityOf, habWord } from './districts.js';
 import { DEV, LEVEL1, KIND_WORD as SLOT_WORD, filletWhy, isFull, counts, planetOf, unitCap, districtInfo, jobsOf, bOf } from './colony.js';
 import { renderResearch, initResearch, researchDoneHtml } from './projects.js';
+import { FAMILIES as RFAM } from './research.js';
 import { icon as ticon, slotIcon, personIcon } from './techicons.js';
 initResearch({ save: () => save(), refresh: () => refresh() });   // the Research tab's orders save and redraw like every other
 import { TRI_COLOR, drawSurface, focusTetra, drawTri as drawEffortTri, triFromPoint, triBall, toCanvas, districtAt as surfaceCellAt, mapSize } from './colonyview.js';
@@ -769,8 +770,8 @@ function renderColonies(c) {
     <div class="colbar"><span class="tiny">world</span><select data-colkind><option value="all">all</option>${kinds.map(k => `<option value="${k}" ${COL.kind === k ? 'selected' : ''}>${WORLD_KIND[k] || k}</option>`).join('')}</select>
       <span class="tiny">size</span><select data-colsize><option value="all">all</option>${sizes.map(k => `<option value="${k}" ${COL.size === k ? 'selected' : ''}>${SIZES[k].name} ${SIZES[k].w} × ${SIZES[k].h}</option>`).join('')}</select>
       <span style="flex:1"></span><button class="x" data-colall>select all shown</button><button class="x" data-colnone>none</button></div>
-    <table class="col"><tr><th></th>${th('name', 'colony')}${th('sys', 'system')}${th('kind', 'world')}${th('size', 'size')}${th('slots', 'built', 'districts built, of those that can be')}${th('people', 'people')}${th('food', 'food', 'fed − eating (M)')}${th('industry', 'industry')}${th('research', 'research')}${th('line', 'to the line')}${th('excess', 'excess', 'to the reserves')}${th('water', 'water')}<th>building</th><th>relay</th></tr>
-    ${rows.map(r => `<tr class="${COL.sel.has(r.id) ? 'sel' : ''}"><td><input type="checkbox" data-colsel="${r.id}" ${COL.sel.has(r.id) ? 'checked' : ''}></td><td class="name" data-colopen="${r.id}"><b>${esc(r.name)}</b>${r.id === (S.homePlace || 'home') ? ' <span class="tiny">home</span>' : ''}</td><td class="tiny">${esc(r.sys)}</td><td>${WORLD_KIND[r.kind] || r.kind}</td><td>${r.size.w} × ${r.size.h}</td><td>${r.slots}<span class="tiny"> / ${r.net}</span></td><td>${peopleWord(r.people)}</td><td class="${r.fed < r.eat ? 'up' : ''}">${fmt(r.fed)} / ${fmt(r.eat)}</td><td>${fmt(r.industry)}</td><td>${fmt(r.research)}</td><td>${fmt(r.line)}</td><td><b>${fmt(r.excess)}</b></td><td>${r.p.water ? 'own' : r.p.waterNeed > 0 ? `${Math.round(r.water * 100)} %` : '—'}</td><td class="tiny">${r.queue.length ? `${esc(r.queue[0].d.name)}${r.queue[0].count > 1 ? ` ×${r.queue[0].count}` : ''}${r.queue.length > 1 ? ` +${r.queue.length - 1}` : ''}` : '—'}</td><td class="rel">${relayOf(S, r.id) ? `⇢ ${esc(placeOf(relayOf(S, r.id).to)?.name || '?')}` : ''}${relayAt(S, r.id) ? ` ⇠ ${relayAt(S, r.id).from.length}` : ''}</td></tr>`).join('')}</table>
+    <table class="col"><tr><th></th>${th('name', 'colony')}${th('sys', 'system')}${th('kind', 'world')}${th('size', 'size')}${th('slots', 'built', 'districts built, of those that can be')}${th('people', 'people')}${th('food', 'food', 'fed − eating (M)')}${th('industry', 'industry')}${th('research', 'research')}${th('line', 'to the line')}${th('excess', 'excess', 'to the reserves')}${th('water', 'water')}<th>building</th><th title="districts behind the newest tech">refit</th><th>relay</th></tr>
+    ${rows.map(r => `<tr class="${COL.sel.has(r.id) ? 'sel' : ''}"><td><input type="checkbox" data-colsel="${r.id}" ${COL.sel.has(r.id) ? 'checked' : ''}></td><td class="name" data-colopen="${r.id}"><b>${esc(r.name)}</b>${r.id === (S.homePlace || 'home') ? ' <span class="tiny">home</span>' : ''}</td><td class="tiny">${esc(r.sys)}</td><td>${WORLD_KIND[r.kind] || r.kind}</td><td>${r.size.w} × ${r.size.h}</td><td>${r.slots}<span class="tiny"> / ${r.net}</span></td><td>${peopleWord(r.people)}</td><td class="${r.fed < r.eat ? 'up' : ''}">${fmt(r.fed)} / ${fmt(r.eat)}</td><td>${fmt(r.industry)}</td><td>${fmt(r.research)}</td><td>${fmt(r.line)}</td><td><b>${fmt(r.excess)}</b></td><td>${r.p.water ? 'own' : r.p.waterNeed > 0 ? `${Math.round(r.water * 100)} %` : '—'}</td><td class="tiny">${r.queue.length ? `${esc(r.queue[0].d.name)}${r.queue[0].count > 1 ? ` ×${r.queue[0].count}` : ''}${r.queue.length > 1 ? ` +${r.queue.length - 1}` : ''}` : '—'}</td><td class="tiny" style="color:#ffb347">${r.p.refit && r.p.refit.old.length ? `⬆ ${r.p.refit.old.length}` : ''}</td><td class="rel">${relayOf(S, r.id) ? `⇢ ${esc(placeOf(relayOf(S, r.id).to)?.name || '?')}` : ''}${relayAt(S, r.id) ? ` ⇠ ${relayAt(S, r.id).from.length}` : ''}</td></tr>`).join('')}</table>
     <div class="colbar" style="margin-top:12px"><b>${colonies(COL.sel.size)} selected</b><span class="tiny">· give them a construction project:</span>
       <select data-colq ${designs.length ? '' : 'disabled'}>${designs.map(d => { const t = designStats(S, d, caps).t; return `<option value="${d.id}" ${COL.design === d.id ? 'selected' : ''}>${esc(d.name)} — ${CLASS_NAME[t.klass].toLowerCase()} · ${fmt(t.cost)} ⚙</option>`; }).join('')}</select>
       <input type="number" data-coln min="1" max="99" value="${COL.n}" style="width:56px" title="how many at each"><button class="go" data-colqueue ${COL.sel.size && COL.design ? '' : 'disabled'}>＋ Queue at ${colonies(COL.sel.size)}</button>
@@ -1292,14 +1293,14 @@ function openColPop(placeId, k = null) {
   const map = $('cpMap');
   map.addEventListener('mousemove', e => {
     const pc = cpColony(); if (!pc) return; const i = surfaceCellAt(map, pc.G, e), tip = $('cpTip');
-    if (i !== cpHover) { cpHover = i; drawSurface(map, pc.G, { next: pc.next, hover: i, frameColor: cpFrame(), planet: cpPlanet(pc) }); }
+    if (i !== cpHover) { cpHover = i; drawSurface(map, pc.G, { next: pc.next, hover: i, frameColor: cpFrame(), planet: cpPlanet(pc), refit: pc.refit }); }
     if (i < 0) { tip.style.display = 'none'; return; }
     const inf = districtInfo(pc.G, i); if (!inf) { tip.style.display = 'none'; return; }
     const D = planetOf(pc.G), lv = S.slotLevels || LEVEL1, verb = { housing: 'houses', food: 'feeds', industry: 'works for', science: 'labs for' };
     tip.innerHTML = `<b>${inf.landing ? 'the landing · ' : ''}${esc(inf.ground)}</b><br>${inf.unit ? `<b style="color:${FACTOR_COLOR[inf.unit]}">${SLOT_WORD[inf.unit]}</b>${inf.b < 1 ? ` — ${inf.b < 0.1 ? (inf.b * 100).toFixed(1) : Math.round(inf.b * 100)} % built` : ''} · ${verb[inf.unit]} ${peopleWord(pc.perUnit[i] || 0)}` : inf.buildable ? 'free ground — nothing built yet' : `<span class="up">nothing can be built: ${inf.why}</span>`}${inf.buildable ? `<br><span class="tiny">one unit here would give: ${FACTORS.map(k => `<span style="color:${FACTOR_COLOR[k]}">${SLOT_WORD[k]} ${peopleWord(unitCap(D, i, k, lv) * (k === 'food' ? (pc.climate?.mul ?? 1) : 1))}</span>`).join(' · ')}</span>` : ''}`;
     tip.style.display = 'block'; tip.style.left = Math.min(innerWidth - 300, e.clientX + 14) + 'px'; tip.style.top = (e.clientY + 14) + 'px';
   });
-  map.addEventListener('mouseleave', () => { cpHover = -1; $('cpTip').style.display = 'none'; const pc = cpColony(); if (pc) drawSurface(map, pc.G, { next: pc.next, frameColor: cpFrame(), planet: cpPlanet(pc) }); });
+  map.addEventListener('mouseleave', () => { cpHover = -1; $('cpTip').style.display = 'none'; const pc = cpColony(); if (pc) drawSurface(map, pc.G, { next: pc.next, frameColor: cpFrame(), planet: cpPlanet(pc), refit: pc.refit }); });
   renderColPop();
 }
 function closeColPop() { colPop = null; colPopK = null; cpDrag = null; $('colPop').hidden = true; $('cpTip').style.display = 'none'; }
@@ -1313,7 +1314,7 @@ function renderColPop(fromTetra = false) {
   $('cpName').textContent = cpRO() ? `${E.name}'s ${pl.name}` : pl.name; $('cpName').style.color = cpRO() ? E.look.colA : '';
   $('cpMeta').textContent = `${cpRO() ? '👁 GOD MODE · ' : ''}${home ? 'HOMEWORLD' : 'COLONY'}   TYPE: ${WORLD_KIND[worldOf(pl)].toUpperCase()}   SIZE: ${size.name.toUpperCase()} ${size.w} × ${size.h}`;
   $('cpMeta').title = habWord(habitabilityOf(pl));
-  drawSurface($('cpMap'), G, { next: pc.next, hover: cpHover, frameColor: cpFrame(), planet: cpPlanet(pc) });
+  drawSurface($('cpMap'), G, { next: pc.next, hover: cpHover, frameColor: cpFrame(), planet: cpPlanet(pc), refit: pc.refit });
   if (cpTetra && !fromTetra) cpTetra.draw(); $('cpRect').title = FACTORS.map(k => filletWhy(G, k, cpWhy(pc))).join('\n') + '\n(drag the ball · click a corner to pull toward it · drag empty space to turn it)';
   if (cpEffort) cpEffort.draw();
   $('cpTri').title = `industry: ${fmt(pc.people.industry)} M hands for ${fmt(pc.cap.industry)} M of works · research: ${fmt(pc.people.research)} M for ${fmt(pc.cap.science)} M of labs · development: ${fmt(pc.people.development)} M builders → ${pc.dev.toFixed(1)} points an eon · food: ${fmt(pc.people.food)} M farmers for ${fmt(pc.cap.farmJobs)} M of farm jobs${pc.idle > 0.05 ? ` · ${fmt(pc.idle)} M do not work (unhappy)` : ''}`;
@@ -1343,7 +1344,7 @@ function cpOutHtml(pc) {
     <div class="icons" title="a microscope or a tube = 10 research">${Array.from({ length: Math.min(40, Math.round(pc.research / 10)) }, (_, i) => i % 2 ? '🧪' : '🔬').join('')}</div>
     ${cpBar('building', next ? next.b || 0 : 0, 1, '#f5a3c7', `${pc.dev.toFixed(1)} <span class="tiny">pts/eon · ${fmt(pc.people.development)} M builders</span>`)}
     <div class="icons" title="a hammer = one builder point an eon (a district costs ${DEV.cost}, tearing one down ${DEV.demolish})">${reps('🔨', pc.dev)}</div>
-    <div class="tiny" style="margin:0 0 6px 92px">${nextLine}</div>
+    <div class="tiny" style="margin:0 0 6px 92px">${nextLine}${pc.refit && pc.refit.old.length ? ` · <span class="cprefit">⬆ refitting ${plural(pc.refit.old.length, 'district')} to the newest tech (${Math.round(DEV.refitShare * 100)} % of the builders while there is building to do)${P.campaign ? ' — the effort is shifted to the builders until they are done' : ''}</span>` : ''}</div>
     ${cpIdleRow(pc)}
     <div class="tiny">happiness ${Math.round(P.happiness)} · ${pc.factories} factor${pc.factories === 1 ? 'y' : 'ies'}${pc.needI > 0 ? ` · sustain ${fmt(pc.needI)} industry / ${fmt(pc.needR)} research${pc.short > 0.005 ? ` <b class="up">${Math.round(pc.short * 100)} % short — unrest</b>` : ' ✓'}` : ''}${pol}${pc.blockaded ? ` · <b class="up">blockaded ${pc.blockaded} of ${WORLD.siege} eons</b>` : ''}</div>`;
 }
@@ -1407,39 +1408,66 @@ function notesFromEon() {
 // half); the people who do not work at all (unhappy) get their own row
 const ROW_MAX = 36;
 function cpUnits(pc, kind) {
-  const G = pc.G; return Object.keys(G.units).filter(k => G.units[k] === kind).map(k => ({ k: +k, cap: kind === 'food' ? jobsOf(G, k) : (pc.perUnit[k] || 0), built: bOf(G, k) })).sort((a, b) => b.cap - a.cap || a.k - b.k);
+  const G = pc.G, old = new Set(pc.refit ? pc.refit.old : []), at = pc.refit && pc.refit.at;
+  return Object.keys(G.units).filter(k => G.units[k] === kind).map(k => ({ k: +k, cap: kind === 'food' ? jobsOf(G, k) : (pc.perUnit[k] || 0), built: bOf(G, k), old: old.has(+k), rf: at && at.k === +k ? at.b : null })).sort((a, b) => b.cap - a.cap || a.k - b.k);
 }
 function cpFill(items, supply) { let left = supply; return items.map(it => { const f = it.cap > 1e-9 ? Math.max(0, Math.min(1, left / it.cap)) : 0; left -= f * it.cap; return { ...it, f }; }); }
 function cpIcons(items, kind, col, badge, badgeCol, word) {
   const n = items.length, g = Math.max(1, Math.ceil(n / ROW_MAX)), out = [];
   for (let i = 0; i < n; i += g) { const grp = items.slice(i, i + g), cap = grp.reduce((a, x) => a + x.cap, 0), f = cap > 1e-9 ? grp.reduce((a, x) => a + x.f * x.cap, 0) / cap : 0, built = Math.min(...grp.map(x => x.built));
-    out.push(slotIcon(kind, col, { fill: f, built, badge, badgeCol, title: `${grp.length > 1 ? grp.length + ' ' + word + 's' : (grp[0].k < 0 ? 'the old city' : word)}: ${peopleWord(cap * f)} of ${peopleWord(cap)}${built < 0.999 ? ' · still going up' : ''}` })); }
+    const old = grp.some(x => x.old), rf = grp.find(x => x.rf != null);
+    out.push(slotIcon(kind, col, { fill: f, built, badge, badgeCol, old, refit: rf ? rf.rf : null, title: `${grp.length > 1 ? grp.length + ' ' + word + 's' : (grp[0].k < 0 ? 'the old city' : word)}: ${peopleWord(cap * f)} of ${peopleWord(cap)}${built < 0.999 ? ' · still going up' : ''}${rf ? ` · being refitted to the newest tech (${Math.round(rf.rf * 100)} %)` : old ? ' · ⬆ behind the newest tech — the builders will refit it' : ''}` })); }
   return out.join('');
 }
 const cpRowHtml = (label, col, icons, num, extra = '') => `<div class="cprow"><span class="cplab" style="color:${col}">${label}</span><div class="cpslots">${icons}${extra}</div><b class="cpnum">${num}</b></div>`;
+// how many districts of a kind wait for a refit (⬆), beside the row
+const cpOld = (pc, kind) => { const n = (pc.refit ? pc.refit.old : []).filter(k => pc.G.units[k] === kind).length; return n ? `<span class="cprefit" title="behind the newest tech: the builders refit them, ${DEV.refit} points each (the ones that give most first)">⬆ ${n} to refit</span>` : ''; };
 function cpPeopleRow(pc) {
   const P = pc.P, homes = cpUnits(pc, 'housing'), base = P.baseHousing + (pc.flat?.housing || 0), items = cpFill([...(base > 0.01 ? [{ k: -1, cap: base, built: 1 }] : []), ...homes], P.people), full = P.people >= pc.housing - 0.01;
   const icons = items.map(it => it.k < 0 ? slotIcon('city', FACTOR_COLOR.housing, { fill: it.f, badge: 'bust', badgeCol: '#fff', title: `the old city: ${peopleWord(it.cap * it.f)} of ${peopleWord(it.cap)}` }) : null);
-  const rest = cpIcons(items.filter(it => it.k >= 0), 'home', FACTOR_COLOR.housing, 'bust', '#fff', 'home district');
+  const rest = cpIcons(items.filter(it => it.k >= 0), 'home', FACTOR_COLOR.housing, 'bust', '#fff', 'home district') + cpOld(pc, 'housing');
   return cpRowHtml('people', FACTOR_COLOR.housing, icons.filter(Boolean).join('') + rest, `${peopleWord(P.people)} / ${peopleWord(pc.housing)} <span class="tiny">${pc.dPeople >= 0 ? '+' : '−'}${peopleWord(Math.abs(pc.dPeople))}</span>`, full ? '<b class="up cpfull" title="no room left — the people cannot grow until homes are built">❗</b>' : '');
 }
 function cpFoodRow(pc) {
   const farms = cpFill(cpUnits(pc, 'food'), pc.people.food), extra = Math.max(0, pc.people.food - pc.cap.farmJobs), per = farms.length ? pc.cap.farmJobs / farms.length : 1, nx = Math.min(12, Math.round(extra / Math.max(0.01, per)));
   const xs = nx ? '<span class="cpplus">+</span>' + Array.from({ length: nx }, () => personIcon('hat', FACTOR_COLOR.food, { title: 'farmers past the farm jobs — they grow at half' })).join('') : '';
   const fedM = pc.food / T.foodPerHead;
-  return cpRowHtml('food', FACTOR_COLOR.food, cpIcons(farms, 'farm', FACTOR_COLOR.food, 'hat', FACTOR_COLOR.food, 'farm district') || '<span class="tiny">no farms yet</span>', `${fmt(fedM)} / ${fmt(pc.P.people)} M <span class="tiny">fed / eat</span>`, xs);
+  return cpRowHtml('food', FACTOR_COLOR.food, (cpIcons(farms, 'farm', FACTOR_COLOR.food, 'hat', FACTOR_COLOR.food, 'farm district') || '<span class="tiny">no farms yet</span>') + cpOld(pc, 'food'), `${fmt(fedM)} / ${fmt(pc.P.people)} M <span class="tiny">fed / eat</span>`, xs);
 }
 function cpWorkRow(pc, kind) {
   const hands = kind === 'industry' ? pc.people.industry : pc.people.research, items = cpFill(cpUnits(pc, kind), hands), jobs = kind === 'industry' ? pc.cap.industry : pc.cap.science, col = FACTOR_COLOR[kind];
   const extra = Math.max(0, hands - jobs), per = items.length ? jobs / items.length : 1, nx = Math.min(12, Math.round(extra / Math.max(0.01, per)));
   const xs = nx ? '<span class="cpplus">+</span>' + Array.from({ length: nx }, () => personIcon('hat', col, { title: `${kind === 'industry' ? 'workers' : 'researchers'} past the jobs — they work at half` })).join('') : '';
-  return cpRowHtml(kind, col, cpIcons(items, kind === 'industry' ? 'works' : 'lab', col, 'hat', col, kind === 'industry' ? 'works district' : 'lab district') || `<span class="tiny">no ${kind === 'industry' ? 'works' : 'labs'} yet</span>`, `${fmt(kind === 'industry' ? pc.industry : pc.research)} <span class="tiny">${fmt(hands)} M at ${fmt(jobs)} M jobs</span>`, xs);
+  return cpRowHtml(kind, col, (cpIcons(items, kind === 'industry' ? 'works' : 'lab', col, 'hat', col, kind === 'industry' ? 'works district' : 'lab district') || `<span class="tiny">no ${kind === 'industry' ? 'works' : 'labs'} yet</span>`) + cpOld(pc, kind), `${fmt(kind === 'industry' ? pc.industry : pc.research)} <span class="tiny">${fmt(hands)} M at ${fmt(jobs)} M jobs</span>`, xs);
 }
 function cpIdleRow(pc) {
   if (!(pc.idle > 0.05)) return '';
   const homes = cpUnits(pc, 'housing'), per = homes.length ? homes.reduce((a, x) => a + x.cap, 0) / homes.length : Math.max(1, pc.P.people / 4), n = Math.max(1, Math.min(24, Math.round(pc.idle / per)));
   return cpRowHtml('not working', '#9aa6bd', Array.from({ length: n }, () => personIcon('head', '#9aa6bd', { title: 'unhappy — they do not work' })).join(''), `${fmt(pc.idle)} M <span class="tiny">unhappy (${Math.round(pc.P.happiness)})</span>`);
 }
+// THE REFIT CARD (his ask, 2026-10-23): a project the colonies have to take in is done — how many districts, how long at this pace,
+// and "move the effort toward development?" — 25 / 50 / 75 / 100 % of the industry and research hands to the builders (setCampaign),
+// back where it was once the refits are done (unless you untick it)
+function techEvent() {
+  const el = $('techEvent'); if (!el || !LAST) return; const done = (S.report || []).filter(r => r.research && (RFAM[r.research.fam]?.level || RFAM[r.research.fam]?.adapt)); if (!done.length) return;
+  const hit = LAST.colonies.filter(pc => pc.refit && pc.refit.old.length); if (!hit.length) return;
+  const eta = pc => { const pts = pc.refit.old.length * DEV.refit - (pc.refit.at ? pc.refit.at.b * DEV.refit : 0), rate = pc.dev * (isFull(pc.G) ? 1 : DEV.refitShare); return rate > 0 ? Math.ceil(pts / rate) : Infinity; };
+  el.innerHTML = `<div class="tebox"><div class="tehead"><b>⬆ New tech for the colonies</b><span style="flex:1"></span><button class="x" data-teclose title="later (the refits still go on at the usual pace)">✕</button></div>
+    ${done.map(r => `<div class="tedone">${researchDoneHtml(r.research)}</div>`).join('')}
+    <div class="tiny" style="margin:6px 0 4px">It reaches a district only once the builders refit it (${DEV.refit} points each; by default they spend ${Math.round(DEV.refitShare * 100)} % of their work on it):</div>
+    <table class="tecols">${hit.map(pc => `<tr><td><b>${esc(pc.pl.name)}</b></td><td>⬆ ${plural(pc.refit.old.length, 'district')}</td><td class="tiny">${pc.refit.old.length * DEV.refit} points · ${isFinite(eta(pc)) ? 'about ' + plural(eta(pc), 'eon') + ' at this pace' : '<b class="up">nobody builds</b>'}</td></tr>`).join('')}</table>
+    <div style="margin:10px 0 4px"><b>Move the effort toward development?</b> <span class="tiny">— that share of the industry and research hands goes to the builders (the farmers stay)</span></div>
+    <div class="tebtns">${[[0, 'No'], [0.25, '25 %'], [0.5, '50 %'], [0.75, '75 %'], [1, 'All of it']].map(([p, w]) => `<button class="${p ? 'go' : 'x'}" data-tepct="${p}">${w}</button>`).join('')}</div>
+    <label class="tiny" style="display:block;margin-top:6px"><input type="checkbox" id="teBack" checked> back to the effort as it was once the refits are done</label></div>`;
+  el.hidden = false; el.dataset.places = hit.map(pc => pc.pl.id).join(',');
+}
+document.addEventListener('click', e => {
+  const el = $('techEvent'); if (!el || el.hidden) return;
+  if (e.target.closest('[data-teclose]')) { el.hidden = true; return; }
+  const b = e.target.closest('[data-tepct]'); if (!b) return; const p = +b.dataset.tepct, back = $('teBack')?.checked !== false;
+  if (p > 0) for (const id of (el.dataset.places || '').split(',').filter(Boolean)) toastErr(setCampaign(S, id, p, back));
+  el.hidden = true; save(); refresh(); if (p > 0) say(`The builders take ${Math.round(p * 100)} % of the industry and research hands until the refits are done`);
+});
 // THE CLIMATE under the food bar (2026-10-23, districts.js): what cuts this world's farms, how far the crops are adapted, what is left
 function cpClimate(pc) {
   const C = pc.climate; if (!C || C.mul > 0.999) return '';
@@ -1933,7 +1961,7 @@ $('eEnd').onclick = () => {
   if (REPLAY) return REPLAY.ended ? say('The replay is at its end — rewind it, or take over to play on') : replayStep(1);
   if (W) { worldPlayEon(W, brainFor); S = W.empires[W.me]; newIds = new Set(S.report.filter(r => r.kind === 'breakthrough').map(r => r.id)); }   // the other empires' heads give their orders, the world ends the eon
   else { const rep = endEon(S); newIds = new Set(rep.filter(r => r.kind === 'breakthrough').map(r => r.id)); }
-  save(); refresh(); notesFromEon();                 // what happened: in the corner
+  save(); refresh(); notesFromEon(); techEvent();    // what happened: in the corner; a finished project the colonies must refit for: the card
 };
 // REPLAY a logged game (src/eon/replay.js; tools/play/play.mjs writes one, tools/play/world.mjs a WORLD of two or three AI
 // empires): the seed, then every logged order eon by eon, through the game itself — the same seed and orders give the same game.

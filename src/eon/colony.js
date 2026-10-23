@@ -28,7 +28,7 @@ export const UNIT = {
   levelGain: 0.25,                                              // a kind's output × (1 + levelGain × (level − 1)) — breakthroughs raise the level
 };
 export const LEVEL1 = { industry: 1, food: 1, housing: 1, science: 1 };
-export const DEV = { perM: 0.12, cost: 10, demolish: 4, maxPerEon: 6 };   // builder points per M builders an eon; points a unit costs; points to tear one down; at most this many units an eon
+export const DEV = { perM: 0.12, cost: 10, demolish: 4, maxPerEon: 6, refit: 4, refitShare: 0.5 };   // builder points per M builders an eon; points a unit costs; points to tear one down; at most this many units an eon; points to REFIT one to new tech; the share of the points refits take while there is building to do too
 export const FILLET = { step: 0.1, maxR: 0.7, empty: 1.5 };   // the fillet creeps this much an eon; a corner's full radius (0.7 → a full corner capped near 63 %); homes past empty × people fillet housing
 export const GROW = { rate: 0.03, health: 0.3, starve: 0.02, crowd: 0.1 };
 export const TRI = ['industry', 'research', 'development'];
@@ -42,6 +42,20 @@ export const terrainKind = k => PLANET_KINDS.includes(k) ? k : 'rock';
 export const planetOf = G => planetDistricts(G.pid ?? 'sandbox', G.w, G.h, terrainKind(G.kind));
 export const gradeMul = (D, k, kind) => UNIT.grade[0] + UNIT.grade[1] * (D.grade[k] ? D.grade[k][kind] : 0.5);
 export const levelMul = (levels, kind) => 1 + UNIT.levelGain * ((levels[kind] || 1) - 1);
+// TECH STAMPS (his call, 2026-10-23: "a new technology needs development to reach the colonies"): every district carries the level of
+// its kind it was built or last REFITTED at (G.lv) and, a farm, the crops' climate adaptation it got (G.ad). A newer level from research
+// counts in a district only once the builders refit it (DEV.refit points); a district laid or finished now gets the newest
+export const unitLevel = (G, k, levels) => G.lv && G.lv[k] != null ? G.lv[k] : (levels[G.units[k]] || 1);
+export function stampUnit(G, k, levels = LEVEL1, adapt = null) { const kind = G.units[k]; if (!kind) return; G.lv = G.lv || {}; G.lv[k] = levels[kind] || 1; if (kind === 'food' && adapt) { G.ad = G.ad || {}; G.ad[k] = { ...adapt }; } else if (G.ad) delete G.ad[k]; }
+export function ensureStamps(G, levels = LEVEL1, adapt = null) { if (G.lv) return; G.lv = {}; for (const k in G.units) stampUnit(G, k, levels, adapt); }   // an older surface: what stands is up to date
+export function isOutdated(G, k, levels = LEVEL1, adapt = null) {
+  const kind = G.units[k]; if (!kind || !G.lv || bOf(G, k) < 1) return false;
+  if ((levels[kind] || 1) > unitLevel(G, k, levels) + 1e-9) return true;
+  if (kind === 'food' && adapt) { const a = (G.ad && G.ad[k]) || {}; for (const h in adapt) if ((adapt[h] || 0) > (a[h] || 0) + 1e-9) return true; }
+  return false;
+}
+// the districts waiting for a refit, the ones that give most first
+export function outdatedUnits(G, levels = LEVEL1, adapt = null) { const D = planetOf(G); return Object.keys(G.units).filter(k => isOutdated(G, k, levels, adapt)).map(Number).sort((a, b) => unitCap(D, b, G.units[b]) - unitCap(D, a, G.units[a]) || a - b); }
 // what one unit gives at full (M people): its kind's capacity × its ground × the empire's level of the kind
 export const unitCap = (D, k, kind, levels = LEVEL1) => UNIT.cap[kind] * gradeMul(D, k, kind) * levelMul(levels, kind);
 const wrapDx = (D, dx) => { dx = Math.abs(dx); return Math.min(dx, D.W - dx); };
@@ -99,9 +113,9 @@ export function unitsFromCells(old, { pid, kind }) {
 // people on ground of grade 0.5; better ground, research and a kinder climate make every farmer feed more (the jobs stay the same)
 export const FARM = { feeds: 4 };
 export const jobsOf = (G, k) => G.units[k] === 'food' ? UNIT.cap.food / FARM.feeds * bOf(G, k) : 0;
-export function capsOf(G, { levels = LEVEL1, mul = {} } = {}) {
+export function capsOf(G, { levels = LEVEL1, mul = {}, unitMul = null } = {}) {   // unitMul(k, kind): a district's own multiplier (a farm's climate after ITS crops' adaptation)
   const D = planetOf(G), cap = { industry: 0, food: 0, housing: 0, science: 0, units: 0, scienceShare: 0, farmJobs: 0 }, perUnit = {};
-  for (const k in G.units) { const kind = G.units[k], out = unitCap(D, +k, kind, levels) * bOf(G, k) * (mul[kind] ?? 1); cap[kind] += out; if (kind === 'food') cap.farmJobs += jobsOf(G, k); cap.units++; if (kind === 'science') cap.scienceShare++; perUnit[k] = out; }
+  for (const k in G.units) { const kind = G.units[k], out = UNIT.cap[kind] * gradeMul(D, +k, kind) * (1 + UNIT.levelGain * (unitLevel(G, k, levels) - 1)) * bOf(G, k) * (unitMul ? unitMul(k, kind) : (mul[kind] ?? 1)); cap[kind] += out; if (kind === 'food') cap.farmJobs += jobsOf(G, k); cap.units++; if (kind === 'science') cap.scienceShare++; perUnit[k] = out; }
   cap.scienceShare = cap.units ? cap.scienceShare / cap.units : 0;
   return { cap, perUnit };
 }
@@ -174,28 +188,41 @@ export function building(G, { noFood = false, lack = {} } = {}) {
 // ONE EON OF BUILDING: the points go into the unit going up (the least built first) — a unit gives what it is built to, a point at a
 // time; one finished, a new one is laid where it fits and grows on. A full world tears one down (DEV.demolish, banked across eons)
 // and the new kind goes up the next eon
-export function developStep(G, points, { noFood = false, lack = {} } = {}) {
+export function developStep(G, points, { noFood = false, lack = {}, levels = LEVEL1, adapt = null } = {}) {
   const log = []; let pts = Math.max(0, points); if (!G.b) G.b = {};
   if (!isFull(G) || partialUnit(G)) { pts += G.progress || 0; G.progress = 0; }   // banked points join (a full world banks them for its demolition)
   let done = 0;
+  // THE REFITS (2026-10-23): the districts behind the newest tech take DEV.refitShare of the points (all of them when nothing else is to
+  // build), the ones that give most first, one at a time (G.rf: the one under way); what they do not need goes on to building
+  const old = G.lv ? outdatedUnits(G, levels, adapt) : [];
+  if (G.rf && !old.includes(G.rf.k)) delete G.rf;
+  if (old.length) {
+    let rp = (!isFull(G) || partialUnit(G)) ? pts * DEV.refitShare : pts; pts -= rp;
+    while (rp > 1e-12 && old.length && done < DEV.maxPerEon) {
+      const k = G.rf ? G.rf.k : old[0], b0 = G.rf ? G.rf.b : 0, put = Math.min(rp, (1 - b0) * DEV.refit), b = b0 + put / DEV.refit; rp -= put;
+      if (b >= 1 - 1e-9) { stampUnit(G, k, levels, adapt); delete G.rf; done++; log.push({ kind: 'refit', unit: k, slot: G.units[k] }); old.splice(old.indexOf(k), 1); }
+      else G.rf = { k, b };
+    }
+    pts += rp;
+  }
   while (pts > 1e-12 && done < DEV.maxPerEon) {
     const part = partialUnit(G);
     if (part) {
       const put = Math.min(pts, (1 - part.b) * DEV.cost); pts -= put; const b = part.b + put / DEV.cost;
-      if (b >= 1 - 1e-9) { delete G.b[part.unit]; done++; log.push({ kind: 'unit', unit: part.unit, slot: part.kind }); } else G.b[part.unit] = b;
+      if (b >= 1 - 1e-9) { delete G.b[part.unit]; if (G.lv) stampUnit(G, part.unit, levels, adapt); done++; log.push({ kind: 'unit', unit: part.unit, slot: part.kind }); } else G.b[part.unit] = b;
       continue;
     }
     const w = weightsFor(G, { noFood });
     if (!isFull(G)) {                                                            // lay a new unit: it starts at nothing and grows
       const kind = firstNeed(G, noFood) || nextKind(G, w); if (!kind) break;
       const k = nextUnit(G, kind); if (k < 0) break;
-      G.units[k] = kind; G.b[k] = 0;
+      G.units[k] = kind; G.b[k] = 0; if (G.lv) stampUnit(G, k, levels, adapt);
       continue;
     }
     G.progress = (G.progress || 0) + pts; pts = 0;                               // a full world: bank toward tearing one down
     if (G.progress < DEV.demolish) break;
     const p = demolishPick(G, w, lack); if (!p) { G.progress = Math.min(G.progress, DEV.cost); break; }   // nothing to re-make: the points are not hoarded past one unit's worth
-    delete G.units[p.unit]; delete G.b[p.unit];
+    delete G.units[p.unit]; delete G.b[p.unit]; if (G.lv) delete G.lv[p.unit]; if (G.ad) delete G.ad[p.unit]; if (G.rf && G.rf.k === p.unit) delete G.rf;
     G.progress -= DEV.demolish; log.push({ kind: 'demolish', unit: p.unit, slot: p.from, to: p.to });
     break;                                                                       // the rubble lies an eon: the new unit goes up next eon at the earliest
   }

@@ -46,7 +46,7 @@ const rgbOf = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), pa
 // the surface: the planet with what stands on it (surface.js), then the hovered district under a light veil with its outline, ⚒ on the
 // unit going up (or where the next one goes), ✕ on a unit being torn down, ○ the landing.
 // opts: { next, hover, frameColor, planet: { id, kind } } — the planet's id seeds its terrain, kind = living | ocean | ice | other
-export function drawSurface(cv, G, { next = null, hover = -1, frameColor = 'rgba(126,243,176,.45)', planet = null } = {}) {
+export function drawSurface(cv, G, { next = null, hover = -1, frameColor = 'rgba(126,243,176,.45)', planet = null, refit = null } = {}) {   // refit: { old: [districts behind the newest tech], at: { k, b } }
   const g = cv.getContext('2d'), [ox, oy] = originOf(G), T = terrainFor(G, planet || {}); cv._terrain = T;
   g.fillStyle = '#060a14'; g.fillRect(0, 0, cv.width, cv.height);
   // THE PICTURE (surface.js, 2026-10-21): the planet with its crops, urban grid, ridges, forests and the cluster chips that fill a
@@ -63,6 +63,11 @@ export function drawSurface(cv, G, { next = null, hover = -1, frameColor = 'rgba
     } }
   const at = k => T.feat && T.feat[k] ? [ox + T.feat[k].x, oy + T.feat[k].y] : null;
   if (next) { const p = at(next.unit); if (p) { if (next.demolish) mark(g, '✕', '#ff7979', p[0], p[1]); else mark(g, '⚒', FACTOR_COLOR[next.kind], p[0], p[1]); } }
+  if (refit) {                                           // ⬆ on the districts behind the newest tech, ⚒ on the one being refitted (2026-10-23)
+    g.font = 'bold 11px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.lineWidth = 3; g.strokeStyle = 'rgba(0,0,0,.7)';
+    for (const k of refit.old || []) { const p = at(k); if (!p || (refit.at && refit.at.k === k)) continue; g.strokeText('⬆', p[0], p[1]); g.fillStyle = '#ffb347'; g.fillText('⬆', p[0], p[1]); }
+    if (refit.at) { const p = at(refit.at.k); if (p) mark(g, '⚒', '#ffb347', p[0], p[1]); } g.lineWidth = 1;
+  }
   const L = at(G.landing); if (L) { g.strokeStyle = '#fff'; g.lineWidth = 1.5; g.beginPath(); g.arc(L[0], L[1], 5, 0, 6.283); g.stroke(); g.lineWidth = 1; }
 }
 // THE FOCUS TETRAHEDRON (2026-10-20): the empire's pyramid widget, here with the colony's four kinds — the wish (a ring when the
