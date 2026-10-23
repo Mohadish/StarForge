@@ -4,7 +4,8 @@
 // to give); "＋ New research project" in its corner opens the picker: what the ADVISORS suggest, or your own pick by category. A
 // project's INFLUENCE (the share of the empire's research it takes) is set on its node; what no project takes flows by itself.
 // The breakthroughs found stay in the background (their capsules still work); a new one shows up as an advisor's suggestion.
-import { FAMILIES, CATEGORIES, FIELD_COL, advisors, qualityOf, needOf, nameOf, startProject, setInfluence, dropProject } from './research.js';
+import { FAMILIES, CATEGORIES, FIELD_COL, advisors, qualityOf, needOf, nameOf, generationOf, startProject, setInfluence, dropProject, benefitsOf, textOf, CHANNEL_ICON } from './research.js';
+import { icon, ICON_COLOR } from './techicons.js';   // placeholder icons (his call 2026-10-23: the icon generator comes later)
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 const $ = id => document.getElementById(id);
@@ -15,6 +16,19 @@ const eonWord = e => !isFinite(e) ? 'never' : `${e} eon${e === 1 ? '' : 's'}`;
 const icons = v => { const n = Math.min(24, Math.round(v / 2)); return n ? Array.from({ length: n }, (_, i) => i % 2 ? '🧪' : '🔬').join('') : v > 0.05 ? '<span style="opacity:.5">🔬</span>' : ''; };
 const richWord = p => p >= 0.5 ? '<b style="color:#7ef3b0">rich</b>' : p >= 0.25 ? '<b style="color:#ffd26a">fair</b>' : '<b style="color:#ff7979">poor</b>';
 const qClass = q => q >= 1 ? 'down' : q < 0.8 ? 'up' : '';
+// THE PARAGRAPH (his ask 2026-10-23): the technology in words, every number in it carried by its icon — read it, or just look at the
+// icons. ben: [{ icon, pct }] in the family's order; boosts: the names of the finds it is built on
+const token = (ic, pct) => `<span class="bnf" style="--bc:${ICON_COLOR[ic] || '#ccc'}">${icon(ic, { size: 15 })}<b>+${pct} %</b></span>`;
+export function paragraph(fam, gen, ben, boosts = []) {
+  const html = esc(textOf(fam, gen)).replace(/\{(\d)\}/g, (m, i) => ben[+i] ? token(ben[+i].icon, ben[+i].pct) : '');
+  return `<p class="pjdesc">${html}${boosts.length ? ` <span class="pjfind">✦ Built on ${boosts.map(esc).join(', ')}.</span>` : ''}</p>`;
+}
+// a finished project in the eon's report: its name and its paragraph with the numbers it came out with
+export function researchDoneHtml(r) {
+  const F = FAMILIES[r.fam]; if (!F) return esc(r.name || '');
+  const ben = F.level ? [{ icon: CHANNEL_ICON[F.level], pct: r.pcts[0] }] : Object.keys(F.channels).map((ch, i) => ({ icon: CHANNEL_ICON[ch], pct: r.pcts[i] }));
+  return `<b>Research done: ${F.icon} ${esc(r.name)}</b>${paragraph(r.fam, r.gen, ben, r.boosts || [])}`;
+}
 
 // THE FIELDS: the research flowing through each, where it comes from, what there is to find
 function fieldsHtml(c) {
@@ -29,9 +43,10 @@ function fieldsHtml(c) {
     }).join('');
 }
 // THE NODES: one per project — what it is, how far, how long, how good, its influence
-function nodeHtml(pl) {
+function nodeHtml(pl, S) {
   return `<div class="pjnode" data-pjnode="${pl.i}" style="--fc:${FIELD_COL[Object.keys(pl.F.recipe)[0]]}">
     <div class="pjhead"><span class="pjicon">${pl.F.icon}</span><div><b>${esc(pl.name)}</b><div class="tiny">${esc(pl.F.name)}${pl.gen > 1 ? ` · generation ${pl.gen}` : ''}</div></div><button class="x" data-pjdrop="${pl.i}" title="drop it — what it has done is lost">✕</button></div>
+    ${paragraph(pl.fam, pl.gen, benefitsOf(S, null, pl.fam, pl.q), pl.boosts.map(b => b.name))}
     <div class="pjbar"><i style="width:${Math.min(100, Math.round(pl.done * 100))}%"></i></div>
     <div class="tiny">${Math.round(pl.p.prog || 0)} of ${pl.need} · ${pl.gain > 0 ? `done in <b>${eonWord(pl.eons)}</b>` : '<b class="up">no research reaches it</b>'} · quality <b class="${qClass(pl.q)}">${pct(pl.q)}</b>${pl.boosts.length ? ` · ${pl.boosts.length} find${pl.boosts.length > 1 ? 's' : ''} help` : ''}</div>
     <label class="pjinf"><span>influence</span><input type="range" min="0" max="100" step="5" value="${pl.p.inf || 0}" data-pjinf="${pl.i}"><b data-pjinfv="${pl.i}">${pl.p.inf || 0} %</b></label></div>`;
@@ -42,7 +57,8 @@ function famCard(S, c, fam, why = null) {
   return `<div class="pjcard ${pick && pick.fam === fam ? 'on' : ''}" data-pjsel="${fam}"><div class="pjhead"><span class="pjicon">${F.icon}</span><div><b>${esc(nameOf(S, fam))}</b><div class="tiny">${esc(F.name)}</div></div><span class="pjq ${qClass(q)}" title="how good it would come out with the fields you have">${pct(q)}</span></div>
     ${why ? `<div class="tiny pjwhy">${esc(why)}</div>` : ''}
     <div class="pjrecipe">${ch.map(x => `<span title="strength ${x.strength.toFixed(2)} — to find where you look ${Math.round(x.potential * 100)} %, ${x.found} found${x.nb ? `, ${x.nb} new find${x.nb > 1 ? 's' : ''}` : ''}"><i class="fdot" style="background:${FIELD_COL[x.id]}"></i>${esc(c.fields.find(f => f.id === x.id)?.name || x.id)} ${Math.round(x.w * 100)} %</span>`).join('')}</div>
-    <div class="tiny">${needOf(S, fam)} research${boosts.length ? ` · helped by ${boosts.map(b => esc(b.name)).join(', ')}` : ''} · ${F.level ? `every ${F.level === 'food' ? 'farm' : F.level === 'housing' ? 'home' : F.level === 'industry' ? 'works' : 'lab'} district gives more` : `built into every ${esc(F.name.toLowerCase())}`}</div>
+    ${paragraph(fam, generationOf(S, fam), benefitsOf(S, c.fields, fam, q), boosts.map(b => b.name))}
+    <div class="tiny">${needOf(S, fam)} research · ${F.level ? `every ${F.level === 'food' ? 'farm' : F.level === 'housing' ? 'home' : F.level === 'industry' ? 'works' : 'lab'} district` : `every ${esc(F.name.toLowerCase())} you have`}, from the day it is done</div>
     <button class="go" data-pjstart="${fam}">Start</button></div>`;
 }
 function pickerHtml(S, c) {
@@ -83,7 +99,7 @@ export function renderResearch(c, S) {
   ctx = { c, S }; const fl = $('eFields'), nodes = $('rNodes'), pk = $('rPick'); if (!fl || !nodes) return;
   fl.innerHTML = fieldsHtml(c);
   const plans = c.projects || [];
-  nodes.innerHTML = plans.length ? plans.map(nodeHtml).join('') : '';
+  nodes.innerHTML = plans.length ? plans.map(pl => nodeHtml(pl, S)).join('') : '';
   $('rEmpty').hidden = !!plans.length || !!pick;
   if (pk) { pk.hidden = !pick; if (pick) pk.innerHTML = pickerHtml(S, c); }
   decorate(); requestAnimationFrame(drawFlow);

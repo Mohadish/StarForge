@@ -364,3 +364,8 @@
 .ficons{font-size:12px;line-height:1.3;letter-spacing:-1px;margin:3px 0 1px;min-height:16px}
 .frow.rec{border-left:4px solid var(--rc);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--rc) 45%,transparent)}
 .frow .rtag2{font-size:11px;font-weight:800;color:var(--rc);margin-left:6px}
+/* the paragraph's benefits: an icon and a number, tinted by the icon's colour (projects.js paragraph) */
+.pjdesc{margin:4px 0;font-size:12px;line-height:1.7;color:#d6deef}
+.bnf{display:inline-flex;align-items:center;gap:2px;padding:0 5px 0 3px;border-radius:7px;background:color-mix(in srgb,var(--bc) 16%,transparent);border:1px solid color-mix(in srgb,var(--bc) 40%,transparent);color:var(--bc);white-space:nowrap;line-height:1.35}
+.bnf b{color:#fff;font-weight:800;font-size:11.5px}
+.pjfind{color:#ffd26a;font-size:11px}

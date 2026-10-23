@@ -52,6 +52,38 @@ export const FAMILIES = {
   works:    { name: 'Works',            icon: '⚙', base: 'Foundry', recipe: { fabrication: 0.5, electrics: 0.3, materials: 0.2 }, level: 'industry' },
   labs:     { name: 'Labs',             icon: '🔬', base: 'Lyceum',  recipe: { information: 0.5, electrics: 0.3, optics: 0.2 }, level: 'science' },
 };
+// THE WRITTEN DESCRIPTION (his ask, 2026-10-23: "a little paragraph — wherever there is a value, an icon, so you can read it or just
+// look at the icons"): per family a few openings, one per generation in turn; {0} {1} {2} are its benefits in the order of its
+// channels (the main one first) — the UI puts the icon and the number there. CHANNEL_ICON: which icon (techicons.js) a channel shows
+const T3 = (...t) => t;
+const TEXT = {
+  beam:     T3('Tighter focusing coils and a cooler lens: every energy weapon hits {0} harder, reaches {1} further and fires {2} faster.', 'A second resonance chamber feeds the beam: {0} more punch, {1} more reach, and the capacitors refill {2} quicker.', 'Phase-locked emitters fire as one: {0} damage, {1} range, {2} rate of fire.'),
+  gun:      T3('Denser slugs and a longer rail: shells bite {0} deeper, land {1} truer and cycle {2} faster.', 'A recoil-damped breech: {0} more penetration, {1} tighter groups, {2} quicker reloads.', 'Self-forging rounds: {0} penetration, {1} accuracy, {2} rate of fire.'),
+  missile:  T3('A richer charge and a leaner motor: warheads hit {0} harder, fly {1} further, and the seeker locks {2} better.', 'Staged boosters and a shaped charge: {0} yield, {1} reach, {2} sharper terminal guidance.', 'A smarter swarm: {0} yield, {1} range, {2} lock.'),
+  armor:    T3('Layered plate with a soft core: armour holds {0} more, shrugs off {1} more of every hit, and the frame behind it is {2} tougher.', 'Graded alloys from skin to spine: {0} plate strength, {1} deflection, {2} hull.', 'Plates that spread a blow across the hull: {0} integrity, {1} deflection, {2} frame.'),
+  shield:   T3('A tighter field lattice: shields hold {0} more, recover {1} faster and stretch {2} further over the hull.', 'Overlapping emitters: {0} capacity, {1} recovery, {2} reach.', 'A field that hardens where it is struck: {0} capacity, {1} recovery, {2} coverage.'),
+  reactor:  T3('Hotter, cleaner burns: reactors give {0} more power, store {1} more, and everything aboard draws {2} less.', 'A denser core: {0} output, {1} reserve, {2} efficiency.', 'Magnetic bottling: {0} output, {1} storage, {2} less draw.'),
+  drive:    T3('A smoother fold in the star drive: fleets cross {0} faster between the stars and push {1} harder in battle.', 'A lighter drive core: {0} between the stars, {1} thrust.', 'A drive that drinks less: {0} star travel, {1} thrust.'),
+  thruster: T3('Vectored nozzles: ships push {0} harder, turn {1} sharper and slip {2} more of the fire.', 'Pulse thrusters: {0} thrust, {1} agility, {2} evasion.', 'Thrust where it is needed: {0} thrust, {1} turn, {2} evasion.'),
+  computer: T3('Faster fire control: guns pick their aim {0} better, the computer runs {1} more, and decides {2} more by itself.', 'Predictive tracking: {0} targeting, {1} computing, {2} autonomy.', 'A mind in the turret: {0} targeting, {1} computing, {2} autonomy.'),
+  sensors:  T3('Wider apertures and a cleaner signal: you see {0} further and {1} sharper.', 'Arrays that listen across the bands: {0} range, {1} resolution.', 'Quiet sensors: {0} range, {1} resolution.'),
+  farms:    T3('New strains and closed soil cycles: every farm district feeds {0} more.', 'Layered fields under light: every farm district feeds {0} more.', 'Crops bred for the world they stand on: every farm district feeds {0} more.'),
+  homes:    T3('Lighter frames and shared walls: every home district houses {0} more.', 'Towers that breathe: every home district houses {0} more.', 'Homes grown, not built: every home district houses {0} more.'),
+  works:    T3('Better tooling on the lines: every works district turns out {0} more.', 'Lines that run themselves through the night: every works district turns out {0} more.', 'Machines that build machines: every works district turns out {0} more.'),
+  labs:     T3('Shared instruments and quicker methods: every lab district studies {0} more.', 'Labs that talk to each other: every lab district studies {0} more.', 'Thinking machines in every lab: every lab district studies {0} more.'),
+};
+export const CHANNEL_ICON = { beam_power: 'damage', kinetic_penetration: 'pierce', warhead_yield: 'damage', weapon_range: 'range', rate_of_fire: 'rate', accuracy: 'accuracy', targeting: 'accuracy',
+  armor_integrity: 'armor', armor_deflection: 'armor', hull_integrity: 'hull', shield_capacity: 'shield', shield_recovery: 'recovery', shield_reach: 'shield',
+  reactor_output: 'power', energy_storage: 'storage', power_efficiency: 'power', drive_efficiency: 'reach', thrust: 'speed', agility: 'evasion', evasion: 'evasion',
+  computing: 'computing', synthetic_neural: 'computing', sensor_range: 'sensors', sensor_resolution: 'sensors', food: 'food', housing: 'homes', industry: 'works', science: 'labs' };
+// what a generation would give, with the fields as they are: [{ channel, icon, pct }] in the family's order (the main one first)
+export function benefitsOf(S, fields, fam, q = null) {
+  const F = FAMILIES[fam]; if (q == null) q = qualityOf(S, fields, fam).q;
+  if (F.level) return [{ channel: F.level, icon: CHANNEL_ICON[F.level], pct: Math.round((RESEARCH.level.base + RESEARCH.level.q * q) * 25) }];
+  return Object.entries(F.channels).map(([channel, w]) => ({ channel, icon: CHANNEL_ICON[channel], pct: Math.max(1, Math.round(RESEARCH.mag * w * q)) }));
+}
+// the paragraph's text for a generation: the template with {i} still in it (the UI fills them)
+export const textOf = (fam, gen) => { const t = TEXT[fam] || ['{0}']; return t[(Math.max(1, gen) - 1) % t.length]; };
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
 export const generationOf = (S, fam) => ((S.gens || {})[fam] || 0) + 1;
@@ -119,15 +151,16 @@ export function advanceProjects(S, plans, rep) {
   for (const pl of plans) { pl.p.prog = (pl.p.prog || 0) + pl.gain; if (pl.p.prog >= pl.need - 1e-6) finished.push(pl); }
   for (const pl of finished) {
     S.gens = S.gens || {}; S.gens[pl.fam] = pl.gen; S.usedBoost = [...(S.usedBoost || []), ...pl.boosts.map(b => b.id)];
-    const F = pl.F, top = Object.entries(F.recipe).sort((a, b) => b[1] - a[1])[0][0];
+    const F = pl.F, top = Object.entries(F.recipe).sort((a, b) => b[1] - a[1])[0][0], ben = benefitsOf(S, null, pl.fam, pl.q);
+    const research = { fam: pl.fam, gen: pl.gen, name: pl.name, pcts: ben.map(b => b.pct), boosts: pl.boosts.map(b => b.name) };   // the report draws the paragraph with its icons from this
     if (F.level) {
       const up = RESEARCH.level.base + RESEARCH.level.q * pl.q; S.slotLevels = S.slotLevels || {}; S.slotLevels[F.level] = (S.slotLevels[F.level] || 1) + up;
-      rep.push({ kind: 'breakthrough', text: `Research done: ${pl.name} — every ${F.level === 'food' ? 'farm' : F.level === 'housing' ? 'home' : F.level === 'industry' ? 'works' : 'lab'} district gives ${Math.round(up * 25)} % more (quality ${Math.round(pl.q * 100)} %)` });
+      rep.push({ kind: 'breakthrough', research, text: `Research done: ${pl.name} — every ${F.level === 'food' ? 'farm' : F.level === 'housing' ? 'home' : F.level === 'industry' ? 'works' : 'lab'} district gives ${ben[0].pct} % more (quality ${Math.round(pl.q * 100)} %)` });
     } else {
-      const chans = Object.entries(F.channels).map(([channel, w]) => ({ channel, pct: Math.max(1, Math.round(RESEARCH.mag * w * pl.q)), x: CHANNEL_X[channel], how: `${pl.name}, built into every ${F.name.toLowerCase()}`, prog: 100 }));
+      const chans = ben.map(b => ({ channel: b.channel, pct: b.pct, x: CHANNEL_X[b.channel], how: `${pl.name}, built into every ${F.name.toLowerCase()}`, prog: 100 }));
       S.breakthroughs.unshift({ id: `pj${S.eon}${pl.fam}`, name: pl.name, field: top, fieldName: DOMAINS[top].name, eon: S.eon, origin: 'a research project', under: null, project: pl.fam,
         props: [{ name: `${F.name}, generation ${pl.gen}`, rarity: 'common', what: 'developed on purpose', channels: chans }] });
-      rep.push({ kind: 'breakthrough', text: `Research done: ${pl.name} — ${chans.map(c => `${c.channel.replace(/_/g, ' ')} +${c.pct} %`).join(', ')} on every ${F.name.toLowerCase()} (quality ${Math.round(pl.q * 100)} %)` });
+      rep.push({ kind: 'breakthrough', research, text: `Research done: ${pl.name} — ${chans.map(c => `${c.channel.replace(/_/g, ' ')} +${c.pct} %`).join(', ')} on every ${F.name.toLowerCase()} (quality ${Math.round(pl.q * 100)} %)` });
     }
   }
   if (finished.length) S.projects = (S.projects || []).filter(p => !finished.some(f => f.p === p));
