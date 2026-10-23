@@ -203,7 +203,7 @@
 #colPop .cphead{display:flex;align-items:baseline;gap:12px;padding:0 4px 10px}
 #colPop .cphead b{font-size:20px;flex:none}
 #colPop .cphead span{flex:1;text-align:right;font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.04em;white-space:pre}
-#colPop .cpgrid{display:grid;grid-template-columns:minmax(0,1114px) 232px;gap:12px;align-items:start}   /* the planet 30 % bigger (his ask 2026-10-21): 6 cells × 182 px + the card's padding */
+#colPop .cpgrid{display:grid;grid-template-columns:170px minmax(0,1114px) 232px;gap:12px;align-items:start}   /* the planet 30 % bigger (his ask 2026-10-21): 6 cells × 182 px + the card's padding */
 #colPop .cpmain{min-width:0;display:grid;gap:12px}
 #colPop .cprow2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 #colPop .cpcard{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:10px}
@@ -393,3 +393,16 @@
 #ecoTab .ecoskim{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center;padding:8px 10px;margin:0 0 8px;border:1px solid #ffd26a;border-radius:10px;background:rgba(255,210,106,.06)}
 #ecoTab .ecoskim label{display:grid;grid-template-columns:120px 220px 50px;gap:8px;align-items:center;font-weight:700}
 #ecoTab .ecoskim b{text-align:right}
+/* the colony list in the colony pop-up (2026-10-23) */
+#colPop .cplist{display:flex;flex-direction:column;gap:6px;max-height:calc(100vh - 190px);overflow:hidden;padding:8px}
+#colPop .cplist h3{margin:0;text-align:left}
+#colPop .cplist select{width:100%;font-size:12px}
+#colPop .cplrows{overflow-y:auto;display:flex;flex-direction:column;gap:2px;min-height:0}
+#colPop .cplsys{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:6px 0 1px}
+#colPop .cpli{display:grid;grid-template-columns:32px 1fr auto;gap:6px;align-items:center;padding:3px 4px;border-radius:8px;cursor:pointer;font-size:12px;border:1px solid transparent}
+#colPop .cpli:hover{border-color:var(--line);background:rgba(255,255,255,.04)}
+#colPop .cpli.on{border-color:var(--good);background:rgba(126,243,176,.1)}
+#colPop .cpli img{width:32px;height:32px;display:block}
+#colPop .cpli span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#colPop .cpli b{font-size:11px;font-variant-numeric:tabular-nums}
+#colPop .cpldot{display:block;width:18px;height:18px;margin:auto;border-radius:50%;background:#4fa3ff}

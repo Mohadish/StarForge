@@ -30,6 +30,7 @@ import { DEV, LEVEL1, KIND_WORD as SLOT_WORD, filletWhy, isFull, counts, planetO
 import { renderResearch, initResearch, researchDoneHtml } from './projects.js';
 import { FAMILIES as RFAM } from './research.js';
 import { icon as ticon, slotIcon, personIcon } from './techicons.js';
+import { globeTexture, drawGlobe, globeIcon } from './globe.js';
 initResearch({ save: () => save(), refresh: () => refresh() });   // the Research tab's orders save and redraw like every other
 import { TRI_COLOR, drawSurface, focusTetra, drawTri as drawEffortTri, triFromPoint, triBall, toCanvas, districtAt as surfaceCellAt, mapSize } from './colonyview.js';
 mountNav('eon', { into: document.getElementById('topbar') });
@@ -299,6 +300,23 @@ const badgeOf = t => t.dock ? '<span class="badge dock">Space dock</span>' : `<s
 const extraCost = fit => `+${Math.round((fit.mult - 1) * 100)}% cost, +${plural((fit.sections - 1) * T.sectionEons, 'eon')} to join the sections`;
 const LOOK = { star: ['#ffd06a', 22], planet: ['#4fa3ff', 12], moon: ['#b8c4d8', 6], giant: ['#c9a86b', 19], anomaly: ['#cf89ff', 9] };
 const lookOf = pl => ({ color: pl.color || LOOK[pl.kind][0], size: LOOK[pl.kind][1] * (pl.size || 1) });
+// THE GLOBES (2026-10-23): a world you could land on is drawn on the star system map as its own surface on a turning sphere — a bit
+// bigger than the flat disc it was, so the ground can be seen; with a glow for its air
+const isGlobe = pl => !!(pl.landable && gridOf(pl));
+const sizeIn = pl => isGlobe(pl) ? Math.round(lookOf(pl).size * 1.7) : lookOf(pl).size;
+const airOf = pl => { const a = habitabilityOf(pl).atmosphere; return a === 'thick' ? '#9fd0ff' : a === 'toxic' ? '#d8c86a' : a === 'thin' ? '#c7d6ea' : null; };
+const globeOf = pl => { const pc = pl.colony && LAST ? LAST.colonies.find(x => x.pl.id === pl.id) : null; return globeTexture(pl, worldOf(pl), gridOf(pl), pc ? pc.G : null); };
+let globeRaf = 0, globeT = 0;
+function globeLoop(t = 0) {
+  globeRaf = 0; const ov = $('sGlobe'), cv = $('sMap'); if (!ov || !cv || tab !== 'system' || !cv._geo) { if (ov) ov.getContext('2d').clearRect(0, 0, ov.width, ov.height); return; }
+  if (t - globeT > 33) { globeT = t;                    // about 30 frames a second is plenty for a slow turn
+    if (ov.width !== cv.width || ov.height !== cv.height) { ov.width = cv.width; ov.height = cv.height; } ov.style.left = cv.offsetLeft + 'px'; ov.style.top = cv.offsetTop + 'px'; ov.style.width = cv.clientWidth + 'px'; ov.style.height = cv.clientHeight + 'px';
+    const g = ov.getContext('2d'), G = cv._geo; g.clearRect(0, 0, ov.width, ov.height);
+    for (const pl of placesIn(selSys)) { if (!isGlobe(pl)) continue; const p = G.pos[pl.id]; if (!p) continue; const ph = (pl.id.charCodeAt(pl.id.length - 1) * 0.173) % 1;
+      try { drawGlobe(g, globeOf(pl), p.x, p.y, sizeIn(pl), (t / 60000 + ph) % 1, airOf(pl)); } catch (e) { /* a texture that could not be made: the flat disc stays */ } }
+  }
+  globeRaf = requestAnimationFrame(globeLoop);
+}
 // where you are: systems that hold a colony or a parked ship of yours
 function presence(c) {
   const m = new Map(), at = sys => m.get(sys) || m.set(sys, { colonies: 0, ships: 0 }).get(sys);
@@ -1150,7 +1168,7 @@ function drawMap(c) {
   }
   g.textAlign = 'center';
   for (const pl of here) {
-    const p = G.pos[pl.id], { color, size } = lookOf(pl), st = c.studied.find(s => s.pl.id === pl.id);
+    const p = G.pos[pl.id], { color } = lookOf(pl), size = sizeIn(pl), st = c.studied.find(s => s.pl.id === pl.id);
     if (pl.kind === 'star') { const gr = g.createRadialGradient(p.x, p.y, 3, p.x, p.y, size * 2.2); gr.addColorStop(0, '#fffbe6'); gr.addColorStop(0.45, color); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.beginPath(); g.arc(p.x, p.y, size * 2.2, 0, 7); g.fill(); }
     else if (pl.kind === 'anomaly') { g.save(); g.translate(p.x, p.y); g.rotate(Math.PI / 4); g.shadowColor = color; g.shadowBlur = 16; g.fillStyle = color; g.fillRect(-size, -size, size * 2, size * 2); g.restore(); }
     else { g.fillStyle = color; g.beginPath(); g.arc(p.x, p.y, size, 0, 7); g.fill(); }
@@ -1175,12 +1193,13 @@ function drawMap(c) {
   g.font = '11px sans-serif'; g.fillText(`${STARS[sys.type].name} · ${sys.home ? 'your home' : `${plural(starEons(sysDistance(S, S.homeSys, sys.id), c.warp), 'eon')} from Home by star drive`}`, 14, G.h - 12);
   cv._geo = G;
   renderFleetPop(false); renderSendBadge();
+  if (!globeRaf) globeRaf = requestAnimationFrame(globeLoop);   // the globes turn on their own layer
 }
 function placeAt(e) {
   const cv = $('sMap'), G = cv._geo; if (!G) return null;
   const r = cv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
   let best = null, bd = 30;
-  for (const pl of placesIn(selSys)) { const p = G.pos[pl.id]; if (!p) continue; const d = Math.hypot(mx - p.x, my - p.y) - lookOf(pl).size; if (d < bd) { bd = d; best = pl.id; } }
+  for (const pl of placesIn(selSys)) { const p = G.pos[pl.id]; if (!p) continue; const d = Math.hypot(mx - p.x, my - p.y) - sizeIn(pl); if (d < bd) { bd = d; best = pl.id; } }
   return best;
 }
 $('sMap').addEventListener('mousemove', e => {
@@ -1271,7 +1290,7 @@ const WORLD_KIND = { living: 'living', ocean: 'ocean', ice: 'ice', other: 'barre
 const cpColony = () => { const c = cpC(); return colPop && c ? c.colonies.find(x => x.pl.id === colPop) || null : null; };
 const cpWhy = pc => ({ staffed: pc.staffed, fed: pc.fed, housing: pc.housing, people: pc.P.people, food: pc.food / T.foodPerHead, eat: pc.P.people });
 const cpSkeleton = () => `<div class="cpbox"><div class="cphead"><b id="cpName"></b><span id="cpMeta"></span><button class="go" data-cpend title="end the eon — the colony stays open">End eon ▸</button><button class="x" data-cpclose title="close (Esc, or click outside)">✕</button></div>
-  <div class="cpgrid"><div class="cpmain">
+  <div class="cpgrid"><div class="cpcard cplist" id="cpList"></div><div class="cpmain">
     <div class="cprow2"><div class="cpcard cpwidget"><h3>Colony development focus <button class="x cpi" data-cphelp="focus" title="how this works">ⓘ</button></h3><div class="cphelp" data-help="focus" hidden>Drag the ball in the tetrahedron: the builders build toward it. Click an edge for half and half of its two corners (the food–housing edge: 50 % food, 50 % housing), a corner's name to pull toward it, empty space to turn it. Double-click the ball: a quarter each. A corner the colony cannot use is cut off and holds the ball back (hover it: why).</div><canvas id="cpRect" width="250" height="250" style="cursor:grab;touch-action:none"></canvas></div>
       <div class="cpcard cpwidget"><h3>Effort — the people <button class="x cpi" data-cphelp="effort" title="how this works">ⓘ</button></h3><div class="cphelp" data-help="effort" hidden>Drag the ball: how the people who work split — industry (the works and the production line), research (the labs), development (the builders who raise the next district) and food (the farmers: a farm gives nothing without them). Click an edge for half and half, a corner's name to pull toward it, empty space to turn it; double-click the ball: a quarter each. Unhappy people do not work at all.</div><canvas id="cpTri" width="250" height="250" style="cursor:grab;touch-action:none"></canvas></div></div>
     <div class="cpcard cpmapcard"><button class="x cpi cpi-map" data-cphelp="map" title="how to read the planet">ⓘ</button><div class="cphelp" data-help="map" hidden>The planet: every district that can be built on takes ONE unit — industry, food, housing or science. The builders raise them by themselves toward the focus (the pyramid), each on the free ground that suits its kind best, spreading out from the landing. ⚒ the unit going up (or the next one), ✕ one being torn down, ○ the landing. Hover a district: its ground, what stands on it, what each kind would give there. Sea, the polar caps and chasms take nothing.</div><canvas id="cpMap"></canvas></div>
@@ -1324,8 +1343,24 @@ function renderColPop(fromTetra = false) {
   if (cpEffort) cpEffort.draw();
   $('cpTri').title = `industry: ${fmt(pc.people.industry)} M hands for ${fmt(pc.cap.industry)} M of works · research: ${fmt(pc.people.research)} M for ${fmt(pc.cap.science)} M of labs · development: ${fmt(pc.people.development)} M builders → ${pc.dev.toFixed(1)} points an eon · food: ${fmt(pc.people.food)} M farmers for ${fmt(pc.cap.farmJobs)} M of farm jobs${pc.idle > 0.05 ? ` · ${fmt(pc.idle)} M do not work (unhappy)` : ''}`;
   $('cpOut').innerHTML = cpOutHtml(pc);
+  $('cpList').innerHTML = cpListHtml(pc);
   $('cpQueue').innerHTML = cpQueueHtml(pc); fillThumbs($('cpQueue'));
 }
+// THE COLONY LIST (his ask, 2026-10-23: "move between colonies from any colony panel"): every colony of the empire on the left, its
+// globe as the icon; by star system, or ranked by people, industry, research or food. A click opens that one in place
+const CPL = { sort: 'system' };
+function cpListHtml(pc) {
+  const c = cpC(); if (!c) return ''; const cols = c.colonies.slice(), sysName = id => (sysOf(id) || {}).name || '?';
+  const val = { people: p => p.P.people, industry: p => p.industry, research: p => p.research, food: p => p.food / T.foodPerHead - p.P.people };
+  const word = { people: p => peopleWord(p.P.people), industry: p => fmt(p.industry), research: p => fmt(p.research), food: p => { const v = val.food(p); return (v >= 0 ? '+' : '−') + fmt(Math.abs(v)); } };
+  if (CPL.sort === 'system') cols.sort((a, b) => sysName(a.pl.sys).localeCompare(sysName(b.pl.sys)) || a.pl.name.localeCompare(b.pl.name)); else cols.sort((a, b) => val[CPL.sort](b) - val[CPL.sort](a));
+  let last = null; const rows = cols.map(p => { const head = CPL.sort === 'system' && p.pl.sys !== last ? `<div class="cplsys">${esc(sysName(p.pl.sys))}</div>` : ''; last = p.pl.sys;
+    let img = ''; try { img = `<img src="${globeIcon(p.pl, worldOf(p.pl), gridOf(p.pl), p.G, 12, airOf(p.pl))}" alt="">`; } catch (e) { img = '<i class="cpldot"></i>'; }
+    return `${head}<div class="cpli ${p.pl.id === pc.pl.id ? 'on' : ''}" data-cpgo="${p.pl.id}" title="${esc(p.pl.name)} — ${peopleWord(p.P.people)} · industry ${fmt(p.industry)} · research ${fmt(p.research)}">${img}<span>${esc(p.pl.name)}</span><b>${CPL.sort === 'system' ? peopleWord(p.P.people) : word[CPL.sort](p)}</b></div>`; }).join('');
+  return `<h3>Colonies · ${cols.length}</h3><select data-cplsort>${['system', 'people', 'industry', 'research', 'food'].map(k => `<option value="${k}" ${CPL.sort === k ? 'selected' : ''}>${k === 'system' ? 'by star system' : 'by ' + k}</option>`).join('')}</select><div class="cplrows">${rows}</div>`;
+}
+document.addEventListener('change', e => { if (e.target.matches?.('[data-cplsort]')) { CPL.sort = e.target.value; if (colPop) renderColPop(); } });
+document.addEventListener('click', e => { const b = e.target.closest?.('[data-cpgo]'); if (!b || !colPop || b.dataset.cpgo === colPop) return; colPop = b.dataset.cpgo; cpHover = -1; cpAdd = false; renderColPop(); });
 const cpBar = (name, val, max, col, text) => `<div class="cpbar"><span style="color:${col}">${name}</span><div class="track"><div style="width:${Math.min(100, 100 * val / Math.max(1e-9, max))}%;background:${col}"></div></div><b>${text}</b></div>`;
 const reps = (icon, n, max = 40) => icon.repeat(Math.max(0, Math.min(max, Math.round(n))));
 function cpOutHtml(pc) {
