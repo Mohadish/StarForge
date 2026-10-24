@@ -320,6 +320,13 @@ function flanges(f, w, d, zc, along, hh) {
   const img = f.fit(); if (!img) return; const L = (along === 'x' ? w : d) * f.v(1.18, 1.42), off = (along === 'x' ? d : w) / 2 + 0.03, H = Math.max(hh, 0.25);
   for (const k of [-1, 1]) along === 'x' ? f.card([0, k * off, Math.max(zc, H / 2)], [1, 0, 0], [0, 0, 1], [L, H], img) : f.card([k * off, 0, Math.max(zc, H / 2)], [0, 1, 0], [0, 0, 1], [L, H], img);
 }
+// A DRONE (his ask: "create the drone itself out of the greebles"): a greeble laid flat for its body, a ring at each corner for its
+// rotors, a light underneath
+function drone(f, x, y, z, s) {
+  const a = f.R() * Math.PI, ca = Math.cos(a), sa = Math.sin(a), ring = f.mount(); f.card([x, y, z], [ca, sa, 0], [-sa, ca, 0], s, f.fit());
+  for (const [p, q] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) f.card([x + (ca * p - sa * q) * s * 0.42, y + (sa * p + ca * q) * s * 0.42, z + 0.05], [1, 0, 0], [0, 1, 0], [s * 0.42, s * 0.42], ring);
+  f.light(x, y, z - 0.07, 0.06);
+}
 // FINS (radial, standing out of a cylinder) or PLATES (overlapping round it)
 function fins(f, zc, r, h, n, mode) {
   const img = mode === 'radial' ? rotq(f.fit(), 1) : f.fit(), a0 = f.R() * Math.PI; if (!img) return;
@@ -333,7 +340,7 @@ const PARTS = {
   base: {
     plinth(f) { const w = f.v(2.0, 2.7), d = f.v(1.5, 2.3), h = f.v(0.22, 0.38); f.box(-w / 2, -d / 2, 0, w, d, h, { roof: f.tile(), strip: true }); flanges(f, w, d, h * 0.6, w >= d ? 'x' : 'y', h * f.v(1.4, 2.2)); return { z: h, r: Math.min(w, d) / 2 }; },
     drum(f) { const r = f.v(1.0, 1.35), h = f.v(0.28, 0.45); f.cyl(0, 0, 0, r, h, { r2: r * 0.88, cap: null }); fins(f, h * 0.55, r * 0.9, h * 1.5, 6 + Math.floor(f.R() * 3), 'radial'); f.disc(0, 0, h + 0.01, r * 0.92, f.mount()); return { z: h, r: r * 0.85 }; },
-    legs(f) { const s = f.v(0.75, 1.05), lh = f.v(0.7, 1.1), img = rotq(f.eng(), f.downQ); for (const [x, y] of [[-s, -s], [s, -s], [s, s], [-s, s]]) f.cross(x, y, lh / 2, lh, img, { byH: true, a: Math.PI / 4 }); f.box(-s * 1.15, -s * 1.15, lh, s * 2.3, s * 2.3, 0.2, { roof: f.tile(), strip: true }); return { z: lh + 0.2, r: s * 1.05 }; },
+    pylons(f) { const s = f.v(0.8, 1.1), ph = f.v(0.22, 0.32), lh = f.v(0.8, 1.25), img = rotq(f.eng(), f.downQ); f.box(-s * 1.22, -s * 1.22, 0, s * 2.44, s * 2.44, ph, { roof: f.tile(), strip: true }); for (const [x, y] of [[-s, -s], [s, -s], [s, s], [-s, s]]) f.cross(x, y, ph + lh / 2, lh, img, { byH: true, a: Math.PI / 4 }); return { z: ph, r: s * 0.72 }; },   // four engines standing on the corners, exhaust down on the plinth; the body rises between them
     nozzle(f) { const r = f.v(0.9, 1.15), h = f.v(0.6, 0.9); f.cyl(0, 0, 0, r, h, { r2: r * 0.6, glowRings: [0.15], cap: null }); fins(f, h / 2, r * 0.8, h * 1.25, 4, 'radial'); return { z: h, r: r * 0.6 }; },
   },
   body: {
@@ -360,19 +367,59 @@ const PARTS = {
     dish(f, x) { f.cyl(0, 0, x.z, 0.08, 0.45, { cap: null }); const r = Math.max(0.5, x.r * f.v(0.9, 1.3)), t = f.v(0.5, 0.9), a = f.R() * Math.PI * 2; f.card([0, 0, x.z + 0.6], [Math.cos(a), Math.sin(a), 0], [-Math.sin(a) * Math.cos(t), Math.cos(a) * Math.cos(t), Math.sin(t)], [2 * r, 2 * r], f.mount()); f.light(0, 0, x.z + 0.65, 0.08); return x; },
     antennae(f, x) { const n = 2 + Math.floor(f.R() * 2); for (let i = 0; i < n; i++) { const h = f.v(0.7, 1.3), px = f.v(-x.r * 0.6, x.r * 0.6), py = f.v(-x.r * 0.6, x.r * 0.6); f.cross(px, py, x.z + h / 2, h, rotq(f.fit(), 1), { byH: true, a: f.R() * Math.PI }); f.light(px, py, x.z + h + 0.03, 0.06); } return x; },
     plates(f, x) { let z = x.z; for (let i = 0; i < 3; i++) { const s = x.r * 2 * (1.15 - i * 0.22), a = f.R() * Math.PI; f.card([0, 0, z + 0.03], [Math.cos(a), Math.sin(a), 0], [-Math.sin(a), Math.cos(a), 0], s, f.fit()); z += 0.12; } return { z, r: x.r }; },
-    swarm(f, x) { for (let k = 0; k < 3; k++) { const px = f.v(-x.r, x.r), py = f.v(-x.r, x.r), z = x.z + f.v(0.5, 1.3), a = f.R() * Math.PI; f.card([px, py, z], [Math.cos(a), Math.sin(a), 0], [-Math.sin(a), Math.cos(a), 0], f.v(0.55, 0.8), f.fit()); f.light(px, py, z - 0.05, 0.07); } return x; },
+    swarm(f, x) { for (let k = 0; k < 3; k++) drone(f, f.v(-x.r, x.r), f.v(-x.r, x.r), x.z + f.v(0.6, 1.4), f.v(0.75, 1.05)); return x; },
     none(f, x) { return x; },
   },
 };
+// THE WEAPONS (his ask, 2026-10-24: "the greeble that goes around the gun, and then the barrels — a greeble layout around the barrels or
+// the missiles"): a mount; a housing (a block, a drum in plates, or the H); the barrels by the weapon's look (traits.js: long, many,
+// thick) wrapped in greeble cards — SLEEVES along both sides overhanging above and below, a COLLAR of a ring standing across them at
+// the root (and part-way), a ring at a beam's muzzle — and the trait's own touches (a Disruptor's coil rings, an Ember's vents, a Rail's
+// glowing gap, a Long's scope); a missile is a pod with its tubes as rings on its face
+function weaponRecipe(fam, f, L) {
+  L = L || {}; const { box, cyl, core, light, v, R } = f, len = L.len || 1, th = L.thick || 1;
+  const mr = v(0.8, 1.0), mh = v(0.22, 0.32); cyl(0, 0, 0, mr, mh, { r2: mr * 0.92, cap: null }); fins(f, mh * 0.55, mr * 0.88, mh * 1.4, 6 + Math.floor(R() * 3), 'radial'); f.disc(0, 0, mh + 0.01, mr * 0.95, f.mount());
+  const z = mh;
+  if (fam === 'missile') {
+    const w = v(1.2, 1.6), d = v(1.1, 1.5) * (L.trait === 'salvo' ? 1.35 : 1), h = v(0.7, 1.0);
+    box(-w / 2, -d / 2, z, w, d, h, { roof: f.tile(), wall: f.panel() || f.wall(), strip: R() < 0.6 }); flanges(f, w, d, z + h / 2, 'x', h * v(1.2, 1.5));
+    const n = L.tubes || 4, cols = n <= 2 ? 1 : n <= 4 ? 2 : 3, rows = Math.ceil(n / cols), cw = d * 0.8 / cols, rh = h * 0.8 / rows, rr = Math.min(cw, rh) * 0.46, ring = f.mount();
+    for (let i = 0; i < n; i++) { const yy = -d * 0.4 + cw * ((i % cols) + 0.5), zz = z + h * 0.1 + rh * (Math.floor(i / cols) + 0.5); f.card([w / 2 + 0.03, yy, zz], [0, 1, 0], [0, 0, 1], [rr * 2, rr * 2], ring); light(w / 2 + 0.02, yy, zz, rr * 0.3); }
+    f.card([0, 0, z + h + 0.03], [1, 0, 0], [0, -1, 0], w * 0.92, f.fit());
+    if (L.trait === 'seeker') core(w / 2 + 0.12, 0, z + h + 0.18, 0.18);
+    f.B.recipe = `mount + pod, ${n} tubes${L.trait ? ' · ' + L.trait : ''}`; return;
+  }
+  const hw = v(1.0, 1.35), hd = v(0.85, 1.1), hh = v(0.45, 0.65), kind = Math.floor(R() * 3);
+  if (kind === 0) { box(-hw / 2, -hd / 2, z, hw, hd, hh, { roof: f.tile(), wall: f.panel() || f.wall(), strip: true }); flanges(f, hw, hd, z + hh / 2, 'x', hh * v(1.3, 1.7)); }
+  else if (kind === 1) { const r = Math.max(hw, hd) / 2 * 0.85; cyl(0, 0, z, r, hh); fins(f, z + hh / 2, r, hh * 1.25, 6 + Math.floor(R() * 3), 'plates'); }
+  else PARTS.body.H(f, { z, r: Math.max(hw, hd) / 2 * 0.85 }, 0.8, 'x');
+  const bz = z + hh * 0.55, x0 = 0.42, n = L.barrels || 1, Lb = v(1.3, 1.7) * len, t = (fam === 'gun' ? 0.3 : 0.26) * th * (L.trait === 'ember' ? 1.25 : 1), gap = t * 1.35;
+  const ys = n === 1 ? [0] : n === 2 ? [-gap / 2, gap / 2] : [-gap, 0, gap], band = f.band(), spanY = ys[ys.length - 1] - ys[0] + t, ring = f.mount(), tip = x0 + Lb;
+  if (L.trait === 'rail') { for (const k of [-1, 1]) box(x0, k * t * 0.6 - t * 0.25, bz - t / 2, Lb, t * 0.5, t, { wall: band, roof: null }); for (let k = 1; k <= 5; k++) light(x0 + Lb * k / 6, 0, bz, 0.05); }   // two rails, the charge glowing in the gap
+  else for (const y of ys) box(x0, y - t / 2, bz - t / 2, Lb, t, t, { wall: band, roof: null });
+  const sLen = Lb * v(0.55, 0.8), sH = Math.max(t * 3.2, spanY * 1.45), sl = f.fit();                  // the SLEEVES: the greeble round the gun
+  for (const k of [-1, 1]) f.card([x0 + sLen / 2, k * (spanY / 2 + 0.03), bz], [1, 0, 0], [0, 0, 1], [sLen, sH], sl);
+  const cs = Math.max(spanY, t) * 2.3;                                                                // the COLLARS: rings standing across the barrels
+  f.card([x0 + 0.05, 0, bz], [0, 1, 0], [0, 0, 1], [cs, cs], ring); if (R() < 0.6) f.card([x0 + sLen + 0.05, 0, bz], [0, 1, 0], [0, 0, 1], [cs * 0.8, cs * 0.8], ring);
+  if (L.trait === 'disruptor') for (let k = 1; k <= 3; k++) { const xx = x0 + sLen + (Lb - sLen) * k / 4; f.card([xx, 0, bz], [0, 1, 0], [0, 0, 1], [cs * 0.7, cs * 0.7], ring); light(xx, 0, bz + cs * 0.3, 0.05); }   // the coils
+  if (L.trait === 'ember') for (let k = 0; k < 4; k++) { const xx = x0 + sLen + (Lb - sLen) * (k + 0.5) / 4.5; f.card([xx, 0, bz + t / 2 + 0.11], [1, 0, 0], [0, 0, 1], [0.16, 0.22], rotq(f.fit(), 1)); light(xx, 0, bz + t / 2 + 0.03, 0.05, { color: '#ff7a29' }); }   // the vents
+  if (L.trait === 'long') { box(-0.15, -0.12, z + hh, 0.55, 0.24, 0.18, { roof: null, strip: true }); light(0.42, 0, z + hh + 0.09, 0.05); }   // the scope
+  for (const y of (L.trait === 'rail' ? [0] : ys)) {
+    if (fam === 'beam') { f.card([tip, y, bz], [0, 1, 0], [0, 0, 1], [t * 2.4, t * 2.4], ring); core(tip + 0.05, y, bz, 0.12 * th); }   // the emitter in its ring
+    else box(tip - 0.14, y - t * 0.8, bz - t * 0.8, 0.2, t * 1.6, t * 1.6, { roof: null });   // the muzzle brake
+  }
+  if (L.trait === 'auto') f.card([tip - 0.3, 0, bz], [0, 1, 0], [0, 0, 1], [cs * 0.9, cs * 0.9], ring);   // the rotary's front ring
+  f.B.recipe = `mount + ${['block', 'drum', 'H'][kind]} + ${n > 1 ? n + ' barrels' : 'a barrel'}${L.trait ? ' · ' + L.trait : ''}`;
+}
 // each technology leans to some parts (picked by the seed — the same technology comes out in many shapes)
 const PLAN = {
-  shield:   { base: ['drum', 'plinth', 'legs'], body: ['column', 'stack', 'cage'], top: ['emitter', 'emitter', 'dome'] },
+  shield:   { base: ['drum', 'plinth', 'pylons'], body: ['column', 'stack', 'cage'], top: ['emitter', 'emitter', 'dome'] },
   armor:    { base: ['plinth', 'drum', 'plinth'], body: ['H', 'tower', 'H2'], top: ['none', 'plates', 'antennae'] },
-  reactor:  { base: ['drum', 'plinth', 'legs'], body: ['cage', 'column', 'stack'], top: ['core', 'emitter', 'core'] },
-  drive:    { base: ['legs', 'nozzle', 'nozzle'], body: ['column', 'stack', 'H'], top: ['spire', 'core', 'none'] },
-  thruster: { base: ['nozzle', 'legs'], body: ['stack', 'column', 'cage'], top: ['none', 'core', 'spire'] },
+  reactor:  { base: ['drum', 'plinth', 'pylons'], body: ['cage', 'column', 'stack'], top: ['core', 'emitter', 'core'] },
+  drive:    { base: ['pylons', 'nozzle', 'nozzle'], body: ['column', 'stack', 'H'], top: ['spire', 'core', 'none'] },
+  thruster: { base: ['nozzle', 'pylons'], body: ['stack', 'column', 'cage'], top: ['none', 'core', 'spire'] },
   computer: { base: ['plinth', 'drum'], body: ['tower', 'H2', 'H'], top: ['antennae', 'dish', 'spire'] },
-  sensors:  { base: ['drum', 'legs', 'plinth'], body: ['column', 'cage', 'stack'], top: ['dish', 'dome', 'dish'] },
+  sensors:  { base: ['drum', 'pylons', 'plinth'], body: ['column', 'cage', 'stack'], top: ['dish', 'dome', 'dish'] },
   drones:   { base: ['plinth', 'drum'], body: ['H', 'tower', 'stack'], top: ['swarm'] },
 };
 function deviceRecipe(fam, f, look) {
@@ -382,23 +429,7 @@ function deviceRecipe(fam, f, look) {
     let x = PARTS.base[b](f); x = PARTS.body[y](f, x); PARTS.top[t](f, x);
     for (let k = 0; k < 3; k++) { const a = R() * Math.PI * 2; light(Math.cos(a) * 0.7, Math.sin(a) * 0.7, v(0.2, 0.6), 0.05); }   // a few lights of its level
     f.B.recipe = `${b} + ${y} + ${t}`;
-  } else if (D.weapon) {                                                              // a weapon on its mount: barrels by its look (weaponart.js / traits.js) — its own greebles to come
-    const L = look || {}, len = L.len || 1, th = L.thick || 1;
-    cyl(0, 0, 0, 0.95, 0.3);
-    if (fam === 'missile') {
-      box(-0.8, -0.75, 0.3, 1.6, 1.5, 0.8, { strip: true, roof: null }); flanges(f, 1.6, 1.5, 0.7, 'x', 0.95); const n = L.tubes || 4, cols = n <= 4 ? 2 : 3, rows = Math.ceil(n / cols);
-      for (let i = 0; i < n; i++) light(-0.55 + 1.1 * ((i % cols) + 0.5) / cols, -0.5 + 1.0 * (Math.floor(i / cols) + 0.5) / rows, 1.12, 0.09);
-      if (L.trait === 'seeker') core(0.85, 0, 0.75, 0.16);
-    } else {
-      box(-0.7, -0.6, 0.3, 1.3, 1.2, 0.62, { strip: true, roof: f.tile() }); flanges(f, 1.3, 1.2, 0.62, 'x', 0.75);
-      const n = L.barrels || 1, Lb = 1.2 * len, t = (fam === 'gun' ? 0.24 : 0.2) * th * (L.trait === 'ember' ? 1.25 : 1), ys = n === 1 ? [0] : n === 2 ? [-0.24, 0.24] : [-0.3, 0, 0.3], band = f.band();
-      for (const y of ys) {
-        box(0.5, y - t / 2, 0.5, Lb, t, t, { wall: band, roof: null });
-        if (fam === 'beam') core(0.5 + Lb + 0.06, y, 0.5 + t / 2, 0.15 * th);
-        else box(0.5 + Lb - 0.12, y - t * 0.8, 0.5 - t * 0.3, 0.22, t * 1.6, t * 1.6, { roof: null });   // the muzzle brake
-        if (L.trait === 'disruptor' || L.trait === 'ember' || L.trait === 'rail') for (let k = 1; k <= 3; k++) light(0.5 + Lb * k / 4, y, 0.5 + t + 0.02, 0.05);
-      }
-    }
+  } else if (D.weapon) { weaponRecipe(fam, f, look);
   } else if (D.farm) {                                                                // the crops' bed, a glasshouse, and the style's pieces stood up round it like stalks
     box(-1.25, -1.25, 0, 2.5, 2.5, 0.35, { roof: 'field', strip: false }); flanges(f, 2.5, 2.5, 0.25, 'x', 0.5);
     dome(0.3, 0.25, 0.35, v(0.7, 0.95), { color: '#b6f08a' });
@@ -410,6 +441,7 @@ export function drawDevice(fam, styleStock, { seed = 1, level = 3, yaw = 0, U = 
   deviceRecipe(fam, f, look);
   if (!U) U = Math.min(64, width / (2 * bounds(f.B).rho * Math.SQRT2 * C30));   // every device as wide as the frame (a long gun is not a speck)
   const glow = levelColor(level), farm = DEVICES[fam] && DEVICES[fam].farm;
+  if (DEVICES[fam] && DEVICES[fam].weapon) yaw -= 0.6;   // a weapon from three quarters: its side, the greebles round the barrels
   const cv = renderSolids(f.B, { U, yaw, glow, light: glow || '#ffffff', glass: farm ? '#b6f08a' : glow || '#e6f0ff', wash: glow && !farm ? glow : null, washA: 0.12, seed });
   cv.recipe = f.B.recipe || ''; return cv;   // which parts it was built of (the grammar)
 }
