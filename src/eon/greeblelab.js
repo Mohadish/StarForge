@@ -139,7 +139,8 @@ export function renderSolids(B, o = {}) {
   // back to front: the footprint centre's depth (what stands ON a block shares its centre — after it, by height)
   const depth = s => { const [a, b] = s.t === 'box' ? rot(s.x + s.w / 2, s.y + s.d / 2) : rot(s.x, s.y); return a + b; }, band = s => Math.round(depth(s) * 2) / 2;
   const order = B.slice().sort((a, b) => (a.last ? 1 : 0) - (b.last ? 1 : 0) || band(a) - band(b) || a.z - b.z || depth(a) - depth(b));
-  for (const s of order) {
+  for (const s of order) { try { drawSolid(s); } catch (e) { console.warn('greeble lab: a part could not be drawn and was left out', s.t, e.message); } }   // one broken part never takes the whole piece down
+  function drawSolid(s) {
     if (s.t === 'box') {
       const cs = [[s.x, s.y], [s.x + s.w, s.y], [s.x + s.w, s.y + s.d], [s.x, s.y + s.d]], z1 = s.z + s.h, rm = rot(s.x + s.w / 2, s.y + s.d / 2);
       for (let i = 0; i < 4; i++) {                                                  // the walls that face us, lit from the screen's left
@@ -287,7 +288,7 @@ function deviceRecipe(fam, f, look) {
     for (const s of [-1, 1]) cyl(-0.75, s * 0.62, 0.45, 0.22, 0.55);
   } else if (fam === 'thruster') {
     box(-1.2, -1.2, 0, 2.4, 2.4, 0.25, { strip: true, roof: null });
-    for (const [x, y] of [[-0.6, -0.6], [0.6, -0.6], [0.6, 0.6], [-0.6, 0.6]]) { const h = v(0.45, 0.7); cyl(x, y, 0.25, 0.42, h, { r2: 0.27, cap: null, glowRings: [0.3] }); core(x, y, 0.25 + h + 0.08, 0.17); }
+    for (const [x, y] of [[-0.6, -0.6], [0.6, -0.6], [0.6, 0.6], [-0.6, 0.6]]) { const h = v(0.45, 0.7); cyl(x, y, 0.25, 0.42, h, { r2: 0.27, glowRings: [0.3] }); core(x, y, 0.25 + h + 0.08, 0.15); }
   } else if (fam === 'computer') {
     box(-0.85, -0.65, 0, 1.7, 1.3, 1.2, { windows: true, strip: true }); box(-0.6, -0.45, 1.2, 1.2, 0.9, 0.4, { windows: true });
     cyl(0.4, 0.25, 1.6, 0.06, 0.8, { cap: null }); light(0.4, 0.25, 2.45, 0.09); light(-0.3, -0.2, 1.62, 0.06);
