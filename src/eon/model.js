@@ -634,6 +634,18 @@ export function settle(S, shipId) {
   S.ships = S.ships.filter(x => x !== u);
   return null;
 }
+// COLONY SUPPORT (his ask, 2026-10-24: "a factory ship to a colony to boost its factories — at a much decreased value, the same relative
+// offset as the people"): a ship resting at a colony of yours LANDS on it — the people aboard join the colony, the ship becomes one of its
+// buildings at an outpost's scale (SCALE.landed, at the grade it arrived in), as a landing does. It is gone as a ship
+export function supportColony(S, shipId) {
+  const u = S.ships.find(x => x.id === shipId), pl = u && S.places.find(p => p.id === u.at);
+  if (!u || u.dest || !pl) return 'The ship is not there yet';
+  if (!pl.colony) return `${pl.name} is not a colony of yours`;
+  pl.colony.people += u.people || 0;
+  pl.colony.structures.push({ id: uid('u'), name: 'Landed ' + u.name, klass: 'structure', design: u.design, eon: S.eon, landed: true, grade: Math.max(0.05, (u.st ?? 100) / 100) });
+  S.ships = S.ships.filter(x => x !== u);
+  return null;
+}
 // people, as a word: millions on a world, thousands on a ship
 export const peopleWord = v => v >= 1 ? `${v >= 100 ? Math.round(v) : v.toFixed(v >= 10 ? 0 : 1)} M` : v > 0 ? `${Math.max(1, Math.round(v * 1000))} k` : '0';
 // an old save (version 8) brought up to date: people aboard ships to a ship's scale, crossings into voyages, landed ships marked

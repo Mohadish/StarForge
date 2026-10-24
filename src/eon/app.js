@@ -3,7 +3,7 @@
 import { $, clamp, fmt, signed, esc } from '../util.js';
 import { DOMAINS } from '../data/properties.js';
 import { XS, X_INFO, T, CENTER, FIELD_IDS, newState, compute, endEon, uid, isIntegrated, giveAttention, sendShip, recallShip, settle, starEons, sysDistance, worldOf,
-  setSplit, setCampaign, setSkim, setDevFocus, queueAdd, queueCount, queueMove, queueDrop, canUndoSend, undoSend, regroupSend,
+  setSplit, setCampaign, setSkim, setDevFocus, supportColony, queueAdd, queueCount, queueMove, queueDrop, canUndoSend, undoSend, regroupSend,
   explored, knowledgeOf, fleetSight, KNOW_WORD, LY, VOY, SCALE, shipRange, forecast, fleetRange, sendFleet, lyBetween, peopleWord, upgrade, hostileIn, hostileWord, hostileWorth, ZONE, bubbles, zoneOfSys, effectiveLy, setRelay, unrelay, moveRelay, dropRelay, relayOf, relayAt } from './model.js';
 import { KINDS, KIND_IDS, CLASS_NAME, GANTRY, GUN, PRESETS, applyPreset, allCapsules, designStats, isRelevant, dockFit, reachBand, fitModule, autoFit, traverseOf } from './modules.js';
 import { GALAXY, STARS, galaxyOf } from './galaxy.js';
@@ -125,7 +125,7 @@ function scopeGroups(c) {
   if (pickScope.kind === 'outgoing') return groupsOf(c.ships.filter(s => outKeyOf(s.u) === pickScope.key));   // a fleet that left this eon: its ships
   return groupsOf(c.ships.filter(s => !s.u.dest && s.u.at === pickScope.place));
 }
-function stackRow(g, { send = true, settleAt = null, foe = null } = {}) {
+function stackRow(g, { send = true, settleAt = null, supportAt = null, foe = null } = {}) {
   const n = picks.get(g.key) || 0, total = g.ships.length, tid = (foe ? 'f' : 'm') + g.key;
   thumbShips.set(tid, foe ? g.ship : paintedShip(g.ships[0].u.design, LAST.caps));
   let line;
@@ -139,7 +139,7 @@ function stackRow(g, { send = true, settleAt = null, foe = null } = {}) {
   const settler = !foe && settleAt && g.ships.find(s => s.u.people > 0);
   return `<div class="shiprow" ${foe ? '' : `data-shipctx="me|${g.ships.map(s => s.u.id).join(',')}" title="right-click for the full spec"`}><div class="n"><span style="display:flex;align-items:center;gap:8px"><canvas data-thumb="${tid}" ${foe ? `data-foe="${esc(foe)}"` : ''} width="96" height="56" style="width:64px;height:38px;border-radius:6px;background:#04070f;flex:none"></canvas><b>${esc(g.name)}</b><b style="color:var(--time)">×${total}</b></span>
     ${send ? `<span class="stepper" title="how many of them to send"><button data-gpick="${g.key}" data-max="${total}" data-d="-1">−</button><b>${n}</b><button data-gpick="${g.key}" data-max="${total}" data-d="1">+</button><button class="x" data-gall="${g.key}" data-max="${total}">${n === total ? 'none' : 'all'}</button></span>` : foe ? '' : '<span class="tiny">stays in its system</span>'}</div>
-    <div class="tiny">${line}</div>${settler ? `<div class="acts"><button class="go" data-settle="${settler.u.id}">Settle ${esc(settleAt.name)} with one</button></div>` : ''}</div>`;
+    <div class="tiny">${line}</div>${settler ? `<div class="acts"><button class="go" data-settle="${settler.u.id}">Settle ${esc(settleAt.name)} with one</button></div>` : ''}${!foe && supportAt ? `<div class="acts"><button class="x" data-support="${g.ships[0].u.id}" title="the ship lands for good: its people join the colony, its systems work for it at an outpost's scale (a hundredth of a ship's industry, research and social output)">⬇ Land one on ${esc(supportAt.name)} — support the colony</button></div>` : ''}</div>`;
 }
 // what is picked, and where it would go
 function sendBar(c, groups) {
@@ -1301,7 +1301,7 @@ function renderSystem(c) {
   if (!pickScope || pickScope.kind !== 'system' || pickScope.place !== pl.id) setScope({ kind: 'system', place: pl.id });
   const groups = groupsOf(c.ships.filter(s => !s.u.dest && s.u.at === pl.id));
   const coming = c.ships.filter(s => s.u.dest === pl.id), leaving = c.ships.filter(s => s.u.dest && s.u.at === pl.id && s.u.dest !== pl.id);
-  h += `<h3>In orbit here</h3>` + (groups.map(g => stackRow(g, { settleAt: pl.landable && !pl.colony && !owner ? pl : null })).join('') || '<div class="tiny">Nothing.</div>') + sendBar(c, groups);
+  h += `<h3>In orbit here</h3>` + (groups.map(g => stackRow(g, { settleAt: pl.landable && !pl.colony && !owner ? pl : null, supportAt: pl.colony ? pl : null })).join('') || '<div class="tiny">Nothing.</div>') + sendBar(c, groups);
   if (coming.length) h += `<h3>On the way here</h3>` + movingLines(coming);
   if (leaving.length) h += `<h3>Leaving</h3>` + movingLines(leaving);
   if (!pc && !owner && pl.landable) h += `<div class="tiny" style="margin-top:8px">To settle ${esc(pl.name)}: build a ship that has a habitat (the people go aboard when it is built), send it here, and press Settle. The ship becomes the colony's first building.</div>`;
@@ -1977,6 +1977,7 @@ document.addEventListener('click', e => {
     else { if (d.klass === 'structure') { d.chips = chipsOfDesign(d, 1); chipsFor = null; } d.klass = k; if (chipsFor === d.id) rebuildFromChips(d, LAST); }
     selMod = null; save(); return refresh();
   }
+  if ((t = q('[data-support]'))) { const u = S.ships.find(x => x.id === t.dataset.support); if (u && !confirm(`Land ${u.name} on ${placeOf(u.at)?.name} for good? ${u.people > 0 ? peopleWord(u.people) + ' people join the colony; ' : ''}its systems work for the colony at an outpost's scale — the ship is gone.`)) return; toastErr(supportColony(S, t.dataset.support)); save(); return refresh(); }
   if ((t = q('[data-settle]'))) { const u = S.ships.find(x => x.id === t.dataset.settle), o = u && W ? ownerOf(W, S, u.at) : null; toastErr(o ? `${o.name} holds it — land troops instead` : settle(S, t.dataset.settle)); save(); return refresh(); }
   if ((t = q('[data-invade]'))) { if (!W) return; const err = invade(W, S, t.dataset.invade); if (err) toastErr(err); else say(S.report.at(-1)?.text || 'The troops have landed'); save(); return refresh(); }
   if ((t = q('[data-hull]'))) { const d = design(); if (!d) return; d.hull = t.dataset.hull; fitGunsFor = d.id; save(); return refresh(); }

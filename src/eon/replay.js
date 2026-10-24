@@ -3,7 +3,7 @@
 // The same seed and the same actions give the same game (model.js draws every die from the state), so a log replays exactly.
 // applyAction runs one order on a state; the AI player and the game's Replay bar both use it. No DOM.
 import { startProject, setInfluence, dropProject } from './research.js';
-import { sendFleet, giveAttention, settle, compute, setSplit, setCampaign, setSkim, setDevFocus, queueAdd, queueCount, queueMove, queueDrop, setRelay, unrelay, moveRelay, dropRelay } from './model.js';
+import { sendFleet, giveAttention, settle, supportColony, compute, setSplit, setCampaign, setSkim, setDevFocus, queueAdd, queueCount, queueMove, queueDrop, setRelay, unrelay, moveRelay, dropRelay } from './model.js';
 
 export const REPLAY_VERSION = 1;
 // { type: 'split', place, split: [i, r, d, f] } (the effort: industry, research, development, food — an older log's three keep the farmers) · { type: 'design', design } (a whole design: replaces one with the same id) ·
@@ -41,6 +41,10 @@ export function applyAction(S, a) {
       if (!ships.length) return 'no such ships resting there';
       const to = a.toPlace || starOf(a.to); if (!to) return 'nowhere to go';
       return sendFleet(S, ships.map(u => u.id), to);
+    }
+    case 'support': {                                // { type: 'support', design, place }: a resting ship of that design lands on the colony there (2026-10-24)
+      const u = S.ships.find(x => !x.dest && x.design && x.design.id === a.design && x.at === a.place); if (!u) return 'no such ship there';
+      return supportColony(S, u.id);
     }
     case 'settle': {                                 // { type: 'settle', design, place }: a resting ship of that design at that place founds the colony
       const u = S.ships.find(x => !x.dest && x.design && x.design.id === a.design && x.at === a.place); if (!u) return 'no such ship there';
