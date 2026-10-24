@@ -320,6 +320,20 @@ function flanges(f, w, d, zc, along, hh) {
   const img = f.fit(); if (!img) return; const L = (along === 'x' ? w : d) * f.v(1.18, 1.42), off = (along === 'x' ? d : w) / 2 + 0.03, H = Math.max(hh, 0.25);
   for (const k of [-1, 1]) along === 'x' ? f.card([0, k * off, Math.max(zc, H / 2)], [1, 0, 0], [0, 0, 1], [L, H], img) : f.card([k * off, 0, Math.max(zc, H / 2)], [0, 1, 0], [0, 0, 1], [L, H], img);
 }
+// A MISSILE'S TIP (his ask: "the tips of the missiles protruding from the front"): the front of a missile seen from the side — a stub of
+// body in the style's own band, an ogive nose, a ring of the level's colour behind it; laid on two crossed cards so it reads from all round
+const TIPS = new Map();
+function tipTex(band, col) {
+  const key = (band ? band.width + 'x' + band.height + ':' + (band._id || (band._id = Math.random().toString(36).slice(2))) : 'none') + '|' + (col || 'w');
+  if (TIPS.has(key)) return TIPS.get(key);
+  const W = 128, H = 44, cv = document.createElement('canvas'); cv.width = W; cv.height = H; const g = cv.getContext('2d'), y0 = 7, y1 = 37;
+  g.save(); g.beginPath(); g.rect(0, y0, 66, y1 - y0); g.clip(); if (band) g.drawImage(band, 0, 0, band.width * 0.5, band.height, 0, y0, 66, y1 - y0); else { g.fillStyle = '#6b7488'; g.fillRect(0, y0, 66, y1 - y0); } g.restore();
+  const sh = g.createLinearGradient(0, y0, 0, y1); sh.addColorStop(0, 'rgba(255,255,255,.35)'); sh.addColorStop(0.45, 'rgba(255,255,255,0)'); sh.addColorStop(1, 'rgba(0,0,0,.55)'); g.fillStyle = sh; g.fillRect(0, y0, 66, y1 - y0);
+  g.beginPath(); g.moveTo(66, y0); g.bezierCurveTo(98, y0, 118, 16, 126, 22); g.bezierCurveTo(118, 28, 98, y1, 66, y1); g.closePath();
+  const ng = g.createLinearGradient(0, y0, 0, y1); ng.addColorStop(0, '#eef3fb'); ng.addColorStop(0.4, '#a9b3c6'); ng.addColorStop(1, '#3a4256'); g.fillStyle = ng; g.fill(); g.strokeStyle = 'rgba(0,0,0,.6)'; g.lineWidth = 1.5; g.stroke();
+  g.fillStyle = col || '#ffffff'; g.fillRect(56, y0, 7, y1 - y0); g.strokeStyle = 'rgba(0,0,0,.5)'; g.strokeRect(0.5, y0, 65, y1 - y0);
+  TIPS.set(key, cv); return cv;
+}
 // A DRONE (his ask: "create the drone itself out of the greebles"): a greeble laid flat for its body, a ring at each corner for its
 // rotors, a light underneath
 function drone(f, x, y, z, s) {
@@ -381,13 +395,28 @@ function weaponRecipe(fam, f, L) {
   const mr = v(0.8, 1.0), mh = v(0.22, 0.32); cyl(0, 0, 0, mr, mh, { r2: mr * 0.92, cap: null }); fins(f, mh * 0.55, mr * 0.88, mh * 1.4, 6 + Math.floor(R() * 3), 'radial'); f.disc(0, 0, mh + 0.01, mr * 0.95, f.mount());
   const z = mh;
   if (fam === 'missile') {
-    const w = v(1.2, 1.6), d = v(1.1, 1.5) * (L.trait === 'salvo' ? 1.35 : 1), h = v(0.7, 1.0);
-    box(-w / 2, -d / 2, z, w, d, h, { roof: f.tile(), wall: f.panel() || f.wall(), strip: R() < 0.6 }); flanges(f, w, d, z + h / 2, 'x', h * v(1.2, 1.5));
-    const n = L.tubes || 4, cols = n <= 2 ? 1 : n <= 4 ? 2 : 3, rows = Math.ceil(n / cols), cw = d * 0.8 / cols, rh = h * 0.8 / rows, rr = Math.min(cw, rh) * 0.46, ring = f.mount();
-    for (let i = 0; i < n; i++) { const yy = -d * 0.4 + cw * ((i % cols) + 0.5), zz = z + h * 0.1 + rh * (Math.floor(i / cols) + 0.5); f.card([w / 2 + 0.03, yy, zz], [0, 1, 0], [0, 0, 1], [rr * 2, rr * 2], ring); light(w / 2 + 0.02, yy, zz, rr * 0.3); }
-    f.card([0, 0, z + h + 0.03], [1, 0, 0], [0, -1, 0], w * 0.92, f.fit());
-    if (L.trait === 'seeker') core(w / 2 + 0.12, 0, z + h + 0.18, 0.18);
-    f.B.recipe = `mount + pod, ${n} tubes${L.trait ? ' · ' + L.trait : ''}`; return;
+    let z0 = z; const neck = R() < 0.5, kind = Math.floor(R() * 3), w = v(1.15, 1.5), d = v(1.1, 1.45) * (L.trait === 'salvo' ? 1.3 : 1), h = v(0.7, 0.95), ring = f.mount(), tip = tipTex(f.band(), f.glow);
+    if (neck) { cyl(0, 0, z, 0.32, 0.28, { cap: null, glowRings: [0.5] }); z0 = z + 0.28; }
+    const pods = kind === 1 ? [{ y: -(d * 0.26 + 0.07), d: d * 0.48, z: z0, h, w }, { y: d * 0.26 + 0.07, d: d * 0.48, z: z0, h, w }]   // twin: two pods with a gap and a bridge
+      : kind === 2 ? [{ y: 0, d, z: z0, h: h * 0.58, w }, { y: 0, d: d * 0.78, z: z0 + h * 0.58, h: h * 0.46, w: w * 0.82, x: -w * 0.1 }]   // stacked: a smaller pod on a bigger one
+      : [{ y: 0, d, z: z0, h, w }];
+    const total = L.tubes || 4; let left = total;
+    pods.forEach((p, pi) => {
+      const px = p.x || 0, front = px + p.w / 2, n = pi === pods.length - 1 ? left : Math.max(1, Math.round(total * p.d * p.h / pods.reduce((a, q) => a + q.d * q.h, 0))); left -= n;
+      box(px - p.w / 2, p.y - p.d / 2, p.z, p.w, p.d, p.h, { roof: f.tile(), wall: f.panel() || f.wall(), strip: R() < 0.5 });
+      if (kind !== 1) flanges(f, p.w, p.d, p.z + p.h / 2, 'x', p.h * v(1.15, 1.4));
+      else f.card([px, p.y + Math.sign(p.y) * (p.d / 2 + 0.03), p.z + p.h / 2], [1, 0, 0], [0, 0, 1], [p.w * v(1.15, 1.35), p.h * 1.3], f.fit());   // the twins' outer flanges
+      f.card([px + 0.06, p.y, p.z + p.h + 0.03], [1, 0, 0], [0, -1, 0], [p.w * 1.05, p.d * 1.04], f.fit());   // the hood: a greeble over the top, past the front
+      const cols = n <= 2 ? n : n <= 4 ? 2 : 3, rows = Math.ceil(n / cols), cw = p.d * 0.82 / cols, rh = p.h * 0.8 / rows, rr = Math.min(cw, rh) * 0.42;
+      for (let i = 0; i < n; i++) {
+        const yy = p.y - p.d * 0.41 + cw * ((i % cols) + 0.5), zz = p.z + p.h * 0.1 + rh * (Math.floor(i / cols) + 0.5), pro = rr * (L.trait === 'bunker' ? 3.2 : 2.6);
+        f.card([front + 0.03, yy, zz], [0, 1, 0], [0, 0, 1], [rr * 2.2, rr * 2.2], ring);                                   // the tube's mouth
+        f.card([front + pro / 2, yy, zz], [1, 0, 0], [0, 0, 1], [pro, rr * 1.15], tip); f.card([front + pro / 2, yy, zz], [1, 0, 0], [0, 1, 0], [pro, rr * 1.15], tip);   // the warhead, out of it
+      }
+    });
+    if (kind === 1) box(-w * 0.35, -0.08, z0 + h * 0.3, w * 0.6, 0.16, h * 0.4, { roof: null, strip: true });   // the bridge between the twins
+    if (L.trait === 'seeker') core(w / 2 + 0.12, 0, z0 + h + 0.2, 0.18);
+    f.B.recipe = `mount${neck ? ' + neck' : ''} + ${['a pod', 'twin pods', 'stacked pods'][kind]}, ${total} missiles${L.trait ? ' · ' + L.trait : ''}`; return;
   }
   const hw = v(1.0, 1.35), hd = v(0.85, 1.1), hh = v(0.45, 0.65), kind = Math.floor(R() * 3);
   if (kind === 0) { box(-hw / 2, -hd / 2, z, hw, hd, hh, { roof: f.tile(), wall: f.panel() || f.wall(), strip: true }); flanges(f, hw, hd, z + hh / 2, 'x', hh * v(1.3, 1.7)); }
@@ -437,7 +466,7 @@ function deviceRecipe(fam, f, look) {
   }
 }
 export function drawDevice(fam, styleStock, { seed = 1, level = 3, yaw = 0, U = null, width = 250, look = null } = {}) {
-  const f = builder(rnd(fam + ':' + seed + ':' + styleStock.style), stockSet(styleStock));
+  const f = builder(rnd(fam + ':' + seed + ':' + styleStock.style), stockSet(styleStock)); f.glow = levelColor(level);
   deviceRecipe(fam, f, look);
   if (!U) U = Math.min(64, width / (2 * bounds(f.B).rho * Math.SQRT2 * C30));   // every device as wide as the frame (a long gun is not a speck)
   const glow = levelColor(level), farm = DEVICES[fam] && DEVICES[fam].farm;
