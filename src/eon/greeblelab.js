@@ -1,7 +1,7 @@
 // THE GREEBLE LAB (his ask, 2026-10-24: "go through the images you already have and start creating little greeble assets — not for
 // anything specific… and try a 3D isometric look for tech assets: generators, shields, farms, industries — flavour art"). Two halves:
 // · THE STOCK — every style's parts (styles.js) cut from their sheets: the whole pieces (fittings, mounts, engines, turrets) trimmed to
-//   their ink, PANELS and BANDS cut from the plating strip (solid, busy stretches), and BITS — small solid, busy crops out of the pieces.
+//   their ink, PANELS and BANDS cut from the plating strip (solid, busy stretches); TILES are whole fittings layered (stockSet).
 //   Chosen by two numbers read off the pixels: how solid (alpha coverage) and how busy (the spread of the grey). The catalog (rects in
 //   sheet pixels) is the asset list; the art stays on its sheets.
 // · THE ISOMETRIC LAB — the same stock dressing 3D blocks: walls in the style's plating, roofs in its top-down pieces (they were
@@ -57,13 +57,6 @@ export async function stockOf(styleId) {
     for (const r of pickApart(panels, 6)) add('panel', main.url, r);
     for (const r of pickApart(bands, 4)) add('band', main.url, r);
   }
-  // BITS: small solid, busy crops out of the whole parts — little plates of detail, good for anything
-  for (const { S, r } of whole) {
-    const cand = [];
-    for (const k of [0.42, 0.28]) { const s = Math.round(Math.min(r.w, r.h) * k); if (s < 24) continue; const step = Math.max(6, Math.round(s / 3));
-      for (let y = r.y; y + s <= r.y + r.h; y += step) for (let x = r.x; x + s <= r.x + r.w; x += step) { const m = measure(S, x, y, s, s); if (m.cover > 0.96 && m.busy > 0.11) cand.push({ x, y, w: s, h: s, score: m.busy + k * 0.2 }); } }
-    for (const b of pickApart(cand, 2)) add('bit', S.url, b);
-  }
   return { style: styleId, name: st.name, pieces: out };
 }
 // a piece on its own canvas (tinted later by the caller)
@@ -91,24 +84,71 @@ function face(g, src, P0, U, V, shade, sx = 0, sy = 0, sw = null, sh = null, bas
 // a field: tiny tiled rows (his colony rule: fields are a tiny tiled texture)
 let FIELD = null;
 function fieldTex() { if (FIELD) return FIELD; const cv = document.createElement('canvas'); cv.width = cv.height = 64; const g = cv.getContext('2d'); g.fillStyle = '#4b5a2e'; g.fillRect(0, 0, 64, 64); for (let i = 0; i < 16; i++) { g.fillStyle = i % 2 ? '#6f8a3a' : '#5a7230'; g.fillRect(0, i * 4, 64, 3); for (let k = 0; k < 10; k++) { g.fillStyle = 'rgba(190,230,120,.35)'; g.fillRect((k * 7 + i * 3) % 64, i * 4, 2, 2); } } FIELD = cv; return cv; }
-// the stock of a style as the solids want it: roofs, walls, bands, rings, as canvases
+// a piece turned by quarter turns (clockwise), kept — a horizontal greeble stood up is a pillar; an engine turned exhaust-down, a foot
+const ROT = new WeakMap();
+function rotq(img, q) {
+  q = ((q % 4) + 4) % 4; if (!img || !q) return img; let m = ROT.get(img); if (!m) ROT.set(img, (m = {})); if (m[q]) return m[q];
+  const cv = document.createElement('canvas'), w = img.width, h = img.height; cv.width = q % 2 ? h : w; cv.height = q % 2 ? w : h;
+  const g = cv.getContext('2d'); g.translate(cv.width / 2, cv.height / 2); g.rotate(q * Math.PI / 2); g.drawImage(img, -w / 2, -h / 2); return (m[q] = cv);
+}
+// a piece darkened by k (its alpha kept), kept by tenths — a card's shade
+const SHD = new WeakMap();
+function shaded(img, k) {
+  const b = Math.max(0, Math.min(9, Math.round(k * 10))); if (!b) return img; let m = SHD.get(img); if (!m) SHD.set(img, (m = {})); if (m[b]) return m[b];
+  const cv = document.createElement('canvas'); cv.width = img.width; cv.height = img.height; const g = cv.getContext('2d'); g.drawImage(img, 0, 0); g.globalCompositeOperation = 'source-atop'; g.fillStyle = `rgba(0,0,0,${b / 10})`; g.fillRect(0, 0, cv.width, cv.height); return (m[b] = cv);
+}
+// TILES (his ask: "layers of the fittings, oriented around, rectangular elements — busy textures to cover surfaces"): a strip panel
+// underneath, whole fittings stamped over it at every quarter turn, each with a shadow, until it is busy
+function makeTiles(set, R, n) {
+  const out = [], pick = l => l[Math.floor(R() * l.length)];
+  if (!set.fitting.length) return set.panel.slice();
+  for (let i = 0; i < n; i++) {
+    const W = 256, H = 256, cv = document.createElement('canvas'); cv.width = W; cv.height = H; const g = cv.getContext('2d');
+    const bg = pick(set.panel.length ? set.panel : set.band); if (bg) g.drawImage(bg, 0, 0, W, H); g.fillStyle = 'rgba(0,0,0,.3)'; g.fillRect(0, 0, W, H);
+    const k = 7 + Math.floor(R() * 5);
+    for (let j = 0; j < k; j++) {
+      const im = rotq(pick(set.fitting), Math.floor(R() * 4)), long = (0.38 + R() * 0.4) * W, sc = long / Math.max(im.width, im.height), w = im.width * sc, h = im.height * sc;
+      g.save(); g.shadowColor = 'rgba(0,0,0,.75)'; g.shadowBlur = 7; g.shadowOffsetY = 3; g.drawImage(im, R() * W - w / 2, R() * H - h / 2, w, h); g.restore();
+    }
+    out.push(cv);
+  }
+  return out;
+}
+// the stock of a style as the solids want it: strip PANELS and BANDS (the textures), the whole FITTINGS (the cards), ENGINES (feet),
+// MOUNTS (discs) and the TILES
 function stockSet(styleStock) {
   if (styleStock._set) return styleStock._set;
-  const by = k => styleStock.pieces.filter(p => p.kind === k), cvOf = p => p._cv || (p._cv = pieceCanvas(p));
-  const roof = [...by('fitting'), ...by('bit')].map(cvOf), wall = [...by('panel'), ...by('bit')].map(cvOf), band = (by('band').length ? by('band') : by('panel')).map(cvOf), ring = (by('mount').length ? by('mount') : by('fitting')).map(cvOf), bit = by('bit').map(cvOf);
-  return (styleStock._set = { roof, wall, band, ring, bit: bit.length ? bit : wall });
+  const by = k => styleStock.pieces.filter(p => p.kind === k), cvOf = p => p._cv || (p._cv = pieceCanvas(p)), st = STYLES[styleStock.style] || {};
+  const panel = by('panel').map(cvOf), band = (by('band').length ? by('band') : by('panel')).map(cvOf), fitting = by('fitting').map(cvOf), engine = by('engine').map(cvOf), mount = by('mount').map(cvOf);
+  const set = { panel, band, fitting, engine: engine.length ? engine : fitting, mount: mount.length ? mount : fitting, downQ: st.flipEngines ? 1 : 3 };   // nozzles point left on most sheets: a quarter turn back puts them down
+  set.tile = makeTiles(set, rnd('tiles:' + styleStock.style), 8);
+  Object.assign(set, { roof: fitting, wall: [...panel, ...set.tile], ring: set.mount, bit: set.tile });   // the buildings' names for them
+  return (styleStock._set = set);
 }
+export const tilesOf = styleStock => stockSet(styleStock).tile;
+const unit = v => { const l = Math.hypot(...v) || 1; return v.map(k => k / l); };
 // a builder of solids, seeded, picking from the stock
 function builder(R, st) {
-  const pick = list => list.length ? list[Math.floor(R() * list.length)] : null, B = [];
+  const pick = list => list && list.length ? list[Math.floor(R() * list.length)] : null, B = [];
   const f = {
-    B, R, v: (a, b) => a + (b - a) * R(), pick, roof: () => pick(st.roof), wall: () => pick(st.wall), band: () => pick(st.band), ring: () => pick(st.ring), bit: () => pick(st.bit),
+    B, R, st, v: (a, b) => a + (b - a) * R(), pick, roof: () => pick(st.roof), wall: () => pick(st.wall), band: () => pick(st.band), ring: () => pick(st.ring), bit: () => pick(st.bit),
+    fit: () => pick(st.fitting), eng: () => pick(st.engine), mount: () => pick(st.mount), tile: () => pick(st.tile), panel: () => pick(st.panel), downQ: st.downQ,
     box: (x, y, z, w, d, h, o = {}) => B.push({ t: 'box', x, y, z, w, d, h, roof: o.roof === undefined ? f.roof() : o.roof, wall: o.wall || f.wall(), ...o }),
     cyl: (x, y, z, r, h, o = {}) => B.push({ t: 'cyl', x, y, z, r, h, band: o.band || f.band(), cap: o.cap === undefined ? f.ring() : o.cap, ...o }),
     dome: (x, y, z, r, o = {}) => B.push({ t: 'dome', x, y, z, r, glass: true, ...o }),
     core: (x, y, z, r, o = {}) => B.push({ t: 'core', x, y, z, r, ...o }),
     light: (x, y, z, r = 0.08, o = {}) => B.push({ t: 'light', x, y, z, r, ...o }),
     halo: (x, y, z, r, o = {}) => B.push({ t: 'ring', x, y, z, r, ...o }),   // a glowing ring in the air (not the stock's ring)
+    // a CARD: a flat greeble in space, its alpha its outline — centre c, the image's width along uDir, its height along vDir (its top);
+    // size: the width (the height follows the picture), { byH } the height, or [width, height] (a greeble may stretch a little)
+    card: (c, uDir, vDir, size, img, o = {}) => {
+      if (!img) return; const ar = img.width / img.height, [W, H] = Array.isArray(size) ? size : o.byH ? [size * ar, size] : [size, size / ar];
+      const u = unit(uDir).map(k => k * W / 2), v = unit(vDir).map(k => k * H / 2); B.push({ t: 'card', c, u, v, img, ...o });
+    },
+    // two cards crossed (an X from above): it reads from every side
+    cross: (x, y, zc, size, img, o = {}) => { const a = o.a ?? 0; f.card([x, y, zc], [Math.cos(a), Math.sin(a), 0], [0, 0, 1], size, img, o); f.card([x, y, zc], [-Math.sin(a), Math.cos(a), 0], [0, 0, 1], size, img, o); },
+    // a disc: a ring piece laid flat (its hole shows through)
+    disc: (x, y, z, r, img) => f.card([x, y, z], [1, 0, 0], [0, 1, 0], [2 * r, 2 * r], img),
   };
   return f;
 }
@@ -116,6 +156,7 @@ function builder(R, st) {
 function bounds(B) {
   let rho = 0.5, zt = 0.5;
   for (const s of B) {
+    if (s.t === 'card') { for (const a of [-1, 1]) for (const b of [-1, 1]) { const x = s.c[0] + a * s.u[0] + b * s.v[0], y = s.c[1] + a * s.u[1] + b * s.v[1], z = s.c[2] + a * s.u[2] + b * s.v[2]; rho = Math.max(rho, Math.hypot(x, y)); zt = Math.max(zt, z); } continue; }
     const pts = s.t === 'box' ? [[s.x, s.y], [s.x + s.w, s.y], [s.x + s.w, s.y + s.d], [s.x, s.y + s.d]] : [[s.x, s.y]], r = s.t === 'box' ? 0 : Math.max(s.r || 0, s.r2 || 0) * (s.t === 'core' ? 1.8 : 1);
     for (const [x, y] of pts) rho = Math.max(rho, Math.hypot(x, y) + r);
     zt = Math.max(zt, s.z + (s.h || 0) + (s.t === 'dome' ? s.r : s.t === 'core' || s.t === 'light' ? (s.r || 0) * 2 : 0) + (s.smoke ? 1.2 : 0));
@@ -137,8 +178,8 @@ export function renderSolids(B, o = {}) {
   // the shadow on the ground
   { const gr = g.createRadialGradient(ox, oy, 0, ox, oy, hw); gr.addColorStop(0, 'rgba(0,0,0,.5)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.save(); g.translate(ox, oy); g.scale(1, hh / hw); g.translate(-ox, -oy); g.fillStyle = gr; g.beginPath(); g.arc(ox, oy, hw, 0, 7); g.fill(); g.restore(); }
   // back to front: the footprint centre's depth (what stands ON a block shares its centre — after it, by height)
-  const depth = s => { const [a, b] = s.t === 'box' ? rot(s.x + s.w / 2, s.y + s.d / 2) : rot(s.x, s.y); return a + b; }, band = s => Math.round(depth(s) * 2) / 2;
-  const order = B.slice().sort((a, b) => (a.last ? 1 : 0) - (b.last ? 1 : 0) || band(a) - band(b) || a.z - b.z || depth(a) - depth(b));
+  const depth = s => { const [a, b] = s.t === 'box' ? rot(s.x + s.w / 2, s.y + s.d / 2) : s.t === 'card' ? rot(s.c[0], s.c[1]) : rot(s.x, s.y); return a + b; }, band = s => Math.round(depth(s) * 2) / 2, zOf = s => s.t === 'card' ? s.c[2] - Math.abs(s.v[2]) - Math.abs(s.u[2]) : s.z;
+  const order = B.slice().sort((a, b) => (a.last ? 1 : 0) - (b.last ? 1 : 0) || (a.t === 'card' || b.t === 'card' ? depth(a) - depth(b) || zOf(a) - zOf(b) : band(a) - band(b) || a.z - b.z || depth(a) - depth(b)));   // a card goes by its own centre (a flange on the far side of a block before it, on the near side after)
   for (const s of order) { try { drawSolid(s); } catch (e) { console.warn('greeble lab: a part could not be drawn and was left out', s.t, e.message); } }   // one broken part never takes the whole piece down
   function drawSolid(s) {
     if (s.t === 'box') {
@@ -188,6 +229,14 @@ export function renderSolids(B, o = {}) {
       const [cx, cy] = pr(s.x, s.y, s.z), r = Math.max(2, s.r * U * (s.t === 'core' ? 0.95 : 0.7)), c2 = s.color ? rgb(s.color) : grgb;
       if (black && !s.color) { const gr = g.createRadialGradient(cx, cy, r * 0.8, cx, cy, r * 2.4); gr.addColorStop(0, 'rgba(255,255,255,.75)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.beginPath(); g.arc(cx, cy, r * 2.4, 0, 7); g.fill(); g.fillStyle = '#000'; g.beginPath(); g.arc(cx, cy, r, 0, 7); g.fill(); g.strokeStyle = '#fff'; g.lineWidth = 1.5; g.stroke(); g.beginPath(); g.arc(cx, cy, r + 3, 0, 7); g.stroke(); }
       else { const gr = g.createRadialGradient(cx, cy, 0, cx, cy, r * 2.2); gr.addColorStop(0, 'rgba(255,255,240,1)'); gr.addColorStop(0.3, `rgba(${c2},.95)`); gr.addColorStop(0.55, `rgba(${c2},.35)`); gr.addColorStop(1, `rgba(${c2},0)`); g.fillStyle = gr; g.beginPath(); g.arc(cx, cy, r * 2.2, 0, 7); g.fill(); }
+    } else if (s.t === 'card') {                                                     // a flat greeble in space: its picture laid on the parallelogram, its outline its alpha
+      const { c: C, u, v, img } = s, P = (k1, k2) => pr(C[0] + k1 * u[0] + k2 * v[0], C[1] + k1 * u[1] + k2 * v[1], C[2] + k1 * u[2] + k2 * v[2]);
+      const TL = P(-1, 1), TR = P(1, 1), BL = P(-1, -1), ax = TR[0] - TL[0], ay = TR[1] - TL[1], bx = BL[0] - TL[0], by = BL[1] - TL[1];
+      if (Math.abs(ax * by - ay * bx) < 6) return;                                   // edge-on: nothing to see
+      let n = unit([u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]), [na, nb] = rot(n[0], n[1]), nz = n[2];
+      if (na + nb + nz * 1.4 < 0) { na = -na; nb = -nb; nz = -nz; }                 // two-sided: the side we see
+      const lit = (nb - na) / Math.SQRT2 * 0.8 + nz * 0.6, k = Math.max(0, Math.min(0.62, 0.3 - 0.26 * lit + (s.dim || 0)));
+      g.save(); g.setTransform(...curT(g, [ax / img.width, ay / img.width, bx / img.height, by / img.height, TL[0], TL[1]])); g.drawImage(shaded(img, k), 0, 0); g.restore();
     } else if (s.t === 'ring') {
       const [cx, cy] = pr(s.x, s.y, s.z), rx = s.r * Math.SQRT2 * C30 * U, ry = s.r * Math.SQRT2 * S30 * U;
       glowStroke(() => { g.beginPath(); g.ellipse(cx, cy, rx, ry, 0, 0, 7); }, 2.2);
@@ -264,49 +313,84 @@ export const DEVICES = {
   farms_hot:  { name: 'Heat-proof crops', icon: 'heat', farm: true },
   farms_rad:  { name: 'Shielded farms', icon: 'radiation', farm: true },
 };
+// THE PARTS (the grammar): a BASE, a BODY on it, a TOP on that — each picked by the technology's leanings, each sized off the one below.
+// ctx = { z: the height reached, r: the room on top }. Flanges, fins, plates, pillars and discs are CARDS of the style's whole greebles
+// FLANGES (his "H with two crossbars"): a greeble standing on each long side of a block, past both its ends
+function flanges(f, w, d, zc, along, hh) {
+  const img = f.fit(); if (!img) return; const L = (along === 'x' ? w : d) * f.v(1.18, 1.42), off = (along === 'x' ? d : w) / 2 + 0.03, H = Math.max(hh, 0.25);
+  for (const k of [-1, 1]) along === 'x' ? f.card([0, k * off, Math.max(zc, H / 2)], [1, 0, 0], [0, 0, 1], [L, H], img) : f.card([k * off, 0, Math.max(zc, H / 2)], [0, 1, 0], [0, 0, 1], [L, H], img);
+}
+// FINS (radial, standing out of a cylinder) or PLATES (overlapping round it)
+function fins(f, zc, r, h, n, mode) {
+  const img = mode === 'radial' ? rotq(f.fit(), 1) : f.fit(), a0 = f.R() * Math.PI; if (!img) return;
+  for (let i = 0; i < n; i++) {
+    const a = a0 + i * 2 * Math.PI / n, ca = Math.cos(a), sa = Math.sin(a);
+    if (mode === 'radial') { const w = h * img.width / img.height; f.card([ca * (r + w * 0.38), sa * (r + w * 0.38), zc], [ca, sa, 0], [0, 0, 1], [w, h], img); }
+    else { const w = 2 * Math.PI * r / n * 1.18; f.card([ca * (r + 0.03), sa * (r + 0.03), zc], [-sa, ca, 0], [0, 0, 1], [w, h], img); }
+  }
+}
+const PARTS = {
+  base: {
+    plinth(f) { const w = f.v(2.0, 2.7), d = f.v(1.5, 2.3), h = f.v(0.22, 0.38); f.box(-w / 2, -d / 2, 0, w, d, h, { roof: f.tile(), strip: true }); flanges(f, w, d, h * 0.6, w >= d ? 'x' : 'y', h * f.v(1.4, 2.2)); return { z: h, r: Math.min(w, d) / 2 }; },
+    drum(f) { const r = f.v(1.0, 1.35), h = f.v(0.28, 0.45); f.cyl(0, 0, 0, r, h, { r2: r * 0.88, cap: null }); fins(f, h * 0.55, r * 0.9, h * 1.5, 6 + Math.floor(f.R() * 3), 'radial'); f.disc(0, 0, h + 0.01, r * 0.92, f.mount()); return { z: h, r: r * 0.85 }; },
+    legs(f) { const s = f.v(0.75, 1.05), lh = f.v(0.7, 1.1), img = rotq(f.eng(), f.downQ); for (const [x, y] of [[-s, -s], [s, -s], [s, s], [-s, s]]) f.cross(x, y, lh / 2, lh, img, { byH: true, a: Math.PI / 4 }); f.box(-s * 1.15, -s * 1.15, lh, s * 2.3, s * 2.3, 0.2, { roof: f.tile(), strip: true }); return { z: lh + 0.2, r: s * 1.05 }; },
+    nozzle(f) { const r = f.v(0.9, 1.15), h = f.v(0.6, 0.9); f.cyl(0, 0, 0, r, h, { r2: r * 0.6, glowRings: [0.15], cap: null }); fins(f, h / 2, r * 0.8, h * 1.25, 4, 'radial'); return { z: h, r: r * 0.6 }; },
+  },
+  body: {
+    column(f, x) { const r = Math.max(0.35, x.r * f.v(0.45, 0.7)), h = f.v(1.0, 1.7); f.cyl(0, 0, x.z, r, h, { glowRings: [0.2 + 0.6 * f.R()] }); fins(f, x.z + h / 2, r, h * f.v(0.8, 1.05), 3 + Math.floor(f.R() * 4), f.R() < 0.55 ? 'radial' : 'plates'); return { z: x.z + h, r: r * 1.1 }; },
+    stack(f, x) { let z = x.z; const r = x.r * f.v(0.7, 0.95), n = 2 + Math.floor(f.R() * 3); for (let i = 0; i < n; i++) { const h = f.v(0.3, 0.6), rr = r * f.v(0.7, 1.0); f.cyl(0, 0, z, rr, h, { cap: null, glowRings: f.R() < 0.4 ? [0.5] : [] }); f.disc(0, 0, z + h + 0.01, rr * f.v(1.1, 1.35), f.mount()); z += h + 0.04; } return { z, r: r * 0.8 }; },
+    cage(f, x) { const R0 = Math.max(0.5, x.r * 0.75), h = f.v(1.1, 1.7), n = 4 + Math.floor(f.R() * 3), img = rotq(f.fit(), 1); for (let i = 0; i < n; i++) { const a = i * 2 * Math.PI / n; f.card([Math.cos(a) * R0, Math.sin(a) * R0, x.z + h / 2], [-Math.sin(a), Math.cos(a), 0], [0, 0, 1], h, img, { byH: true }); } f.core(0, 0, x.z + h / 2, Math.min(0.55, R0 * 0.6)); f.disc(0, 0, x.z + h + 0.02, R0 * 1.25, f.mount()); return { z: x.z + h + 0.02, r: R0 }; },
+    // his H with two crossbars: two solid blocks in the strip's texture with a gap (a light in it), the greeble flanges on both long sides
+    H(f, x, k = 1, along = null) {
+      const w = Math.max(1.2, x.r * 2 * k * f.v(0.95, 1.2)), d = w * f.v(0.5, 0.75), h = f.v(0.6, 1.1) * k, gap = w * f.v(0.14, 0.26), bw = (w - gap) / 2, ax = along || (f.R() < 0.5 ? 'x' : 'y');
+      if (ax === 'x') { for (const x0 of [-w / 2, gap / 2]) f.box(x0, -d / 2, x.z, bw, d, h, { roof: f.tile(), wall: f.panel(), strip: f.R() < 0.5 }); }
+      else { for (const y0 of [-w / 2, gap / 2]) f.box(-d / 2, y0, x.z, d, bw, h, { roof: f.tile(), wall: f.panel(), strip: f.R() < 0.5 }); }
+      flanges(f, ax === 'x' ? w : d, ax === 'x' ? d : w, x.z + h / 2, ax, h * f.v(1.25, 1.6));
+      f.core(0, 0, x.z + h / 2, Math.min(0.3, gap * 0.6));
+      return { z: x.z + h, r: Math.min(w, d) / 2, ax };
+    },
+    H2(f, x) { const a = PARTS.body.H(f, x, 1); return PARTS.body.H(f, a, 0.75, a.ax === 'x' ? 'y' : 'x'); },
+    tower(f, x) { let z = x.z, w = Math.max(1.0, x.r * 1.7), d = w * f.v(0.7, 1.0); const n = 2 + Math.floor(f.R() * 2); for (let i = 0; i < n; i++) { const h = f.v(0.5, 0.9); f.box(-w / 2, -d / 2, z, w, d, h, { roof: f.tile(), strip: f.R() < 0.6 }); flanges(f, w, d, z + h / 2, i % 2 ? 'y' : 'x', h * 1.3); z += h; w *= 0.76; d *= 0.76; } return { z, r: w / 2 }; },
+  },
+  top: {
+    emitter(f, x) { f.cyl(0, 0, x.z, Math.max(0.14, x.r * 0.25), 0.35, { cap: null }); const z = x.z + 0.35, r = x.r * f.v(1.1, 1.5); f.disc(0, 0, z, r, f.mount()); f.halo(0, 0, z + 0.25, r * f.v(1.1, 1.3)); f.core(0, 0, z + 0.35, 0.28); return { z: z + 0.6, r: x.r }; },
+    core(f, x) { f.core(0, 0, x.z + 0.4, Math.min(0.6, x.r * 0.7)); return x; },
+    dome(f, x) { f.dome(0, 0, x.z, Math.max(0.4, x.r * 0.95)); return x; },
+    spire(f, x) { const h = f.v(1.0, 1.6); f.cross(0, 0, x.z + h / 2, h, rotq(f.fit(), 1), { byH: true, a: f.R() * Math.PI }); f.light(0, 0, x.z + h + 0.05, 0.08); return { z: x.z + h, r: x.r }; },
+    dish(f, x) { f.cyl(0, 0, x.z, 0.08, 0.45, { cap: null }); const r = Math.max(0.5, x.r * f.v(0.9, 1.3)), t = f.v(0.5, 0.9), a = f.R() * Math.PI * 2; f.card([0, 0, x.z + 0.6], [Math.cos(a), Math.sin(a), 0], [-Math.sin(a) * Math.cos(t), Math.cos(a) * Math.cos(t), Math.sin(t)], [2 * r, 2 * r], f.mount()); f.light(0, 0, x.z + 0.65, 0.08); return x; },
+    antennae(f, x) { const n = 2 + Math.floor(f.R() * 2); for (let i = 0; i < n; i++) { const h = f.v(0.7, 1.3), px = f.v(-x.r * 0.6, x.r * 0.6), py = f.v(-x.r * 0.6, x.r * 0.6); f.cross(px, py, x.z + h / 2, h, rotq(f.fit(), 1), { byH: true, a: f.R() * Math.PI }); f.light(px, py, x.z + h + 0.03, 0.06); } return x; },
+    plates(f, x) { let z = x.z; for (let i = 0; i < 3; i++) { const s = x.r * 2 * (1.15 - i * 0.22), a = f.R() * Math.PI; f.card([0, 0, z + 0.03], [Math.cos(a), Math.sin(a), 0], [-Math.sin(a), Math.cos(a), 0], s, f.fit()); z += 0.12; } return { z, r: x.r }; },
+    swarm(f, x) { for (let k = 0; k < 3; k++) { const px = f.v(-x.r, x.r), py = f.v(-x.r, x.r), z = x.z + f.v(0.5, 1.3), a = f.R() * Math.PI; f.card([px, py, z], [Math.cos(a), Math.sin(a), 0], [-Math.sin(a), Math.cos(a), 0], f.v(0.55, 0.8), f.fit()); f.light(px, py, z - 0.05, 0.07); } return x; },
+    none(f, x) { return x; },
+  },
+};
+// each technology leans to some parts (picked by the seed — the same technology comes out in many shapes)
+const PLAN = {
+  shield:   { base: ['drum', 'plinth', 'legs'], body: ['column', 'stack', 'cage'], top: ['emitter', 'emitter', 'dome'] },
+  armor:    { base: ['plinth', 'drum', 'plinth'], body: ['H', 'tower', 'H2'], top: ['none', 'plates', 'antennae'] },
+  reactor:  { base: ['drum', 'plinth', 'legs'], body: ['cage', 'column', 'stack'], top: ['core', 'emitter', 'core'] },
+  drive:    { base: ['legs', 'nozzle', 'nozzle'], body: ['column', 'stack', 'H'], top: ['spire', 'core', 'none'] },
+  thruster: { base: ['nozzle', 'legs'], body: ['stack', 'column', 'cage'], top: ['none', 'core', 'spire'] },
+  computer: { base: ['plinth', 'drum'], body: ['tower', 'H2', 'H'], top: ['antennae', 'dish', 'spire'] },
+  sensors:  { base: ['drum', 'legs', 'plinth'], body: ['column', 'cage', 'stack'], top: ['dish', 'dome', 'dish'] },
+  drones:   { base: ['plinth', 'drum'], body: ['H', 'tower', 'stack'], top: ['swarm'] },
+};
 function deviceRecipe(fam, f, look) {
-  const { box, cyl, dome, core, light, halo, v, R } = f, D = DEVICES[fam] || {};
-  if (fam === 'shield') {
-    cyl(0, 0, 0, 1.25, 0.3, { r2: 1.05 });
-    if (R() < 0.5) cyl(0, 0, 0.3, 0.42, 1.25, { glowRings: [0.35, 0.75], cap: null });
-    else for (let k = 0; k < 3; k++) { const a = k * 2.094 + 0.5; cyl(Math.cos(a) * 0.55, Math.sin(a) * 0.55, 0.3, 0.19, 1.25, { glowRings: [0.5], cap: null }); }
-    cyl(0, 0, 1.55, v(0.95, 1.2), 0.13, { edgeGlow: true }); halo(0, 0, 1.9, v(1.35, 1.6)); core(0, 0, 2.05, 0.3);
-    for (let k = 0; k < 6; k++) { const a = k * 1.047; light(Math.cos(a) * 1.0, Math.sin(a) * 1.0, 0.32, 0.06); }
-  } else if (fam === 'armor') {
-    const n = 3 + (R() < 0.4 ? 1 : 0);
-    for (let i = 0; i < n; i++) { const s = 2.4 - i * 0.38; box(-s / 2, -s / 2, i * 0.27, s, s, 0.27, { strip: true, roof: i === n - 1 ? f.roof() : null }); }
-    const t = (2.4 - (n - 1) * 0.38) / 2 - 0.16; for (const [x, y] of [[-t, -t], [t, -t], [t, t], [-t, t]]) light(x, y, n * 0.27 + 0.02, 0.05);
-  } else if (fam === 'reactor') {
-    box(-1.55, -1.55, 0, 3.1, 3.1, 0.22, { roof: null, strip: true });
-    cyl(0, 0, 0.22, 0.78, 1.45, { glowRings: [0.22, 0.55, 0.88] });
-    for (const [x, y] of [[1.12, 0], [-1.12, 0], [0, 1.12], [0, -1.12]]) { const h = v(0.6, 1.0); cyl(x, y, 0.22, 0.26, h); light(x, y, 0.22 + h + 0.05, 0.07); }
-    core(0, 0, 0.22 + 1.45 + 0.42, 0.5);
-  } else if (fam === 'drive') {
-    box(-1.1, -0.9, 0, 2.2, 1.8, 0.45, { strip: true, roof: null });
-    cyl(0, 0, 0.45, 0.95, 1.1, { r2: 0.5, glowRings: [0.12] }); core(0, 0, 1.62, 0.36);
-    for (const [x, y, w, d] of [[-1.45, -0.08, 0.45, 0.16], [1.0, -0.08, 0.45, 0.16], [-0.08, -1.3, 0.16, 0.4], [-0.08, 0.9, 0.16, 0.4]]) box(x, y, 0.45, w, d, v(0.6, 0.9), { roof: null });
-    for (const s of [-1, 1]) cyl(-0.75, s * 0.62, 0.45, 0.22, 0.55);
-  } else if (fam === 'thruster') {
-    box(-1.2, -1.2, 0, 2.4, 2.4, 0.25, { strip: true, roof: null });
-    for (const [x, y] of [[-0.6, -0.6], [0.6, -0.6], [0.6, 0.6], [-0.6, 0.6]]) { const h = v(0.45, 0.7); cyl(x, y, 0.25, 0.42, h, { r2: 0.27, glowRings: [0.3] }); core(x, y, 0.25 + h + 0.08, 0.15); }
-  } else if (fam === 'computer') {
-    box(-0.85, -0.65, 0, 1.7, 1.3, 1.2, { windows: true, strip: true }); box(-0.6, -0.45, 1.2, 1.2, 0.9, 0.4, { windows: true });
-    cyl(0.4, 0.25, 1.6, 0.06, 0.8, { cap: null }); light(0.4, 0.25, 2.45, 0.09); light(-0.3, -0.2, 1.62, 0.06);
-  } else if (fam === 'sensors') {
-    cyl(0, 0, 0, 0.95, 0.35, { r2: 0.8 }); cyl(0, 0, 0.35, 0.16, 1.1, { cap: null, glowRings: [0.5] });
-    dome(0, 0, 1.45, 0.72, { color: '#bfe6ff' }); halo(0, 0, 1.75, 1.15); light(0, 0, 2.25, 0.08);
-  } else if (fam === 'drones') {
-    box(-1.25, -0.95, 0, 2.5, 1.9, 0.7, { strip: true });
-    for (let k = 0; k < 3; k++) { const x = v(-0.9, 0.9), y = v(-0.7, 0.7), z = v(1.2, 2.0); box(x - 0.22, y - 0.22, z, 0.44, 0.44, 0.12, { roof: f.bit() }); light(x + 0.22, y, z + 0.06, 0.06); }
-  } else if (D.weapon) {                                                              // a weapon on its mount: barrels by its look (weaponart.js / traits.js)
+  const { box, cyl, dome, core, light, v, R } = f, D = DEVICES[fam] || {}, P = PLAN[fam];
+  if (P) {
+    const pick = l => l[Math.floor(R() * l.length)], b = pick(P.base), y = pick(P.body), t = pick(P.top);
+    let x = PARTS.base[b](f); x = PARTS.body[y](f, x); PARTS.top[t](f, x);
+    for (let k = 0; k < 3; k++) { const a = R() * Math.PI * 2; light(Math.cos(a) * 0.7, Math.sin(a) * 0.7, v(0.2, 0.6), 0.05); }   // a few lights of its level
+    f.B.recipe = `${b} + ${y} + ${t}`;
+  } else if (D.weapon) {                                                              // a weapon on its mount: barrels by its look (weaponart.js / traits.js) — its own greebles to come
     const L = look || {}, len = L.len || 1, th = L.thick || 1;
     cyl(0, 0, 0, 0.95, 0.3);
     if (fam === 'missile') {
-      box(-0.8, -0.75, 0.3, 1.6, 1.5, 0.8, { strip: true, roof: null }); const n = L.tubes || 4, cols = n <= 4 ? 2 : 3, rows = Math.ceil(n / cols);
+      box(-0.8, -0.75, 0.3, 1.6, 1.5, 0.8, { strip: true, roof: null }); flanges(f, 1.6, 1.5, 0.7, 'x', 0.95); const n = L.tubes || 4, cols = n <= 4 ? 2 : 3, rows = Math.ceil(n / cols);
       for (let i = 0; i < n; i++) light(-0.55 + 1.1 * ((i % cols) + 0.5) / cols, -0.5 + 1.0 * (Math.floor(i / cols) + 0.5) / rows, 1.12, 0.09);
       if (L.trait === 'seeker') core(0.85, 0, 0.75, 0.16);
     } else {
-      box(-0.7, -0.6, 0.3, 1.3, 1.2, 0.62, { strip: true });
+      box(-0.7, -0.6, 0.3, 1.3, 1.2, 0.62, { strip: true, roof: f.tile() }); flanges(f, 1.3, 1.2, 0.62, 'x', 0.75);
       const n = L.barrels || 1, Lb = 1.2 * len, t = (fam === 'gun' ? 0.24 : 0.2) * th * (L.trait === 'ember' ? 1.25 : 1), ys = n === 1 ? [0] : n === 2 ? [-0.24, 0.24] : [-0.3, 0, 0.3], band = f.band();
       for (const y of ys) {
         box(0.5, y - t / 2, 0.5, Lb, t, t, { wall: band, roof: null });
@@ -315,8 +399,10 @@ function deviceRecipe(fam, f, look) {
         if (L.trait === 'disruptor' || L.trait === 'ember' || L.trait === 'rail') for (let k = 1; k <= 3; k++) light(0.5 + Lb * k / 4, y, 0.5 + t + 0.02, 0.05);
       }
     }
-  } else if (D.farm) {
-    box(-1.25, -1.25, 0, 2.5, 2.5, 0.35, { roof: 'field' }); dome(0.3, 0.25, 0.35, 0.85, { color: '#b6f08a' }); cyl(-0.9, -0.9, 0.35, 0.22, 0.8); light(-0.9, -0.9, 1.2, 0.06);
+  } else if (D.farm) {                                                                // the crops' bed, a glasshouse, and the style's pieces stood up round it like stalks
+    box(-1.25, -1.25, 0, 2.5, 2.5, 0.35, { roof: 'field', strip: false }); flanges(f, 2.5, 2.5, 0.25, 'x', 0.5);
+    dome(0.3, 0.25, 0.35, v(0.7, 0.95), { color: '#b6f08a' });
+    for (const [x, y] of [[-0.85, -0.85], [-0.9, 0.7], [0.8, -0.9]]) if (R() < 0.8) { const h = v(0.8, 1.3); f.cross(x, y, 0.35 + h / 2, h, rotq(f.fit(), 1), { byH: true, a: R() * Math.PI }); }
   }
 }
 export function drawDevice(fam, styleStock, { seed = 1, level = 3, yaw = 0, U = null, width = 250, look = null } = {}) {
@@ -324,7 +410,8 @@ export function drawDevice(fam, styleStock, { seed = 1, level = 3, yaw = 0, U = 
   deviceRecipe(fam, f, look);
   if (!U) U = Math.min(64, width / (2 * bounds(f.B).rho * Math.SQRT2 * C30));   // every device as wide as the frame (a long gun is not a speck)
   const glow = levelColor(level), farm = DEVICES[fam] && DEVICES[fam].farm;
-  return renderSolids(f.B, { U, yaw, glow, light: glow || '#ffffff', glass: farm ? '#b6f08a' : glow || '#e6f0ff', wash: glow && !farm ? glow : null, washA: 0.12, seed });
+  const cv = renderSolids(f.B, { U, yaw, glow, light: glow || '#ffffff', glass: farm ? '#b6f08a' : glow || '#e6f0ff', wash: glow && !farm ? glow : null, washA: 0.12, seed });
+  cv.recipe = f.B.recipe || ''; return cv;   // which parts it was built of (the grammar)
 }
 // the technology's ICON over the hardware (his example: the ice icon over the frost-hardy farm) — top right, on a dark coin
 const ICON_IMG = new Map();

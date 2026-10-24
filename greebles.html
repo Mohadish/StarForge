@@ -34,7 +34,7 @@ button.on { background: rgba(95,227,208,.16); border-color: var(--accent) }
 </head>
 <body>
 <h1>Greeble Lab <small>the styles' parts as a stock of greebles — and the technologies as pieces of hardware</small></h1>
-<div class="tiny">Every style's sheet, cut: the whole pieces trimmed to their ink, panels and bands off the plating strip, small bits out of the pieces. Then the stock dresses 3D solids: walls in the plating, roofs in the top-down pieces, cylinders wrapped in a band. Devices: a technology as hardware, its level a colour (red → orange → yellow → green → blue → purple → violet → black with white outlines). Hover a device to turn it.</div>
+<div class="tiny">Every style's sheet, cut: the whole pieces trimmed to their ink, panels and bands off the plating strip, and tiles of whole fittings layered. Devices are solid blocks in the strip's texture and CARDS — the whole greebles as flat pieces in space, their outline overhanging: flanges, fins, plates, pillars, discs. Devices: a technology as hardware, its level a colour (red → orange → yellow → green → blue → purple → violet → black with white outlines). Hover a device to turn it.</div>
 <div class="ctl">
   <label>Style <select id="style"></select></label>
   <button id="tStock" class="on">The stock</button><button id="tIso">Buildings</button><button id="tDev">Devices</button>
@@ -51,7 +51,7 @@ button.on { background: rgba(95,227,208,.16); border-color: var(--accent) }
 <div id="note" class="tiny"></div>
 <script type="module">
 import { mountNav } from './src/eon/nav.js';
-import { stockOf, pieceCanvas, drawBuilding, ARCHETYPES, DEVICES, drawDevice, iconBadge, styleIds } from './src/eon/greeblelab.js';
+import { stockOf, pieceCanvas, drawBuilding, ARCHETYPES, DEVICES, drawDevice, iconBadge, styleIds, tilesOf } from './src/eon/greeblelab.js';
 import { LEVEL_COLORS, levelColor } from './src/eon/techicons.js';
 import { STYLES } from './src/eon/styles.js';
 mountNav('greeble');
@@ -62,7 +62,7 @@ $('kind').innerHTML += Object.entries(ARCHETYPES).map(([k, a]) => `<option value
 $('fam').innerHTML += Object.entries(DEVICES).map(([k, a]) => `<option value="${k}">${a.name}</option>`).join('');
 const LEVEL_NAME = ['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'violet', 'black'];
 $('level').innerHTML += LEVEL_NAME.map((n, i) => `<option value="${i + 1}" ${i === 2 ? 'selected' : ''}>${i + 1} · ${n}</option>`).join('');
-const KIND_NAME = { fitting: 'Fittings (whole pieces)', mount: 'Mounts (rings)', engine: 'Engines', turret: 'Turrets', panel: 'Panels (off the plating strip)', band: 'Bands (the strip\'s middle)', bit: 'Bits (small busy crops out of the pieces)' };
+const KIND_NAME = { fitting: 'Fittings (whole pieces)', mount: 'Mounts (rings)', engine: 'Engines', turret: 'Turrets', panel: 'Panels (off the plating strip)', band: 'Bands (the strip\'s middle)' };
 // a few sample looks for the weapons (traits.js) so the barrels show what they do
 const LOOKS = { beam: [null, { trait: 'long', len: 1.6, thick: 1, barrels: 1 }, { trait: 'disruptor', len: 0.85, thick: 1, barrels: 1 }, { trait: 'ember', len: 0.66, thick: 1, barrels: 1 }], gun: [null, { trait: 'auto', len: 0.85, thick: 0.77, barrels: 3 }, { trait: 'rail', len: 1.5, thick: 1, barrels: 2 }, { trait: 'penetrator', len: 1, thick: 1.3, barrels: 1 }], missile: [null, { trait: 'cluster', tubes: 8 }, { trait: 'seeker', tubes: 4 }] };
 const lookFor = (fam, seed) => { const L = LOOKS[fam]; return L ? L[(seed - 1) % L.length] : null; };
@@ -75,7 +75,9 @@ async function show() {
     $('out').innerHTML = Object.keys(KIND_NAME).filter(k => by[k]).map(k => `<h2>${KIND_NAME[k]} · ${by[k].length}</h2><div class="grid" data-k="${k}"></div>`).join('');
     for (const [k, list] of Object.entries(by)) { const host = $('out').querySelector(`[data-k="${k}"]`); if (!host) continue;
       for (const p of list) { const d = document.createElement('div'); d.className = 'pc'; const cv = pieceCanvas(p, Math.min(1, 150 / p.w, 110 / p.h)); d.append(cv); const s = document.createElement('span'); s.textContent = `${p.w} × ${p.h}`; d.append(s); host.append(d); } }
-    $('note').textContent = `${stock.pieces.length} pieces in ${STYLES[stock.style].name}.`;
+    const tl = tilesOf(stock); $('out').insertAdjacentHTML('beforeend', `<h2>Tiles (whole fittings layered over a strip panel) · ${tl.length}</h2><div class="grid" data-k="tile"></div>`);
+    const th = $('out').querySelector('[data-k="tile"]'); for (const t0 of tl) { const d = document.createElement('div'); d.className = 'pc'; const c2 = document.createElement('canvas'); c2.width = 128; c2.height = 128; c2.getContext('2d').drawImage(t0, 0, 0, 128, 128); d.append(c2); th.append(d); }
+    $('note').textContent = `${stock.pieces.length} pieces and ${tl.length} tiles in ${STYLES[stock.style].name}.`;
   } else if (tab === 'iso') drawIso(); else await drawDev();
 }
 function drawIso() {
@@ -92,13 +94,14 @@ async function drawDev() {
   let list;
   if (sheet === 'angles' && fam !== 'all') list = [0, 1, 2, 3, 4, 5, 6, 7].map(i => ({ fam, level: lv === 'all' ? 4 : +lv, seed, yaw: i * Math.PI / 4, cap: `turned ${i * 45}°` }));
   else if (lv === 'all') list = fams.flatMap(f => [1, 2, 3, 4, 5, 6, 7, 8].map(l => ({ fam: f, level: l, seed, yaw: 0, cap: `level ${l} · ${LEVEL_NAME[l - 1]}` })));
+  else if (fam !== 'all') list = [0, 1, 2, 3, 4, 5, 6, 7].map(i => ({ fam, level: +lv, seed: seed + i, yaw: 0, cap: `seed ${seed + i} · level ${lv}` }));   // one technology, one level: eight shapes of it
   else list = fams.map(f => ({ fam: f, level: +lv, seed, yaw: 0, cap: `level ${lv} · ${LEVEL_NAME[+lv - 1]}` }));
   $('out').innerHTML = '<div class="iso dev"></div>'; const host = $('out').firstChild;
   for (const it of list) {
     const d = document.createElement('div'); d.className = 'cell';
     const paint = async yaw => { const cv = drawDevice(it.fam, stock, { seed: it.seed, level: it.level, yaw, look: lookFor(it.fam, it.seed) }); if ($('icon').checked && DEVICES[it.fam].icon) await iconBadge(cv, DEVICES[it.fam].icon, DEVICES[it.fam].farm ? null : levelColor(it.level) || '#ffffff'); return cv; };
     let cv; try { cv = await paint(it.yaw); d.append(cv); } catch (e) { d.textContent = e.message; console.error(e); }
-    const b = document.createElement('b'); b.textContent = DEVICES[it.fam].name + (lookFor(it.fam, it.seed) ? ` — ${lookFor(it.fam, it.seed).trait}` : ''); const sp = document.createElement('span'); const col = levelColor(it.level); sp.innerHTML = `<i class="lv" style="background:${col || '#000'};${col ? '' : 'box-shadow:0 0 0 2px #fff'}"></i>${it.cap}`; d.append(b, sp); host.append(d);
+    const b = document.createElement('b'); b.textContent = DEVICES[it.fam].name + (lookFor(it.fam, it.seed) ? ` — ${lookFor(it.fam, it.seed).trait}` : ''); if (cv && cv.recipe) { const rr = document.createElement('span'); rr.textContent = cv.recipe; d.append(rr); } const sp = document.createElement('span'); const col = levelColor(it.level); sp.innerHTML = `<i class="lv" style="background:${col || '#000'};${col ? '' : 'box-shadow:0 0 0 2px #fff'}"></i>${it.cap}`; d.append(b, sp); host.append(d);
     if (cv) d.onmouseenter = () => { let yaw = it.yaw, busy = false; clearInterval(spin); spin = setInterval(async () => { if (busy) return; busy = true; yaw += 0.06; const n = await paint(yaw); const g = cv.getContext('2d'); g.clearRect(0, 0, cv.width, cv.height); g.drawImage(n, 0, 0); busy = false; }, 40); d.onmouseleave = () => clearInterval(spin); };
   }
   $('note').textContent = 'A technology as a piece of hardware, built from the style\'s stock; its level is the colour of every light and glow. Hover one to turn it.';
