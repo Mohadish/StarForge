@@ -20,66 +20,98 @@ button.on { background: rgba(95,227,208,.16); border-color: var(--accent) }
 .tiny { font-size: 11px; color: var(--muted); line-height: 1.5 }
 .grid { display: flex; flex-wrap: wrap; gap: 8px }
 .pc { background: #04070f; border: 1px solid var(--line); border-radius: 8px; padding: 6px; display: grid; justify-items: center; gap: 3px }
-.pc canvas { display: block; max-width: 150px; max-height: 110px; image-rendering: auto }
+.pc canvas { display: block; max-width: 150px; max-height: 110px }
 .pc span { font-size: 10px; color: var(--muted) }
 .iso { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px }
-.iso .cell { background: radial-gradient(ellipse at 50% 70%, #10192c, #04070f 70%); border: 1px solid var(--line); border-radius: 10px; padding: 8px; display: grid; justify-items: center; gap: 4px; min-height: 230px; align-content: center }
+.iso.dev { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)) }
+.iso .cell { background: radial-gradient(ellipse at 50% 70%, #10192c, #04070f 70%); border: 1px solid var(--line); border-radius: 10px; padding: 8px; display: grid; justify-items: center; gap: 4px; min-height: 200px; align-content: center }
 .iso canvas { max-width: 100%; display: block }
 .iso .cell b { font-size: 12px; color: var(--fg) } .iso .cell span { font-size: 11px; color: var(--muted) }
+.lv { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: -1px; margin-right: 4px; border: 1px solid #fff4 }
 #note { margin-top: 8px }
 [hidden] { display: none !important }
 </style>
 </head>
 <body>
-<h1>Greeble Lab <small>the styles' parts as a stock of greebles — and a first try at isometric tech art</small></h1>
-<div class="tiny">Every style's sheet, cut: the whole pieces trimmed to their ink, panels and bands off the plating strip, and small bits out of the pieces — picked by how solid and how busy they are. The isometric half dresses 3D blocks with them: walls in the plating, roofs in the top-down pieces.</div>
+<h1>Greeble Lab <small>the styles' parts as a stock of greebles — and the technologies as pieces of hardware</small></h1>
+<div class="tiny">Every style's sheet, cut: the whole pieces trimmed to their ink, panels and bands off the plating strip, small bits out of the pieces. Then the stock dresses 3D solids: walls in the plating, roofs in the top-down pieces, cylinders wrapped in a band. Devices: a technology as hardware, its level a colour (red → orange → yellow → green → blue → purple → violet → black with white outlines). Hover a device to turn it.</div>
 <div class="ctl">
   <label>Style <select id="style"></select></label>
-  <button id="tStock" class="on">The stock</button><button id="tIso">Isometric</button>
-  <label id="kindL" hidden>Building <select id="kind"><option value="all">all six</option></select></label>
-  <label id="seedL" hidden>Seed <input id="seed" type="number" value="1" min="1" style="width:80px"></label>
-  <button id="again" hidden>↻ another</button>
-  <label class="tiny" style="display:flex;gap:6px;align-items:center;text-transform:none"><input type="checkbox" id="tint" checked> colour wash</label>
+  <button id="tStock" class="on">The stock</button><button id="tIso">Buildings</button><button id="tDev">Devices</button>
+  <label data-iso hidden>Building <select id="kind"><option value="all">all six</option></select></label>
+  <label data-dev hidden>Technology <select id="fam"><option value="all">all of them</option></select></label>
+  <label data-dev hidden>Level <select id="level"><option value="all">every level</option></select></label>
+  <label data-iso data-dev hidden>Seed <input id="seed" type="number" value="1" min="1" style="width:80px"></label>
+  <button id="again" data-iso data-dev hidden>↻ another</button>
+  <label data-dev hidden class="tiny" style="display:flex;gap:6px;align-items:center;text-transform:none"><input type="checkbox" id="icon" checked> its icon on top</label>
+  <label data-iso hidden class="tiny" style="display:flex;gap:6px;align-items:center;text-transform:none"><input type="checkbox" id="tint" checked> colour wash</label>
   <button id="cat" title="every style's stock as one JSON (rects in sheet pixels)">Copy the catalog</button>
 </div>
 <div id="out"></div>
 <div id="note" class="tiny"></div>
 <script type="module">
 import { mountNav } from './src/eon/nav.js';
-import { stockOf, pieceCanvas, drawBuilding, ARCHETYPES, styleIds } from './src/eon/greeblelab.js';
+import { stockOf, pieceCanvas, drawBuilding, ARCHETYPES, DEVICES, drawDevice, iconBadge, styleIds } from './src/eon/greeblelab.js';
+import { LEVEL_COLORS, levelColor } from './src/eon/techicons.js';
 import { STYLES } from './src/eon/styles.js';
 mountNav('greeble');
 const $ = id => document.getElementById(id);
 let tab = 'stock', stock = null;
 const ids = styleIds(); $('style').innerHTML = ids.map(id => `<option value="${id}">${STYLES[id].name}</option>`).join('');
 $('kind').innerHTML += Object.entries(ARCHETYPES).map(([k, a]) => `<option value="${k}">${a.name}</option>`).join('');
+$('fam').innerHTML += Object.entries(DEVICES).map(([k, a]) => `<option value="${k}">${a.name}</option>`).join('');
+const LEVEL_NAME = ['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'violet', 'black'];
+$('level').innerHTML += LEVEL_NAME.map((n, i) => `<option value="${i + 1}" ${i === 2 ? 'selected' : ''}>${i + 1} · ${n}</option>`).join('');
 const KIND_NAME = { fitting: 'Fittings (whole pieces)', mount: 'Mounts (rings)', engine: 'Engines', turret: 'Turrets', panel: 'Panels (off the plating strip)', band: 'Bands (the strip\'s middle)', bit: 'Bits (small busy crops out of the pieces)' };
+// a few sample looks for the weapons (traits.js) so the barrels show what they do
+const LOOKS = { beam: [null, { trait: 'long', len: 1.6, thick: 1, barrels: 1 }, { trait: 'disruptor', len: 0.85, thick: 1, barrels: 1 }, { trait: 'ember', len: 0.66, thick: 1, barrels: 1 }], gun: [null, { trait: 'auto', len: 0.85, thick: 0.77, barrels: 3 }, { trait: 'rail', len: 1.5, thick: 1, barrels: 2 }, { trait: 'penetrator', len: 1, thick: 1.3, barrels: 1 }], missile: [null, { trait: 'cluster', tubes: 8 }, { trait: 'seeker', tubes: 4 }] };
+const lookFor = (fam, seed) => { const L = LOOKS[fam]; return L ? L[(seed - 1) % L.length] : null; };
+function setTab(t) { tab = t; for (const [b, k] of [['tStock', 'stock'], ['tIso', 'iso'], ['tDev', 'dev']]) $(b).classList.toggle('on', k === t); for (const el of document.querySelectorAll('[data-iso], [data-dev]')) el.hidden = !(t === 'iso' && el.hasAttribute('data-iso')) && !(t === 'dev' && el.hasAttribute('data-dev')); }
 async function show() {
   $('out').innerHTML = '<div class="tiny">cutting…</div>';
   stock = await stockOf($('style').value);
-  for (const el of ['kindL', 'seedL', 'again']) $(el).hidden = tab !== 'iso';
   if (tab === 'stock') {
     const by = {}; for (const p of stock.pieces) (by[p.kind] = by[p.kind] || []).push(p);
     $('out').innerHTML = Object.keys(KIND_NAME).filter(k => by[k]).map(k => `<h2>${KIND_NAME[k]} · ${by[k].length}</h2><div class="grid" data-k="${k}"></div>`).join('');
     for (const [k, list] of Object.entries(by)) { const host = $('out').querySelector(`[data-k="${k}"]`); if (!host) continue;
       for (const p of list) { const d = document.createElement('div'); d.className = 'pc'; const cv = pieceCanvas(p, Math.min(1, 150 / p.w, 110 / p.h)); d.append(cv); const s = document.createElement('span'); s.textContent = `${p.w} × ${p.h}`; d.append(s); host.append(d); } }
     $('note').textContent = `${stock.pieces.length} pieces in ${STYLES[stock.style].name}.`;
-  } else drawIso();
+  } else if (tab === 'iso') drawIso(); else await drawDev();
 }
 function drawIso() {
   const kinds = $('kind').value === 'all' ? Object.keys(ARCHETYPES) : [$('kind').value], seed = +$('seed').value || 1, list = $('kind').value === 'all' ? kinds.map(k => [k, seed]) : [0, 1, 2, 3, 4, 5].map(i => [kinds[0], seed + i]);
   $('out').innerHTML = '<div class="iso"></div>'; const host = $('out').firstChild;
   for (const [k, s] of list) { const d = document.createElement('div'); d.className = 'cell'; try { d.append(drawBuilding(k, stock, { seed: s, tint: $('tint').checked })); } catch (e) { d.textContent = e.message; console.error(e); } const b = document.createElement('b'); b.textContent = ARCHETYPES[k].name; const sp = document.createElement('span'); sp.textContent = `${STYLES[stock.style].name} · seed ${s}`; d.append(b, sp); host.append(d); }
-  $('note').textContent = 'Walls: the plating strip\'s panels · roofs: the top-down pieces · cylinders: a band wrapped round, a mount ring on top · glass and cores drawn. A first try.';
+  $('note').textContent = 'Walls: the plating strip\'s panels · roofs: the top-down pieces · cylinders: a band wrapped round, a mount ring on top · glass and cores drawn.';
 }
-$('style').onchange = show; $('tStock').onclick = () => { tab = 'stock'; $('tStock').classList.add('on'); $('tIso').classList.remove('on'); show(); };
-$('tIso').onclick = () => { tab = 'iso'; $('tIso').classList.add('on'); $('tStock').classList.remove('on'); show(); };
-$('kind').onchange = drawIso; $('seed').onchange = drawIso; $('tint').onchange = () => tab === 'iso' ? drawIso() : 0;
-$('again').onclick = () => { $('seed').value = (+$('seed').value || 1) + 6; drawIso(); };
+// THE DEVICES: every technology at one level, one technology at every level, or (?sheet=angles) one device from eight sides
+let spin = null;
+async function drawDev() {
+  const fam = $('fam').value, lv = $('level').value, seed = +$('seed').value || 1, sheet = new URLSearchParams(location.search).get('sheet');
+  const fams = fam === 'all' ? Object.keys(DEVICES) : [fam];
+  let list;
+  if (sheet === 'angles' && fam !== 'all') list = [0, 1, 2, 3, 4, 5, 6, 7].map(i => ({ fam, level: lv === 'all' ? 4 : +lv, seed, yaw: i * Math.PI / 4, cap: `turned ${i * 45}°` }));
+  else if (lv === 'all') list = fams.flatMap(f => [1, 2, 3, 4, 5, 6, 7, 8].map(l => ({ fam: f, level: l, seed, yaw: 0, cap: `level ${l} · ${LEVEL_NAME[l - 1]}` })));
+  else list = fams.map(f => ({ fam: f, level: +lv, seed, yaw: 0, cap: `level ${lv} · ${LEVEL_NAME[+lv - 1]}` }));
+  $('out').innerHTML = '<div class="iso dev"></div>'; const host = $('out').firstChild;
+  for (const it of list) {
+    const d = document.createElement('div'); d.className = 'cell';
+    const paint = async yaw => { const cv = drawDevice(it.fam, stock, { seed: it.seed, level: it.level, yaw, look: lookFor(it.fam, it.seed) }); if ($('icon').checked && DEVICES[it.fam].icon) await iconBadge(cv, DEVICES[it.fam].icon, DEVICES[it.fam].farm ? null : levelColor(it.level) || '#ffffff'); return cv; };
+    let cv; try { cv = await paint(it.yaw); d.append(cv); } catch (e) { d.textContent = e.message; console.error(e); }
+    const b = document.createElement('b'); b.textContent = DEVICES[it.fam].name + (lookFor(it.fam, it.seed) ? ` — ${lookFor(it.fam, it.seed).trait}` : ''); const sp = document.createElement('span'); const col = levelColor(it.level); sp.innerHTML = `<i class="lv" style="background:${col || '#000'};${col ? '' : 'box-shadow:0 0 0 2px #fff'}"></i>${it.cap}`; d.append(b, sp); host.append(d);
+    if (cv) d.onmouseenter = () => { let yaw = it.yaw, busy = false; clearInterval(spin); spin = setInterval(async () => { if (busy) return; busy = true; yaw += 0.06; const n = await paint(yaw); const g = cv.getContext('2d'); g.clearRect(0, 0, cv.width, cv.height); g.drawImage(n, 0, 0); busy = false; }, 40); d.onmouseleave = () => clearInterval(spin); };
+  }
+  $('note').textContent = 'A technology as a piece of hardware, built from the style\'s stock; its level is the colour of every light and glow. Hover one to turn it.';
+}
+$('style').onchange = show; $('tStock').onclick = () => { setTab('stock'); show(); }; $('tIso').onclick = () => { setTab('iso'); show(); }; $('tDev').onclick = () => { setTab('dev'); show(); };
+$('kind').onchange = drawIso; $('seed').onchange = () => tab === 'iso' ? drawIso() : drawDev(); $('tint').onchange = () => tab === 'iso' ? drawIso() : 0;
+$('fam').onchange = drawDev; $('level').onchange = drawDev; $('icon').onchange = drawDev;
+$('again').onclick = () => { $('seed').value = (+$('seed').value || 1) + (tab === 'iso' ? 6 : 1); tab === 'iso' ? drawIso() : drawDev(); };
 $('cat').onclick = async () => { const all = []; for (const id of ids) { const s = await stockOf(id); all.push(...s.pieces.map(({ _cv, ...p }) => p)); } window.__catalog = all; try { await navigator.clipboard.writeText(JSON.stringify(all)); $('note').textContent = `${all.length} pieces copied.`; } catch { $('note').textContent = `${all.length} pieces — in window.__catalog (the clipboard was refused).`; } };
-// ?style=crystal1&tab=iso&kind=all&seed=3 — straight to a view (for a picture taken without hands)
-{ const q = new URLSearchParams(location.search); if (q.get('style') && ids.includes(q.get('style'))) $('style').value = q.get('style'); if (q.get('kind')) $('kind').value = q.get('kind'); if (q.get('seed')) $('seed').value = q.get('seed');
-  if (q.get('tab') === 'iso') { tab = 'iso'; $('tIso').classList.add('on'); $('tStock').classList.remove('on'); } }
+// ?style=crystal1&tab=iso|dev&kind=all&fam=reactor&level=5&seed=3&sheet=angles — straight to a view (for a picture taken without hands)
+{ const q = new URLSearchParams(location.search); if (q.get('style') && ids.includes(q.get('style'))) $('style').value = q.get('style');
+  for (const k of ['kind', 'fam', 'level', 'seed']) if (q.get(k)) $(k).value = q.get(k);
+  setTab(q.get('tab') === 'iso' ? 'iso' : q.get('tab') === 'dev' ? 'dev' : 'stock'); }
 show().then(() => { document.body.dataset.ready = '1'; });
 </script>
 </body>

@@ -112,8 +112,13 @@ const PIECES = [
   P('M8 4h8l-2 6h-4zM10 14h4v6h-4z', F),                              // turret
 ];
 // the generation's beam colour: red, orange, yellow, green, cyan, blue, purple — then null (the death ray)
-export const BEAM_COLORS = ['#ff3b3b', '#ff8c1a', '#ffe14a', '#4fe36b', '#3fe0e0', '#3f7bff', '#b04fff'];
-export const beamColor = gen => BEAM_COLORS[Math.max(0, (gen || 1) - 1)] || null;
+// THE LEVEL OF TECHNOLOGY AS A COLOUR (his call, 2026-10-24 — first for the beams, now for every piece of hardware: "how far off you
+// are technologically"): red, orange, yellow, green, blue, purple, violet — and past violet black with white outlines (null here; the
+// drawings handle it). More exotic stages later.
+export const LEVEL_COLORS = ['#ff4a3d', '#ff9a1f', '#ffe14a', '#4fe36b', '#3f8bff', '#9b4dff', '#d24bff'];
+export const levelColor = n => LEVEL_COLORS[Math.max(0, (n || 1) - 1)] || null;
+export const BEAM_COLORS = LEVEL_COLORS;
+export const beamColor = levelColor;
 const seedOf = str => { let h = 2166136261; for (const ch of String(str)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; };
 const rng = seed => () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 export function componentIcon(model, { kind = model ? model.kind : '', color = '#9eb3d8', size = 22, title = '' } = {}) {
