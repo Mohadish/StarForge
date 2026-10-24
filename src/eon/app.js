@@ -30,6 +30,8 @@ import { DEV, LEVEL1, KIND_WORD as SLOT_WORD, filletWhy, isFull, counts, planetO
 import { renderResearch, initResearch, researchDoneHtml } from './projects.js';
 import { FAMILIES as RFAM, modelsOf, newestModel, CHANNEL_ICON } from './research.js';
 import { icon as ticon, slotIcon, personIcon, ICON_COLOR, componentIcon } from './techicons.js';
+import { weaponSvg, drawWeapon, plainLook, isWeaponLook } from './weaponart.js';
+import { traitWords, sWord } from './traits.js';
 import { globeTexture, drawGlobe, globeIcon } from './globe.js';
 initResearch({ save: () => save(), refresh: () => refresh() });   // the Research tab's orders save and redraw like every other
 import { TRI_COLOR, drawSurface, focusTetra, drawTri as drawEffortTri, triFromPoint, triBall, toCanvas, districtAt as surfaceCellAt, mapSize } from './colonyview.js';
@@ -224,10 +226,11 @@ const TCELL = { weapon_energy: 0, weapon_kinetic: 1, weapon_missile: 2 };   // a
 // the battle's own hard points, the mount of a weapon KIND one size across the ship (his ask: eight lasers all the same size)
 function gameHardpoints() {
   const big = {}; for (const m of DS.mounts) big[m.kind] = Math.max(big[m.kind] || 0, m.size || 1);
-  return DS.mounts.filter(m => m.kind !== 'weapon_orbital').map(m => ({ kind: m.kind, x: m.x, y: m.y, size: big[m.kind] }));
+  const lookOfMod = id => { const x = DS.mods.find(q => q.mod.id === id); return x && x.model && x.model.look && isWeaponLook(x.model.look) ? x.model.look : null; };   // a component's own form (weaponart.js)
+  return DS.mounts.filter(m => m.kind !== 'weapon_orbital').map(m => ({ kind: m.kind, x: m.x, y: m.y, size: big[m.kind], look: lookOfMod(m.modId) }));
 }
-function drawTurrets(g, hps, sheets) {              // the turrets on their mounts, facing forward — the lab aims the same cells
-  for (const h of hps) { const T = sheets.st.turrets.cells[TCELL[h.kind]]; if (!T || !h.r) continue; const [sx, sy, sw, sh, px, py, body] = T, kq = 2 * h.r * RECIPE.turret / body; g.drawImage(sheets.tur, sx, sy, sw, sh, h.x - px * kq, h.y - py * kq, sw * kq, sh * kq); }
+function drawTurrets(g, hps, sheets, given = []) {  // the turrets on their mounts, facing forward — the lab aims the same cells; a component its own form (given[i].look)
+  for (let i = 0; i < hps.length; i++) { const h = hps[i], L = given[i] && given[i].kind === h.kind ? given[i].look : null; if (L && h.r) { drawWeapon(g, L, h.x, h.y, h.r * RECIPE.turret, 0); continue; } if (!sheets.tur || !sheets.st.turrets) continue; const T = sheets.st.turrets.cells[TCELL[h.kind]]; if (!T || !h.r) continue; const [sx, sy, sw, sh, px, py, body] = T, kq = 2 * h.r * RECIPE.turret / body; g.drawImage(sheets.tur, sx, sy, sw, sh, h.x - px * kq, h.y - py * kq, sw * kq, sh * kq); }
 }
 // the fittings (−40 … f0) at which every mount sits whole on the hull and clear of its neighbours. A mount's size goes as
 // (1 + f/100)² — the engines and the mounts both scale with the fittings (paint.js recipeWith) — so each constraint caps that
@@ -252,7 +255,7 @@ function paintMain(d) {
     g.fillStyle = '#04070f'; g.fillRect(0, 0, G.W, G.H);
     if (poly.length >= 3) { const ox = G.W / 2 - center[0] * px, oy = G.H / 2 - center[1] * px; g.beginPath(); poly.forEach(([x, y], i) => i ? g.lineTo(ox + x * px, oy + y * px) : g.moveTo(ox + x * px, oy + y * px)); g.closePath(); g.fillStyle = lk.washA; g.globalAlpha = 0.35; g.fill('evenodd'); g.globalAlpha = 1; }
   }
-  if (R && sheets.tur && sheets.st.turrets) drawTurrets(g, R.hardpoints, sheets);
+  if (R) drawTurrets(g, R.hardpoints, sheets, hp.hardpoints || []);
   if (!editing && DS.shields.length) {                // the shields' field: one purple bubble round the ship, as big as the cover (hull.js fieldBubble, as the plan view had it)
     const bub = fieldBubble(hull, DS.t.cover), ox = G.W / 2 - center[0] * px, oy = G.H / 2 - center[1] * px;
     g.save(); g.beginPath(); g.ellipse(ox + bub.cx * px, oy + bub.cy * px, Math.max(0.1, bub.rx * px), Math.max(0.1, bub.ry * px), 0, 0, 7); g.fillStyle = 'rgba(207,137,255,.07)'; g.fill(); g.strokeStyle = 'rgba(207,137,255,.85)'; g.lineWidth = 1.5; g.setLineDash([6, 5]); g.stroke(); g.restore();
@@ -1623,20 +1626,37 @@ function modelList(kind) {
   if (MLC.at !== LAST || MLC.n !== (S.models || []).length) MLC = { at: LAST, n: (S.models || []).length, map: new Map() };
   if (MLC.map.has(kind)) return MLC.map.get(kind);
   const pas = (LAST && LAST.passive) || {}, plain = modelCard(S, kind, null, pas);
-  const entry = m => { const c = m ? modelCard(S, kind, m, pas) : plain; return { id: m ? m.id : null, name: m ? m.name : `Standard ${K.name.toLowerCase()}`, gen: m ? m.gen : 0,
-    icon: componentIcon(m, { kind, color: K.color, size: 18 }), line: modelLine(c), detail: modelDetail(kind, m, c) }; };
+  const look = m => (m && m.look && isWeaponLook(m.look)) ? m.look : (!m || !m.look) ? plainLook(kind) : null;   // a weapon's physical form (weaponart.js); other kinds keep the little icon
+  const entry = m => { const c = m ? modelCard(S, kind, m, pas) : plain, L = look(m); return { id: m ? m.id : null, name: m ? m.name : `Standard ${K.name.toLowerCase()}`, gen: m ? m.gen : 0,
+    icon: L ? weaponSvg(L, { w: 40, h: 21, bg: false }) : componentIcon(m, { kind, color: K.color, size: 18 }), line: modelLine(m, c), detail: modelDetail(kind, m, c, L) }; };
   const list = [entry(null), ...modelsOf(S, kind).map(entry)]; MLC.map.set(kind, list); return list;
 }
 function statTxt(r, v) { return `${num(v, r.dec ?? (Math.abs(v) >= 10 ? 0 : 1))}${r.unit ? ' ' + r.unit : ''}`; }
-function modelLine(c) { return c.rows.filter(r => r.k !== 'power').slice(0, 3).map(r => statTxt(r, r.val)).join(' · '); }
-function modelDetail(kind, m, c) {
+// a model's line in the list: what it is good at (its traits) — the plain one its numbers
+function modelLine(m, c) { if (m && m.traits && m.traits.length) return m.traits.map(t => (traitWords(m.fam, t) || {}).good || t.id).join(' · '); return c.rows.filter(r => r.k !== 'power').slice(0, 3).map(r => statTxt(r, r.val)).join(' · '); }
+// what its battle effects do, in words
+function fxWords(fx) {
+  const o = [], pc = v => Math.round(v * 100) + ' %';
+  if (fx.sh && Math.abs(fx.sh - 1) > 0.01) o.push(`<span class="${fx.sh > 1 ? 'tg' : 'tb'}">×${fx.sh.toFixed(2)} against shields</span>`);
+  if (fx.ar && Math.abs(fx.ar - 1) > 0.01) o.push(`<span class="${fx.ar > 1 ? 'tg' : 'tb'}">×${fx.ar.toFixed(2)} against armour</span>`);
+  if (fx.pierce) o.push(`<span class="tg">${pc(fx.pierce)} more of every hit goes through the shield</span>`);
+  if (fx.burn) o.push(`<span class="tg">burns on: ${pc(fx.burn)} of a hit again, eaten into armour and hull</span>`);
+  if (fx.nod) o.push('<span class="tg">armour cannot shrug any of it off</span>');
+  if (fx.slip) o.push(`<span class="tg">point defence hits it ×${fx.slip.toFixed(2)} as often</span>`);
+  if (fx.seek) o.push(`<span class="tg">the target's dodging counts ×${fx.seek.toFixed(2)}</span>`);
+  return o.map(x => `<div>${x}</div>`).join('');
+}
+function modelDetail(kind, m, c, L = null) {
   const gain = r => r.less ? r.plain / Math.max(1e-9, r.val) - 1 : r.val / Math.max(1e-9, r.plain) - 1, K = KINDS[kind];
+  const art = L ? `<div class="art">${weaponSvg(L, { w: 190, h: 101 })}</div>` : '';
+  const traits = m && m.traits ? m.traits.map(t => { const w = traitWords(m.fam, t); return w ? `<div><b style="color:${w.col || '#ffd26a'}">${esc(w.adj)}</b>${t.main ? '' : ' <span class="muted">(a touch of it)</span>'} — <span class="tg">${esc(w.good)}</span>, <span class="tb">${esc(w.bad)}</span> <span class="muted">· ${sWord(t.s)}</span></div>` : ''; }).join('') : '';
   const rows = c.rows.map(r => { const g = gain(r), d = m && Math.abs(g) > 0.004; return `<div class="r"><span class="muted">${esc(r.label)}</span><span>${d ? `<s class="muted">${statTxt(r, r.plain)}</s> → ` : ''}<b>${statTxt(r, r.val)}</b>${d ? ` <b style="color:${g > 0 ? '#7ef3b0' : '#ff7979'}">${g > 0 ? '+' : ''}${Math.round(g * 100)} %</b>` : ''}</span></div>`; }).join('');
   const spill = c.spill.map(x => `<div>${ticon(CHANNEL_ICON[x.channel] || 'power', { size: 14 })} everything aboard: <b>+${x.pct} %</b> ${x.channel.replace(/_/g, ' ')}</div>`).join('');
   const drive = c.drive > 1.004 ? `<div>${ticon('reach', { size: 14 })} between the stars: <b>×${c.drive.toFixed(2)}</b> the plain drive's pace and reach</div>` : '';
-  const cost = m ? `<div class="muted">cost ${c.cost[1] >= c.cost[0] ? '+' : ''}${Math.round((c.cost[1] / Math.max(1e-9, c.cost[0]) - 1) * 100)} % against the plain one (new tech is dearer)</div>` : '';
-  const head = m ? `<div><b>${esc(m.name)}</b> — generation ${m.gen}, developed in eon ${m.eon}${m.q ? `, quality ${Math.round(m.q * 100)} %` : ''}</div>` : `<div><b>The standard ${esc(K.name.toLowerCase())}</b> — what every yard builds, with what your empire knows in it</div>`;
-  return head + rows + spill + drive + cost + '<div class="muted" style="margin-top:3px">New ships only: the ones already built keep what they were built with.</div>';
+  const dc = m ? Math.round((c.cost[1] / Math.max(1e-9, c.cost[0]) - 1) * 100) : 0, dv = m && c.volume ? Math.round((c.volume[1] / Math.max(1e-9, c.volume[0]) - 1) * 100) : 0;
+  const cost = m && (dc || dv) ? `<div class="muted">${dc ? `cost ${dc > 0 ? '+' : ''}${dc} %` : ''}${dc && dv ? ' · ' : ''}${dv ? `bulk ${dv > 0 ? '+' : ''}${dv} %` : ''} against the standard one</div>` : '';
+  const head = m ? `<div><b>${esc(m.name)}</b> <span class="muted">— developed in eon ${m.eon}</span></div>` : `<div><b>The standard ${esc(K.name.toLowerCase())}</b> — what every yard builds, with what your empire knows in it</div>`;
+  return art + head + traits + rows + fxWords(m && m.fx ? m.fx : {}) + spill + drive + cost + '<div class="muted" style="margin-top:3px">New ships only: the ones already built keep what they were built with.</div>';
 }
 const newestSys = () => Object.fromEntries(MODEL_SYS.map(k => [k, newestModel(S, k)?.id]).filter(x => x[1]));
 // the model of a system the design sizes itself (the reactor, the star drive, the weapons computer): the design's choice
@@ -1858,7 +1878,7 @@ function renderDesign(c) {
   let fire = '';                                     // what the guns do to each layer, as the battle resolves it (chipeditor.js vsLayers)
   if (t.weapons || t.drones || t.missiles) {
     const L = { shield: 0, through: 0, armor: 0, hull: 0 };
-    for (const x of DS.mods) if (x.K.mount && !x.K.hangar && !x.K.orbital) { const v = x.v, aim = Math.min(98, v.accuracy + t.bonus), l = vsLayers(v.damage * t.powerFactor * t.fireFactor, v.rate * aim / 100 * x.n, x.mod.preset, x.kind); for (const k in L) L[k] += l[k]; }
+    for (const x of DS.mods) if (x.K.mount && !x.K.hangar && !x.K.orbital) { const v = x.v, aim = Math.min(98, v.accuracy + t.bonus), l = vsLayers(v.damage * t.powerFactor * t.fireFactor, v.rate * aim / 100 * x.n, x.mod.preset, x.kind, x.model && x.model.fx); for (const k in L) L[k] += l[k]; }
     fire = box(ICON.damage, 'Damage', `${fmt(t.dps)} dmg/s`) + box(ICON.shield, 'Against a shield', `${fmt(L.shield)}${L.through > 0.05 ? ` (+${fmt(L.through)} through it)` : ''}`) + box('▣', 'Against armour', fmt(L.armor)) + box(ICON.hp, 'Against the hull', fmt(L.hull))
       + (ps ? box(ICON.reach, 'Stands off at', `${ps.pref} u`) + (ps.pd ? box(ICON.fire, 'Point defence', plural(ps.pd, 'gun')) : '') : '') + (t.missiles ? box(ICON.speed, 'Missiles', t.missiles) : '') + (t.drones ? box(ICON.gantry, 'Drones', `${t.drones}, ${t.airCap} in the air at once`, !t.airCap) : '');
   }

@@ -14,6 +14,7 @@
 import { DOMAINS, CHANNEL_X } from '../data/properties.js';
 import { counts } from './colony.js';
 import { CLIMATE } from './districts.js';
+import { traitsFrom, makeup, lookOf, nameFor, traitWords } from './traits.js';
 
 export const FIELD_IDS = Object.keys(DOMAINS);
 export const FIELD_COL = { materials: '#c9a27a', fabrication: '#ffb347', energy: '#ffd84f', electrics: '#7fd8ff', optics: '#c79bff', thermal: '#ff7a59', motion: '#5fe0b4', life: '#8fd16a', information: '#4fa3ff' };
@@ -121,7 +122,14 @@ export const generationOf = (S, fam) => ((S.gens || {})[fam] || 0) + 1;
 export const modelsOf = (S, kind) => (S.models || []).filter(m => m.kind === kind);
 export const newestModel = (S, kind) => { const l = modelsOf(S, kind); return l.length ? l[l.length - 1] : null; };
 export const needOf = (S, fam) => Math.round(RESEARCH.need * Math.pow(RESEARCH.growth, generationOf(S, fam) - 1));
-export const nameOf = (S, fam) => { const g = generationOf(S, fam); return `${FAMILIES[fam].base} Mk ${roman(g)}`; };
+// a component's project has no name yet — the name comes with what it turns out to be (traits.js nameFor)
+export const nameOf = (S, fam) => { const F = FAMILIES[fam], g = generationOf(S, fam); return F.module ? `A new ${F.name.toLowerCase()}` : `${F.base} Mk ${roman(g)}`; };
+// WHAT WE EXPECT of a component under way (or one you might start): its traits from the fields as they fed it so far (p.feed), else as
+// they are — the words, not the numbers; the physical form stays unknown until it is done
+// THE SAME AGAIN: a component of the same character you already have (the same main trait and the same touch) — the same research makes
+// the same thing (his quest: to get something different, study other fields)
+export function sameAs(S, fam, traits) { const key = ts => ts.map(t => t.id).join('+'), k = key(traits); return k ? (S.models || []).find(m => m.fam === fam && m.traits && key(m.traits) === k) || null : null; }
+export function expectOf(S, fields, fam, p = null) { const { q, ch } = qualityOf(S, fields, fam); return { q, traits: traitsFrom(fam, ch, p && p.feed, p && p.fed).map(t => ({ ...t, ...traitWords(fam, t) })) }; }
 export const strengthOf = (potential, found, boosts = 0) => { const M = RESEARCH.strength; return M.base + M.potential * potential + M.perFind * Math.min(10, found) + M.booster * boosts; };
 
 // a place's research split over the fields: what it has to give, plus a little of everything
@@ -181,7 +189,11 @@ export function dropProject(S, i) { const P = S.projects || []; if (!P[i]) retur
 // ONE EON: every project takes its research; one that is through becomes its family's next generation
 export function advanceProjects(S, plans, rep) {
   const finished = [];
-  for (const pl of plans) { pl.p.prog = (pl.p.prog || 0) + pl.gain; if (pl.p.prog >= pl.need - 1e-6) finished.push(pl); }
+  for (const pl of plans) {
+    pl.p.prog = (pl.p.prog || 0) + pl.gain;
+    if (pl.F.module && pl.flow > 0) { pl.p.fed = (pl.p.fed || 0) + pl.flow; pl.p.feed = pl.p.feed || {}; for (const x of pl.ch) pl.p.feed[x.id] = (pl.p.feed[x.id] || 0) + pl.flow * x.w * x.strength; }   // what each field gave it, as strong as it was then (its traits come from this)
+    if (pl.p.prog >= pl.need - 1e-6) finished.push(pl);
+  }
   for (const pl of finished) {
     S.gens = S.gens || {}; S.gens[pl.fam] = pl.gen; S.usedBoost = [...(S.usedBoost || []), ...pl.boosts.map(b => b.id)];
     const F = pl.F, top = Object.entries(F.recipe).sort((a, b) => b[1] - a[1])[0][0], ben = benefitsOf(S, null, pl.fam, pl.q);
@@ -192,12 +204,13 @@ export function advanceProjects(S, plans, rep) {
       S.adapt = S.adapt || {}; S.adapt[F.adapt] = Math.min(1, (S.adapt[F.adapt] || 0) + RESEARCH.adapt.base + RESEARCH.adapt.q * pl.q);
       rep.push({ kind: 'breakthrough', research, text: `Research done: ${pl.name} — farms on ${F.adapt === 'cold' ? 'cold' : F.adapt === 'heat' ? 'hot' : 'radiation-exposed'} worlds feed ${ben[0].pct} % more (quality ${Math.round(pl.q * 100)} %)` });
     } else if (F.module) {
-      // A COMPONENT (2026-10-24): a new model of its kind, its own numbers — on top of the family's last one; fitted on new designs only
-      S.models = S.models || []; const prev = newestModel(S, F.module), boost = { ...(prev ? prev.boost : {}) };
-      for (const b of ben) boost[b.channel] = (boost[b.channel] || 0) + b.pct;
-      const model = { id: `md${S.eon}${pl.fam}${pl.gen}`, fam: pl.fam, kind: F.module, name: pl.name, gen: pl.gen, boost, eon: S.eon, q: +pl.q.toFixed(2) }; S.models.push(model); research.model = model.id;
-      if (giftProp) S.breakthroughs.unshift({ id: `pj${S.eon}${pl.fam}g`, name: `${pl.name} (focus gift)`, field: top, fieldName: DOMAINS[top].name, eon: S.eon, origin: 'a research project', under: null, project: pl.fam, props: [giftProp] });
-      rep.push({ kind: 'breakthrough', research, text: `Research done: ${pl.name} — a new ${F.name.toLowerCase()} to fit on new designs: ${ben.map(b => `${b.channel.replace(/_/g, ' ')} +${b.pct} %`).join(', ')} over the plain one${prev ? ` (${prev.name} and before included)` : ''}` });
+      // A COMPONENT OF ITS OWN (his call, 2026-10-24: "a brand new energy weapon — it does something different, not an upgrade"): its
+      // TRAITS from the fields that fed it (traits.js), a name of its own, its physical form (look); fitted on new designs only
+      S.models = S.models || []; const traits = traitsFrom(pl.fam, pl.ch, pl.p.feed, pl.p.fed), { mul, fx } = makeup(pl.fam, traits), id = `md${S.eon}${pl.fam}${pl.gen}`;
+      const model = { id, fam: pl.fam, kind: F.module, name: nameFor(S, pl.fam, traits, F.base), gen: pl.gen, traits, mul, fx, look: lookOf(pl.fam, traits, mul, id), eon: S.eon, q: +pl.q.toFixed(2) };
+      S.models.push(model); Object.assign(research, { model: model.id, name: model.name, traits, look: model.look });
+      if (giftProp) S.breakthroughs.unshift({ id: `pj${S.eon}${pl.fam}g`, name: `${model.name} (focus gift)`, field: top, fieldName: DOMAINS[top].name, eon: S.eon, origin: 'a research project', under: null, project: pl.fam, props: [giftProp] });
+      rep.push({ kind: 'breakthrough', research, text: `Research done: ${model.name} — a new ${F.name.toLowerCase()} of its own: ${traits.map(t => { const w = traitWords(pl.fam, t); return w ? `${w.good}, but ${w.bad}` : t.id; }).join('; ')} — fit it on new designs` });
     } else if (F.level) {
       const up = RESEARCH.level.base + RESEARCH.level.q * pl.q; S.slotLevels = S.slotLevels || {}; S.slotLevels[F.level] = (S.slotLevels[F.level] || 1) + up;
       rep.push({ kind: 'breakthrough', research, text: `Research done: ${pl.name} — every ${F.level === 'food' ? 'farm' : F.level === 'housing' ? 'home' : F.level === 'industry' ? 'works' : 'lab'} district gives ${ben[0].pct} % more (quality ${Math.round(pl.q * 100)} %)` });
@@ -215,7 +228,8 @@ export function advanceProjects(S, plans, rep) {
 export function advisors(S, c) {
   const out = [], q = fam => qualityOf(S, c.fields, fam).q, busy = new Set((S.projects || []).map(p => p.fam));
   const lean = fam => 0.7 + 1.2 * focusAffinity(S, fam);   // the focus's own families weigh more (2026-10-23)
-  const add = (fam, why, score0) => { if (busy.has(fam)) return; const score = score0 * lean(fam); const o = out.find(x => x.fam === fam); if (o) { if (score > o.score) { o.why = why; o.score = score; } return; } out.push({ fam, why, score, q: q(fam) }); };
+  const dup = fam => FAMILIES[fam].module && !!sameAs(S, fam, traitsFrom(fam, qualityOf(S, c.fields, fam).ch));   // it would only make one more of what you have
+  const add = (fam, why, score0) => { if (busy.has(fam)) return; const score = score0 * lean(fam) * (dup(fam) ? 0.35 : 1); const o = out.find(x => x.fam === fam); if (o) { if (score > o.score) { o.why = why; o.score = score; } return; } out.push({ fam, why, score, q: q(fam) }); };
   const names = list => list.slice(0, 2).map(p => p.pl.name).join(', ') + (list.length > 2 ? ` and ${list.length - 2} more` : '');
   const hungry = c.colonies.filter(p => p.water && p.fed < 0.98); if (hungry.length) add('farms', `${names(hungry)} ${hungry.length > 1 ? 'are' : 'is'} hungry — food feeds ${Math.round(Math.min(...hungry.map(p => p.fed)) * 100)} %`, 3);
   for (const [hazard, fam, word] of [['cold', 'farms_cold', 'cold'], ['heat', 'farms_hot', 'hot'], ['radiation', 'farms_rad', 'open to radiation (thin or no air)']]) {   // the climate cuts the farms (districts.js)

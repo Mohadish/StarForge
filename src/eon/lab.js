@@ -12,6 +12,7 @@ import { lookOf, spriteOf, lookFromColors } from './skins.js';
 import { buildPlan, planFromCode, planCode, plansLoad, exportAllText, shipLabel } from './fleetplan.js';
 import { mountNav } from './nav.js';
 import { designSpecHtml, modulesLine, chipStripHtml } from './spec.js';
+import { drawWeapon, muzzleOf } from './weaponart.js';
 const TCELL = { weapon_energy: 0, weapon_kinetic: 1, weapon_missile: 2 };   // a style's turret cells: beam, gun, missile
 const skinsOn = () => !!($('skins') && $('skins').checked);
 // DETAIL (his ask, 2026-10-16): full = the painted ships with the style's turrets; plain = the painted ships, no turrets (the shots
@@ -493,7 +494,7 @@ function draw() {
     if (out === 3) { g.fillStyle = '#fff'; g.beginPath(); g.arc(tx, ty, 2 + 2 * f, 0, 7); g.fill(); }                           // a drone hit
   };
   const drawShot = (sh, p, n, paint = true) => {                                   // paint = false: only note which turret fired, and where it points
-    const [, kind, out, , , , , si, gi] = sh, [[fx, fy], [tx, ty]] = shotEnds(sh), ang = Math.atan2(ty - fy, tx - fx), jit = ((n * 7919) % 23 - 11) * 0.06, col = COLOR[kind] || '#fff';
+    const [, kind, out, , , , , si, gi] = sh, [[fx, fy], [tx, ty]] = shotEnds(sh), ang = Math.atan2(ty - fy, tx - fx), jit = ((n * 7919) % 23 - 11) * 0.06, gl = si != null && ships[si] && ships[si].guns[gi] ? ships[si].guns[gi].look : null, col = (gl && gl.col) || COLOR[kind] || '#fff';   // a component's beam in its own colour (traits.js)
     if (si !== undefined && si !== null && p <= 1) { const prev = aim.get(si * 1000 + gi); if (!prev || p < prev.p) aim.set(si * 1000 + gi, { a: ang, p }); }
     if (!paint) return;
     if (kind === 'm') {                                                              // a missile arriving: on the hull an orange blast, on a shield a purple flash at the shield's edge, a miss fizzles past
@@ -591,6 +592,11 @@ function draw() {
           const flash = (mx2, my2, fr) => { const gr = g.createRadialGradient(mx2, my2, 0, mx2, my2, fr * 2.2); gr.addColorStop(0, `rgba(255,255,230,${0.95 * fl})`); gr.addColorStop(0.4, `rgba(255,220,120,${0.6 * fl})`); gr.addColorStop(1, 'rgba(255,200,80,0)'); g.fillStyle = gr; g.beginPath(); g.arc(mx2, my2, fr * 2.2, 0, 7); g.fill(); };
           g.globalAlpha = 1 - symA;
           const T = sp && sp.turrets ? sp.turrets.cells[TCELL[gun.kind]] : null, rr = sp ? (sp.r[gi] || 0) * scale / sp.S : 0;
+          if (gun.look) {                                                           // a component: its own form (weaponart.js), swung onto the target like the rest
+            const rad = rr >= 2 ? rr * (sp.turretK || 1) : tr * 1.15, a2 = kch === 'm' ? ang : a; drawWeapon(g, gun.look, tx, ty, rad, a2);
+            if (fl > 0) { const bl = rad * muzzleOf(gun.look); flash(tx + Math.cos(a2) * bl, ty + Math.sin(a2) * bl, rad * 0.5 + 2 * fl); }
+            return;
+          }
           if (T && rr >= 2) {                                                       // the style's own turret on its mount: beams and guns swung onto the target, a launcher fixed forward, a flash at the muzzle
             const [sx, sy, sw, sh, px, py, body] = T, kq = 2 * rr * (sp.turretK || 1) / body, a2 = kch === 'm' ? ang : a;   // the turret's body is a share of the mount (paint.js RECIPE.turret) — the mount shows round it
             g.save(); g.translate(tx, ty); g.rotate(a2); g.drawImage(sp.turrets.img, sx, sy, sw, sh, -px * kq, -py * kq, sw * kq, sh * kq); g.restore();

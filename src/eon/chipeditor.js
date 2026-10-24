@@ -70,6 +70,9 @@ const CSS = `
 .ce-mi { display: flex; gap: 8px; align-items: center; padding: 4px 6px; border-radius: 6px; cursor: pointer }
 .ce-mi:hover, .ce-mi.on { background: rgba(255,255,255,.07) }
 .ce-mi small { color: var(--muted, #9eb3d8); margin-left: auto; white-space: nowrap; padding-left: 10px }
+.ce-mi .wart, .ce-tray .stack .wart { flex: none }
+.ce-mdet .art { display: flex; justify-content: center; margin: 2px 0 6px }
+.ce-mdet .tg { color: #7ef3b0 } .ce-mdet .tb { color: #ff9b8a }
 .ce-mi .tag { font-size: 10px; color: var(--warn, #ffd26a); border: 1px solid currentColor; border-radius: 999px; padding: 0 5px }
 .ce-mdet { border-top: 1px solid var(--line, #1f2a44); margin-top: 4px; padding: 6px 4px 2px; line-height: 1.55 }
 .ce-mdet .r { display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px dotted rgba(31,42,68,.9) }`;
@@ -83,9 +86,10 @@ const LAYER = { shield: '#cf89ff', armor: '#c9d4e8', hull: '#7ef3b0' };
 // what a hit of `d` does to each layer, a second at `perSec` hits, as the battle resolves it (battle.js strike): a shield shrugs
 // SHIELD.hard off every hit (a capital shell ignores that and hits the field ×BREAK; a sniper's slug, a shell or a missile goes
 // partly through it), armour shrugs off its deflection (3 on plain armour), the hull takes it all
-export const vsLayers = (d, perSec, preset, kind) => {
-  const pen = PIERCE[preset] ?? PEN[kind] ?? 0, soft = d * (1 - pen), brk = BREAK[preset] || 0;
-  return { shield: perSec * (brk ? soft * brk : Math.max(0, soft - SHIELD.hard)), through: perSec * d * pen, armor: perSec * Math.max(0, d - KINDS.armor.base.deflect), hull: perSec * d };
+// fx: a component's effects (traits.js) — × on a shield / on armour, more through the shield, no shrug-off, a burn on top
+export const vsLayers = (d, perSec, preset, kind, fx = null) => {
+  const f = fx || {}, pen = Math.min(0.9, (PIERCE[preset] ?? PEN[kind] ?? 0) + (f.pierce || 0)), soft = d * (1 - pen), brk = BREAK[preset] || 0, ks = f.sh || 1, ka = f.ar || 1, burn = 1 + (f.burn || 0);
+  return { shield: perSec * (brk ? soft * brk * ks : Math.max(0, soft * ks - SHIELD.hard)), through: perSec * d * pen, armor: perSec * Math.max(0, d - (f.nod ? 0 : KINDS.armor.base.deflect)) * ka * burn, hull: perSec * d * burn };
 };
 const layerHtml = L => `<b style="color:${LAYER.shield}">shield ${fmt(L.shield)}</b>${L.through > 0.05 ? ` <span class="muted">(+${fmt(L.through)} through it)</span>` : ''} · <b style="color:${LAYER.armor}">armour ${fmt(L.armor)}</b> · <b style="color:${LAYER.hull}">hull ${fmt(L.hull)}</b> dmg/s`;
 const chipName = (type, key) => (CHIPS[type] || []).find(c => c[0] === key)?.[1] || key;
@@ -105,12 +109,13 @@ export function createChipEditor({ palette, tray, info, sheet, dropZones = [] },
   let stacks = [], sel = null, open = null, nextId = 1, ship = null;
   const LIST = { weapon: CHIPS.weapon, role: CHIPS.role, trait: [...CHIPS.trait, ...((extra && extra.trait) || [])] }, nameOf = (type, key) => (LIST[type] || []).find(c => c[0] === key)?.[1] || key;
   if (extra && extra.names) for (const t in LIST) LIST[t] = LIST[t].map(([k, l]) => [k, extra.names[k] || l]);   // a page's own names for some chips (the game calls "Fast" Thrusters)
-  // THE MODELS (2026-10-24): models(kind) → [the plain one (id null), …every model developed, the newest last] as { id, name, icon, line, detail }
-  // (the page's); a chip's kind of module (the "Fast" chip is the thrusters); a stack may carry one (s.model) — dragged in, it is the newest
+  // THE MODELS (2026-10-24): models(kind) → [the plain one (id null), …every model developed] as { id, name, icon, line, detail } (the page's);
+  // a chip's kind of module (the "Fast" chip is the thrusters); a stack may carry one (s.model). Each is its OWN thing, not an upgrade (his
+  // call): a drag brings the standard one, a tap the list to choose from
   const MK = { fast: 'thruster', fab: 'works' }, mkOf = k => MK[k] || k, listOf = kind => (models && models(kind)) || [];
   const modelIn = (kind, id) => listOf(kind).find(m => m.id === (id ?? null)) || null, newestOf = key => { const l = listOf(mkOf(key)); return l.length > 1 ? l[l.length - 1].id : null; };
   const stackIcon = s => { const m = modelIn(mkOf(s.kind), s.model); return m && listOf(mkOf(s.kind)).length > 1 ? m.icon || '' : ''; };
-  const newerOf = s => { const l = listOf(mkOf(s.kind)); if (l.length < 2 || l[l.length - 1].id === (s.model ?? null)) return ''; return `<span class="newer" title="a newer model exists: ${esc(l[l.length - 1].name)} — pick it in its details (new ships only: the ones built keep theirs)">⬆</span>`; };
+  const newerOf = () => '';   // no "newer" marker: a model is another tool, not a better one
   const emit = () => { render(); if (onChange) onChange(stacks); };
   palette.innerHTML = ['weapon', 'role', 'trait'].map(type => `<div class="ce-prow" data-prow="${type}"><span class="tiny">${(labels && labels[type]) || { weapon: 'Weapons', role: 'Roles', trait: 'Traits' }[type]}</span>${LIST[type].map(([k, l]) => `<span class="chipb ${type}" data-chip="${type}:${k}" style="--c:${CHIPC[k] || '#ffd26a'}" title="drag it into the tray (or onto a stack), or tap it">${l}</span>`).join('')}</div>`).join('');
   const label = s => (s.model && modelIn(mkOf(s.kind), s.model)?.name) || nameOf(s.type || (CHIPS.weapon.some(c => c[0] === s.kind) ? 'weapon' : 'trait'), s.kind);
@@ -130,13 +135,13 @@ export function createChipEditor({ palette, tray, info, sheet, dropZones = [] },
     } else html = stacks.map(chip).join('');
     tray.innerHTML = html || '<span class="tiny">Empty. Tap or drag chips from above; drop a chip on a stack to pile it up; drop a role on a weapon to give it that role. Double-click a stack for its details.</span>';
     palette.querySelector('[data-prow="role"]')?.classList.toggle('off', !stacks.some(isWeapon));   // a role wants a weapon to sit on
-    for (const c of palette.querySelectorAll('[data-chip]')) { const [t, k] = c.dataset.chip.split(':'), has = t !== 'role' && listOf(mkOf(k)).length > 1; c.classList.toggle('models', has); c.title = has ? 'tap it: pick which model — or drag it in (the newest)' : 'drag it into the tray (or onto a stack), or tap it'; }
+    for (const c of palette.querySelectorAll('[data-chip]')) { const [t, k] = c.dataset.chip.split(':'), has = t !== 'role' && listOf(mkOf(k)).length > 1; c.classList.toggle('models', has); c.title = has ? 'tap it: choose which one — each does something different (a drag brings the standard one)' : 'drag it into the tray (or onto a stack), or tap it'; }
     renderInfo();
     if (onRender) onRender(open);
   }
   // model: which model the new pile is (undefined: the newest — a drag); a chip dropped ON a pile adds one more of that pile's own
   function drop(type, key, onStack, model) {
-    const s = onStack != null ? stacks.find(x => x.id === onStack) : null, md = model === undefined ? newestOf(key) : model;
+    const s = onStack != null ? stacks.find(x => x.id === onStack) : null, md = model === undefined ? null : model;   // a drag: the standard one
     if (type === 'role') { const w = s && isWeapon(s) ? s : stacks.find(x => x.id === sel && isWeapon(x)) || stacks.filter(isWeapon).at(-1); if (w) { w.role = w.role === key ? null : key; sel = w.id; } }
     else if (s && s.kind === key) { s.h++; sel = s.id; }
     else if (type === 'trait' && !s && stacks.some(x => x.kind === key && (x.model ?? null) === md)) { const x = stacks.find(x => x.kind === key && (x.model ?? null) === md); x.h++; sel = x.id; }
@@ -148,10 +153,10 @@ export function createChipEditor({ palette, tray, info, sheet, dropZones = [] },
   let menu = null;
   const closeMenu = () => { if (menu) { menu.remove(); menu = null; } };
   function openMenu(anchor, kind, what, onPick, current) {
-    closeMenu(); const list = listOf(kind).slice().reverse(); if (!list.length) return;
+    closeMenu(); const list = listOf(kind).slice(); if (!list.length) return;   // the standard one first, then each in the order it was developed
     const at = Math.max(0, current === undefined ? 0 : list.findIndex(m => m.id === (current ?? null)));
     menu = document.createElement('div'); menu.className = 'ce-menu';
-    menu.innerHTML = `<div class="hd">${esc(what)} — hover for its numbers, click to take it</div>` + list.map((m, i) => `<div class="ce-mi${i === at ? ' on' : ''}" data-mi="${i}">${m.icon || ''}<b>${esc(m.name)}</b>${i === 0 && m.id ? '<span class="tag">newest</span>' : ''}${current !== undefined && m.id === (current ?? null) ? '<span class="tag">fitted</span>' : ''}<small>${m.line || ''}</small></div>`).join('') + `<div class="ce-mdet">${list[at].detail || ''}</div>`;
+    menu.innerHTML = `<div class="hd">${esc(what)} — hover for its numbers, click to take it</div>` + list.map((m, i) => `<div class="ce-mi${i === at ? ' on' : ''}" data-mi="${i}">${m.icon || ''}<b>${esc(m.name)}</b>${current !== undefined && m.id === (current ?? null) ? '<span class="tag">fitted</span>' : ''}<small>${m.line || ''}</small></div>`).join('') + `<div class="ce-mdet">${list[at].detail || ''}</div>`;
     document.body.appendChild(menu);
     const r = anchor.getBoundingClientRect(), h = menu.offsetHeight, w = menu.offsetWidth;
     menu.style.left = clamp(r.left, 4, Math.max(4, innerWidth - w - 4)) + 'px'; menu.style.top = (r.bottom + 4 + h > innerHeight ? Math.max(4, r.top - h - 4) : r.bottom + 4) + 'px';
@@ -202,7 +207,7 @@ export function createChipEditor({ palette, tray, info, sheet, dropZones = [] },
       for (const x of mods) {
         const v = x.v, d = v.damage * t.powerFactor * t.fireFactor, aim = Math.min(98, v.accuracy + t.bonus), pd = (x.mod.role || PRESETS[x.mod.preset]?.role) === 'pd';
         html += `<div>each gun: <b>${fmt(v.damage)}</b> a shot, <b>${v.rate.toFixed(2)}</b>/s, <b>${Math.round(aim)} %</b> to hit, reach <b>${fmt(v.range)}</b>${x.K.charges ? `, ${Math.round(v.charges)} missiles` : ''} · takes ${(x.load * x.n).toFixed(1)} mounts · cost ${fmt(x.cost * x.n)} · bulk ${fmt(x.volume * x.n)}</div>`;
-        html += `<div>all ${x.n}: ${layerHtml(vsLayers(d, v.rate * aim / 100 * x.n, x.mod.preset, x.kind))}</div>`;
+        html += `<div>all ${x.n}: ${layerHtml(vsLayers(d, v.rate * aim / 100 * x.n, x.mod.preset, x.kind, x.model && x.model.fx))}</div>`;
         if (pd) html += `<div class="muted">point defence: missiles and drones first; on a hull over ${PD.smallTop} only ×${PD.vsShip} of this</div>`;
       }
     } else if (s.kind === 'hangar') {
@@ -250,7 +255,7 @@ export function createChipEditor({ palette, tray, info, sheet, dropZones = [] },
     if (!ship) { sheet.innerHTML = '<div class="tiny">Add a weapon at least — the ship is built here.</div>'; return; }
     const t = ship.t, row = (k, v) => `<div class="row"><span>${k}</span><b>${v}</b></div>`, sec = (h, rows) => `<div class="sec"><h4>${h}</h4>${rows}</div>`;
     let L = { shield: 0, through: 0, armor: 0, hull: 0 };
-    for (const x of ship.ds.mods) if (x.K.mount && !x.K.hangar && !x.K.orbital) { const v = x.v, aim = Math.min(98, v.accuracy + t.bonus), l = vsLayers(v.damage * t.powerFactor * t.fireFactor, v.rate * aim / 100 * x.n, x.mod.preset, x.kind); for (const k in L) L[k] += l[k]; }
+    for (const x of ship.ds.mods) if (x.K.mount && !x.K.hangar && !x.K.orbital) { const v = x.v, aim = Math.min(98, v.accuracy + t.bonus), l = vsLayers(v.damage * t.powerFactor * t.fireFactor, v.rate * aim / 100 * x.n, x.mod.preset, x.kind, x.model && x.model.fx); for (const k in L) L[k] += l[k]; }
     const w = [...warnExtra];
     if (t.powerFactor < 0.999) w.push(`Not enough power: everything runs at ${pct(t.powerFactor)}.`);
     if (t.fireFactor < 0.999) w.push(`The weapons computer is short: the guns fire at ${pct(t.fireFactor)}.`);

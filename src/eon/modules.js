@@ -194,9 +194,9 @@ export function allCapsules(S) {
 // what every module gets without anyone placing anything
 export function passiveOf(caps) { const p = {}; for (const c of caps) p[c.channel] = (p[c.channel] || 0) + c.pct * c.share; return p; }
 
-// A COMPONENT (2026-10-24, research.js S.models): a module may be a MODEL the empire developed — its own boosts on top of the empire's, and
-// a little dearer each generation (new tech costs); a built ship keeps the models it was built with (no retrofitting — his call)
-export const MODEL = { cost: 0.06 };
+// A COMPONENT (2026-10-24, research.js S.models): a module may be a MODEL the empire developed — its own character (traits.js: `mul` on
+// its stats, cost and bulk; `fx` in battle), the empire's know-how still in it; an early model of that day may carry `boost` channels
+// instead. A built ship keeps the models it was built with (no retrofitting — his call)
 export function moduleStats(mod, capMap, passive, model = null) {
   const K = KINDS[mod.kind], k = scaleOf(mod), tune = K.mount ? gunTune(mod, K) : null;
   const rect = K.rect ? [clamp(mod.w || GANTRY.w, 1, GANTRY.maxW), clamp(mod.h || GANTRY.h, 1, GANTRY.maxH)] : null, area = rect ? rect[0] * rect[1] : 1;
@@ -206,6 +206,7 @@ export function moduleStats(mod, capMap, passive, model = null) {
     const pas = s.from.reduce((a, ch) => a + (passive[ch] || 0) + (model && model.boost ? model.boost[ch] || 0 : 0), 0), app = s.from.reduce((a, ch) => a + extra(ch), 0);
     const base = K.base[s.k] * (rect && s.k === 'power' ? area : 1) * (K.scale?.stats.includes(s.k) ? k : K.scale?.sqrtStats?.includes(s.k) ? Math.sqrt(k) : 1) * (tune ? tune[s.k] || 1 : 1), kStd = 1 + pas / 100, kNow = 1 + (pas + app) / 100;
     let std = s.less ? base / kStd : base * kStd, val = s.less ? base / kNow : base * kNow;
+    const mm = model && model.mul ? model.mul[s.k] : null; if (mm) { std *= mm; val *= mm; }   // the model's character
     if (s.max) { std = Math.min(s.max, std); val = Math.min(s.max, val); }
     return { ...s, base, std, val, boosted: app > 0.005 };
   });
@@ -214,7 +215,7 @@ export function moduleStats(mod, capMap, passive, model = null) {
   const cheapen = 1 + ((passive.affordability || 0) + extra('affordability')) / 100;
   const v = Object.fromEntries(stats.map(s => [s.k, s.val])), size = area * k;
   return { kind: mod.kind, K, k, tune, stats, v, mine, rect, model, load: K.mount ? K.mount * tune.load : 0,
-    cost: K.cost * size * (tune ? tune.cost : 1) * (1 + burden / 100 * 0.8) / cheapen * (model ? 1 + MODEL.cost * (model.gen || 1) : 1), volume: K.volume * size * (tune ? tune.volume : 1) * (1 + burden / 100 * 0.6) / shrink };
+    cost: K.cost * size * (tune ? tune.cost : 1) * (1 + burden / 100 * 0.8) / cheapen * ((model && model.mul && model.mul.cost) || 1), volume: K.volume * size * (tune ? tune.volume : 1) * (1 + burden / 100 * 0.6) / shrink * ((model && model.mul && model.mul.volume) || 1) };
 }
 
 // A MODEL'S CARD (2026-10-24, the designer's list): one plain module of the kind against the same module as that model — every stat with
@@ -224,7 +225,7 @@ export function modelCard(S, kind, model, passive = passiveOf(allCapsules(S))) {
   const mod = { id: 'card', kind, caps: [], n: 1, k: 1 }, none = new Map(), a = moduleStats(mod, none, passive, null), b = model ? moduleStats(mod, none, passive, model) : a;
   const rows = b.stats.map((s, i) => ({ k: s.k, label: s.label, unit: s.unit, less: !!s.less, dec: s.dec, plain: a.stats[i].val, val: s.val }));
   const spill = model ? Object.entries(model.boost || {}).filter(([ch]) => !K.stats.some(s => s.from.includes(ch))).map(([channel, pct]) => ({ channel, pct })) : [];
-  return { rows, spill, cost: [a.cost, b.cost], drive: kind === 'stardrive' ? 1 + ((model && model.boost && model.boost.drive_efficiency) || 0) / 100 : null };
+  return { rows, spill, cost: [a.cost, b.cost], volume: [a.volume, b.volume], fx: (model && model.fx) || {}, drive: kind === 'stardrive' ? (model && model.mul ? model.mul.pace || 1 : 1 + ((model && model.boost && model.boost.drive_efficiency) || 0) / 100) : null };
 }
 
 // The whole design, rolled up.
@@ -302,7 +303,7 @@ export function designStats(S, design, caps = allCapsules(S)) {
   t.underDriven = t.klass === 'starship' && t.lift < t.volume - 1e-6;     // too much hull for its star drive: it cannot leave the system
   // THE DRIVE MODEL (2026-10-24): a star drive the empire developed carries the ship faster and further between the stars than the plain one —
   // its own pace (the slowest drive aboard sets it); a fleet goes at its slowest ship's (model.js fleetPace)
-  const drives = mods.filter(m => m.kind === 'stardrive'); t.driveMul = drives.length ? Math.min(...drives.map(m => 1 + ((m.model && m.model.boost && m.model.boost.drive_efficiency) || 0) / 100)) : 1;
+  const drives = mods.filter(m => m.kind === 'stardrive'); t.driveMul = drives.length ? Math.min(...drives.map(m => !m.model ? 1 : m.model.mul ? m.model.mul.pace || 1 : 1 + ((m.model.boost && m.model.boost.drive_efficiency) || 0) / 100)) : 1;
   t.models = [...new Set(mods.filter(m => m.model).map(m => m.model.id))];
   // where the guns sit; the ones beyond what the weapons computer can run are marked
   const mounts = hardPoints(hull, guns);
