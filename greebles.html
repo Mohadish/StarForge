@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="icon" href="data:,">
+<title>Greeble Lab</title>
+<style>
+:root { --bg:#070a12; --panel:#0e1422; --panel2:#121a2c; --line:#1f2a44; --fg:#e8f0ff; --muted:#9eb3d8; --accent:#5fe3d0; --good:#7ef3b0; --warn:#ffd26a; --font:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color-scheme: dark }
+html { background: var(--bg) }
+body { background: var(--bg); color: var(--fg); font: 14px/1.45 var(--font); margin: 0; padding: 14px 16px 40px; max-width: 1280px; margin-inline: auto }
+h1 { font-size: 18px; letter-spacing: .14em; text-transform: uppercase; margin: 0 0 6px; color: var(--accent) }
+h1 small { color: var(--muted); letter-spacing: 0; text-transform: none; font-size: 13px; font-weight: 400; margin-left: 8px }
+h2 { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 14px 0 8px }
+.ctl { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin: 10px 0 }
+.ctl label { display: grid; gap: 3px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em }
+select, input[type=number] { background: #04070f; color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; font: 13px var(--font) }
+button { background: var(--panel2); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; font: 600 13px var(--font); cursor: pointer }
+button.on { background: rgba(95,227,208,.16); border-color: var(--accent) }
+.tiny { font-size: 11px; color: var(--muted); line-height: 1.5 }
+.grid { display: flex; flex-wrap: wrap; gap: 8px }
+.pc { background: #04070f; border: 1px solid var(--line); border-radius: 8px; padding: 6px; display: grid; justify-items: center; gap: 3px }
+.pc canvas { display: block; max-width: 150px; max-height: 110px; image-rendering: auto }
+.pc span { font-size: 10px; color: var(--muted) }
+.iso { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px }
+.iso .cell { background: radial-gradient(ellipse at 50% 70%, #10192c, #04070f 70%); border: 1px solid var(--line); border-radius: 10px; padding: 8px; display: grid; justify-items: center; gap: 4px; min-height: 230px; align-content: center }
+.iso canvas { max-width: 100%; display: block }
+.iso .cell b { font-size: 12px; color: var(--fg) } .iso .cell span { font-size: 11px; color: var(--muted) }
+#note { margin-top: 8px }
+[hidden] { display: none !important }
+</style>
+</head>
+<body>
+<h1>Greeble Lab <small>the styles' parts as a stock of greebles — and a first try at isometric tech art</small></h1>
+<div class="tiny">Every style's sheet, cut: the whole pieces trimmed to their ink, panels and bands off the plating strip, and small bits out of the pieces — picked by how solid and how busy they are. The isometric half dresses 3D blocks with them: walls in the plating, roofs in the top-down pieces.</div>
+<div class="ctl">
+  <label>Style <select id="style"></select></label>
+  <button id="tStock" class="on">The stock</button><button id="tIso">Isometric</button>
+  <label id="kindL" hidden>Building <select id="kind"><option value="all">all six</option></select></label>
+  <label id="seedL" hidden>Seed <input id="seed" type="number" value="1" min="1" style="width:80px"></label>
+  <button id="again" hidden>↻ another</button>
+  <label class="tiny" style="display:flex;gap:6px;align-items:center;text-transform:none"><input type="checkbox" id="tint" checked> colour wash</label>
+  <button id="cat" title="every style's stock as one JSON (rects in sheet pixels)">Copy the catalog</button>
+</div>
+<div id="out"></div>
+<div id="note" class="tiny"></div>
+<script type="module">
+import { mountNav } from './src/eon/nav.js';
+import { stockOf, pieceCanvas, drawBuilding, ARCHETYPES, styleIds } from './src/eon/greeblelab.js';
+import { STYLES } from './src/eon/styles.js';
+mountNav('greeble');
+const $ = id => document.getElementById(id);
+let tab = 'stock', stock = null;
+const ids = styleIds(); $('style').innerHTML = ids.map(id => `<option value="${id}">${STYLES[id].name}</option>`).join('');
+$('kind').innerHTML += Object.entries(ARCHETYPES).map(([k, a]) => `<option value="${k}">${a.name}</option>`).join('');
+const KIND_NAME = { fitting: 'Fittings (whole pieces)', mount: 'Mounts (rings)', engine: 'Engines', turret: 'Turrets', panel: 'Panels (off the plating strip)', band: 'Bands (the strip\'s middle)', bit: 'Bits (small busy crops out of the pieces)' };
+async function show() {
+  $('out').innerHTML = '<div class="tiny">cutting…</div>';
+  stock = await stockOf($('style').value);
+  for (const el of ['kindL', 'seedL', 'again']) $(el).hidden = tab !== 'iso';
+  if (tab === 'stock') {
+    const by = {}; for (const p of stock.pieces) (by[p.kind] = by[p.kind] || []).push(p);
+    $('out').innerHTML = Object.keys(KIND_NAME).filter(k => by[k]).map(k => `<h2>${KIND_NAME[k]} · ${by[k].length}</h2><div class="grid" data-k="${k}"></div>`).join('');
+    for (const [k, list] of Object.entries(by)) { const host = $('out').querySelector(`[data-k="${k}"]`); if (!host) continue;
+      for (const p of list) { const d = document.createElement('div'); d.className = 'pc'; const cv = pieceCanvas(p, Math.min(1, 150 / p.w, 110 / p.h)); d.append(cv); const s = document.createElement('span'); s.textContent = `${p.w} × ${p.h}`; d.append(s); host.append(d); } }
+    $('note').textContent = `${stock.pieces.length} pieces in ${STYLES[stock.style].name}.`;
+  } else drawIso();
+}
+function drawIso() {
+  const kinds = $('kind').value === 'all' ? Object.keys(ARCHETYPES) : [$('kind').value], seed = +$('seed').value || 1, list = $('kind').value === 'all' ? kinds.map(k => [k, seed]) : [0, 1, 2, 3, 4, 5].map(i => [kinds[0], seed + i]);
+  $('out').innerHTML = '<div class="iso"></div>'; const host = $('out').firstChild;
+  for (const [k, s] of list) { const d = document.createElement('div'); d.className = 'cell'; try { d.append(drawBuilding(k, stock, { seed: s, tint: $('tint').checked })); } catch (e) { d.textContent = e.message; console.error(e); } const b = document.createElement('b'); b.textContent = ARCHETYPES[k].name; const sp = document.createElement('span'); sp.textContent = `${STYLES[stock.style].name} · seed ${s}`; d.append(b, sp); host.append(d); }
+  $('note').textContent = 'Walls: the plating strip\'s panels · roofs: the top-down pieces · cylinders: a band wrapped round, a mount ring on top · glass and cores drawn. A first try.';
+}
+$('style').onchange = show; $('tStock').onclick = () => { tab = 'stock'; $('tStock').classList.add('on'); $('tIso').classList.remove('on'); show(); };
+$('tIso').onclick = () => { tab = 'iso'; $('tIso').classList.add('on'); $('tStock').classList.remove('on'); show(); };
+$('kind').onchange = drawIso; $('seed').onchange = drawIso; $('tint').onchange = () => tab === 'iso' ? drawIso() : 0;
+$('again').onclick = () => { $('seed').value = (+$('seed').value || 1) + 6; drawIso(); };
+$('cat').onclick = async () => { const all = []; for (const id of ids) { const s = await stockOf(id); all.push(...s.pieces.map(({ _cv, ...p }) => p)); } window.__catalog = all; try { await navigator.clipboard.writeText(JSON.stringify(all)); $('note').textContent = `${all.length} pieces copied.`; } catch { $('note').textContent = `${all.length} pieces — in window.__catalog (the clipboard was refused).`; } };
+show();
+</script>
+</body>
+</html>

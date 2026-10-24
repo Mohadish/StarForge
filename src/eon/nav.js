@@ -7,6 +7,7 @@ const PAGES = [
   { id: 'fleet', href: 'fleet.html', label: '⚙ Fleet Generator', what: 'compose fleets, pit two against each other' },
   { id: 'lab', href: 'lab.html', label: '⚔ Battle Lab', what: 'random ships at one price, who wins, the challenger' },
   { id: 'paint', href: 'paint.html', label: '✎ Painter · ship designer', what: 'design a ship module by module and paint it' },
+  { id: 'greeble', href: 'greebles.html', label: '⚙ Greeble Lab', what: "the styles' parts as a stock of greebles; isometric tech art" },
 ];
 const SITE = [{ id: 'eon', href: 'eon.html', label: '◈ Eon (the 4X)', what: 'the game this is all for' }];
 const CSS = `
