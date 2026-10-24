@@ -306,6 +306,7 @@ export const DEVICES = {
   computer: { name: 'Weapons computer', icon: 'computing' },
   sensors:  { name: 'Sensors', icon: 'sensors' },
   drones:   { name: 'Drone bay', icon: 'evasion' },
+  drone:    { name: 'Drone', icon: 'evasion', craft: true },
   beam:     { name: 'Energy weapon', icon: 'damage', weapon: true },
   gun:      { name: 'Kinetic gun', icon: 'pierce', weapon: true },
   missile:  { name: 'Missile pod', icon: 'damage', weapon: true },
@@ -435,10 +436,29 @@ function weaponRecipe(fam, f, L) {
   if (L.trait === 'long') { box(-0.15, -0.12, z + hh, 0.55, 0.24, 0.18, { roof: null, strip: true }); light(0.42, 0, z + hh + 0.09, 0.05); }   // the scope
   for (const y of (L.trait === 'rail' ? [0] : ys)) {
     if (fam === 'beam') { f.card([tip, y, bz], [0, 1, 0], [0, 0, 1], [t * 2.4, t * 2.4], ring); core(tip + 0.05, y, bz, 0.12 * th); }   // the emitter in its ring
-    else box(tip - 0.14, y - t * 0.8, bz - t * 0.8, 0.2, t * 1.6, t * 1.6, { roof: null });   // the muzzle brake
+    else { const k = L.trait === 'penetrator' ? 2.1 : 1.6; box(tip - 0.16, y - t * k / 2, bz - t * k / 2, 0.24, t * k, t * k, { roof: null }); }   // the muzzle brake (a penetrator's a heavy one)
   }
   if (L.trait === 'auto') f.card([tip - 0.3, 0, bz], [0, 1, 0], [0, 0, 1], [cs * 0.9, cs * 0.9], ring);   // the rotary's front ring
   f.B.recipe = `mount + ${['block', 'drum', 'H'][kind]} + ${n > 1 ? n + ' barrels' : 'a barrel'}${L.trait ? ' · ' + L.trait : ''}`;
+}
+// A DRONE CRAFT (his ask: "create the drone itself out of the greebles"): a slab body in the strip's texture with greeble flanges and a
+// greeble on its back, cross-bars out to ring rotors glowing underneath — a STANDARD one, a HEAVY gunship (bigger, a gun slung under),
+// a LEAN scout (long, two rotors, a tail fin), or a SWARM of the small ones
+function droneRecipe(f, L) {
+  L = L || {}; const { box, core, light, v } = f, t = L.trait || 'standard';
+  if (t === 'swarm') { for (const [x, y, z] of [[0, 0, 1.3], [-1.0, -0.7, 0.9], [0.9, 0.75, 1.05], [-0.7, 1.0, 1.5], [1.0, -0.9, 1.6]]) drone(f, x, y, z, v(0.7, 0.95)); f.B.recipe = 'a swarm of small drones'; return; }
+  const k = t === 'heavy' ? 1.35 : t === 'lean' ? 0.85 : 1, z = 1.0, w = 1.4 * k * (t === 'lean' ? 1.45 : 1), d = 0.9 * k * (t === 'lean' ? 0.6 : 1), h = 0.3 * k;
+  box(-w / 2, -d / 2, z, w, d, h, { roof: f.tile(), wall: f.panel() || f.wall(), strip: true });
+  flanges(f, w, d, z + h / 2, 'x', h * 1.7);
+  f.card([0, 0, z + h + 0.03], [1, 0, 0], [0, -1, 0], [w * 0.8, d * 0.9], f.fit());                                  // a greeble on its back
+  const ring = f.mount(), rx = w * 0.55, ry = t === 'lean' ? 0 : d * 0.95, rs = (t === 'heavy' ? 0.95 : 0.75) * k;
+  const spots = t === 'lean' ? [[rx * 0.9, 0], [-rx * 0.9, 0]] : [[rx, ry], [rx, -ry], [-rx, ry], [-rx, -ry]];
+  if (t !== 'lean') for (const x of [rx, -rx]) box(x - 0.06, -ry, z + h * 0.35, 0.12, 2 * ry, 0.1, { roof: null });   // the cross-bars out to the rotors
+  for (const [x, y] of spots) { f.disc(x, y, z + h * 0.55, rs / 2, ring); light(x, y, z + h * 0.3, 0.07); }
+  core(w / 2 + 0.05, 0, z + h * 0.5, 0.1);                                                                              // its eye
+  if (t === 'heavy') { box(0, -0.1, z - 0.22, w * 0.75, 0.2, 0.2, { wall: f.band(), roof: null }); light(w * 0.75 + 0.05, 0, z - 0.12, 0.06); }   // the gun slung under
+  if (t === 'lean') { const img = rotq(f.fit(), 1); f.card([-w / 2 - 0.05, 0, z + h + 0.35], [1, 0, 0], [0, 0, 1], 0.8, img, { byH: true }); }   // the tail fin
+  f.B.recipe = `${t} drone`;
 }
 // each technology leans to some parts (picked by the seed — the same technology comes out in many shapes)
 const PLAN = {
@@ -458,6 +478,7 @@ function deviceRecipe(fam, f, look) {
     let x = PARTS.base[b](f); x = PARTS.body[y](f, x); PARTS.top[t](f, x);
     for (let k = 0; k < 3; k++) { const a = R() * Math.PI * 2; light(Math.cos(a) * 0.7, Math.sin(a) * 0.7, v(0.2, 0.6), 0.05); }   // a few lights of its level
     f.B.recipe = `${b} + ${y} + ${t}`;
+  } else if (D.craft) { droneRecipe(f, look);
   } else if (D.weapon) { weaponRecipe(fam, f, look);
   } else if (D.farm) {                                                                // the crops' bed, a glasshouse, and the style's pieces stood up round it like stalks
     box(-1.25, -1.25, 0, 2.5, 2.5, 0.35, { roof: 'field', strip: false }); flanges(f, 2.5, 2.5, 0.25, 'x', 0.5);
