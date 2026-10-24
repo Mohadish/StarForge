@@ -58,7 +58,7 @@ export function makeBrain(W, S, opts = {}) {
   const note = text => { if (opts.note) opts.note(S, text); };
   const act = a => { const err = applyWorldAction(W, S, a); if (err) { note(`✗ ${a.type} refused: ${err}`); return false; } if (opts.onAct) opts.onAct(S, a); return true; };
   const shipDesign = key => {
-    const d = designFromStacks(S, D[key].chips, { klass: 'starship', name: D[key].name, id: D[key].id, hull: (S.look && S.look.hull) || 'dart', gunsPerChip: 1 });   // the empire's own silhouette (world.js WORLD.hulls)
+    const d = designFromStacks(S, D[key].chips, { klass: 'starship', name: D[key].name, id: D[key].id, hull: (S.look && S.look.hull) || 'dart', gunsPerChip: 1, newest: true });   // the newest components it has developed (2026-10-24)   // the empire's own silhouette (world.js WORLD.hulls)
     d.klass = 'starship'; d.chips = D[key].chips; d.paint = { plating: 0, fittings: 0, seed: D[key].seed };
     const drive = d.modules.find(m => m.kind === 'stardrive'); if (drive) drive.k = 6;                                       // the drive at its top: the reach between stars grows with lift over bulk
     const reactor = d.modules.find(m => m.kind === 'reactor'); if (reactor) fitModule(S, d, reactor.id);
@@ -121,6 +121,7 @@ export function makeBrain(W, S, opts = {}) {
   const B = { settled: 0, lost: 0, taken: 0, invasions: 0, stuckSince: 0, shipsBefore: 0 };
   for (const k of Object.keys(D)) act({ type: 'design', design: shipDesign(k) }); act({ type: 'design', design: dockDesign() });
   const T0 = Object.fromEntries(Object.keys(D).map(k => [k, designStats(S, S.designs.find(d => d.id === D[k].id)).t])), REACH = Object.fromEntries(Object.keys(D).map(k => [k, shipRange(T0[k])]));
+  let modelsSeen = (S.models || []).length;                                          // the components it had when its designs were last drawn
   // the two POOLS: the whole family (a mixed fleet's reach is its ships' bulk-weighted reach) and the LIGHT ones that fly within a
   // light year of the lancer's reach — for targets the heavies cannot get to
   const POOL = { war: COMBAT.slice(), long: COMBAT.filter(k => REACH[k] >= REACH.long - 1) }; if (!POOL.long.length) POOL.long = ['long'];
@@ -136,6 +137,8 @@ export function makeBrain(W, S, opts = {}) {
 
   function plan() {
     if (S.dead) return; maps = new Map();                                             // the eon's path searches start afresh (the sphere moved)
+    // A NEW COMPONENT (2026-10-24): its designs take the newest models — the ships it builds from now on; the built ones keep theirs
+    if ((S.models || []).length !== modelsSeen) { modelsSeen = (S.models || []).length; for (const k of Object.keys(D)) { act({ type: 'design', design: shipDesign(k) }); T0[k] = designStats(S, S.designs.find(d => d.id === D[k].id)).t; REACH[k] = shipRange(T0[k]); } }
     const c = compute(S), pc = c.colonies.find(x => x.pl.id === HOMEPLACE); if (!pc) return;
     // ECONOMY: industry-heavy, research for the sustain rule and the tech, a third of the people building the surface (the triangle's
     // DEVELOPMENT corner, 2026-10-18); short of the sustain line, more at the works and labs; a world with nothing left to build lends

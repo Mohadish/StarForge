@@ -852,8 +852,8 @@ function fightCodes() {
   setUserHulls([...HULLS, ...Object.values(pa.hulls || {}), ...Object.values(pb.hulls || {})]);          // their own silhouettes travel inside the code
   // a fleet with a chosen coat wears it; one without (the game's hostile fleets) draws its look from its name, as the game does.
   // The game REPLAYS a battle it fought: it sends each side's tech (techA / techB) and the dice (seed), so the fight comes out as it did
-  const mk = (p, tech) => { const id = LAB.fleets.length, f = buildPlan(tech ? { ...S, breakthroughs: tech } : S, p, undefined, (id + 1) + ''); if (!f.ships.length) return null; f.name = p.name || `Fleet ${id + 1}`; f.look = p.style ? lookFromColors(p.style, p.colA, p.colB) : lookOf(f.name); if (p.style && p.colA) f.teamColor = p.colA; Object.assign(f, { id, w: 0, l: 0, d: 0 }); LAB.fleets.push(f); return f; };   // teamColor: the empire's colour for its side (sidesOf)
-  const A = mk(pa, arenaFight && arenaFight.techA), Bf = mk(pb, arenaFight && arenaFight.techB); if (!A || !Bf) { $('codesNote').textContent = 'One of the fleets could not be built.'; tellParent({ type: 'error', text: $('codesNote').textContent }); return; }
+  const mk = (p, tech, models) => { const id = LAB.fleets.length, f = buildPlan(tech ? { ...S, breakthroughs: tech, models: models || [] } : S, p, undefined, (id + 1) + ''); if (!f.ships.length) return null; f.name = p.name || `Fleet ${id + 1}`; f.look = p.style ? lookFromColors(p.style, p.colA, p.colB) : lookOf(f.name); if (p.style && p.colA) f.teamColor = p.colA; Object.assign(f, { id, w: 0, l: 0, d: 0 }); LAB.fleets.push(f); return f; };   // teamColor: the empire's colour for its side (sidesOf)
+  const A = mk(pa, arenaFight && arenaFight.techA, arenaFight && arenaFight.modelsA), Bf = mk(pb, arenaFight && arenaFight.techB, arenaFight && arenaFight.modelsB); if (!A || !Bf) { $('codesNote').textContent = 'One of the fleets could not be built.'; tellParent({ type: 'error', text: $('codesNote').textContent }); return; }
   const r = simulate(A.ships, Bf.ships, rng32(arenaFight && arenaFight.seed != null ? arenaFight.seed : Math.floor(Math.random() * 1e9)));
   LAB.fights.unshift({ a: A.id, b: Bf.id, A, B: Bf, ...r, custom: true });
   picked = [A.id, Bf.id]; renderShips(); renderFights(); watch(0);
@@ -897,7 +897,7 @@ if (!$('seed').value) $('seed').value = Math.floor(Math.random() * 1e6);
 if (ARENA) {
   // a window for one fight: an empty pool, the codes come by message from the page around us (or in the link as #arena&fleetA=…&fleetB=…)
   LAB = { fleets: [], fights: [], budget: 6000, fleetSizes: [1, 1], table: {}, rate: {} };
-  window.addEventListener('message', e => { const d = e.data; if (!d || e.source !== window.parent) return; if (d.type === 'shipAct') return shipAct(d.act); if (d.type !== 'fight') return; arenaFight = { seed: d.seed, techA: d.techA || null, techB: d.techB || null }; $('codeA').value = d.a || ''; $('codeB').value = d.b || ''; fightCodes(); });
+  window.addEventListener('message', e => { const d = e.data; if (!d || e.source !== window.parent) return; if (d.type === 'shipAct') return shipAct(d.act); if (d.type !== 'fight') return; arenaFight = { seed: d.seed, techA: d.techA || null, techB: d.techB || null, modelsA: d.modelsA || null, modelsB: d.modelsB || null }; $('codeA').value = d.a || ''; $('codeB').value = d.b || ''; fightCodes(); });
   if ($('codeA').value && $('codeB').value) fightCodes();
   tellParent({ type: 'ready' });
 } else libraryReady.then(run);                                                 // the first run waits (briefly) for the page's store, so random ships wear the silhouettes kept there

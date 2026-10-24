@@ -76,3 +76,57 @@ export function personIcon(kind, col, { size = 18, title = '' } = {}) {
 }
 // a benefit as a chip: the icon, the number, the word ("⚔ +18 % damage")
 export const benefit = (name, pct, word, { big = false } = {}) => `<span class="bnf${big ? ' big' : ''}" style="--bc:${ICON_COLOR[name] || '#ccc'}">${icon(name, { size: big ? 22 : 16 })}<b>${pct > 0 ? '+' : ''}${pct} %</b> ${word}</span>`;
+
+// THE COMPONENT ICONS (his ask, 2026-10-24 — a placeholder for the generator to come): every model the empire develops gets its own
+// mark — a FRAME and 2–3 PIECES out of twenty, drawn by the model's own seed (its id), turned and shrunk a little; its kind's colour.
+// An energy weapon's colour climbs the rainbow with its generation (BEAM_COLORS), and past purple it is a black DEATH RAY with two white
+// outlines. componentIcon(null, { kind }) → the plain one (the same few pieces for every plain module of that kind)
+const FRAMES = [
+  C(12, 12, 9.5),                                                     // ring
+  P('M12 2.2l8.5 4.9v9.8L12 21.8l-8.5-4.9V7.1z'),                      // hex
+  '<rect x="3" y="3" width="18" height="18" rx="3"/>',                // rounded square
+  P('M12 2l10 10-10 10L2 12z'),                                       // diamond
+  P(SHIELD),                                                          // crest
+  P('M4 4h16v10l-8 7-8-7z'),                                          // pennant
+];
+const PIECES = [
+  C(12, 12, 2.4, S),                                                  // core
+  P('M12 3v18'),                                                      // barrel
+  P('M9.5 3v18M14.5 3v18'),                                           // twin barrels
+  P('M7 17l5-10 5 10'),                                               // chevron
+  P('M5 15l7-5 7 5M5 19l7-5 7 5'),                                    // double chevron
+  P('M4 12h3l2-4 3 8 3-8 2 4h3'),                                     // coil
+  C(12, 12, 5),                                                       // inner ring
+  P('M12 5v4M12 15v4M5 12h4M15 12h4'),                                // crosshair
+  P('M6 18a8 8 0 0 1 12 0'),                                          // dish
+  P('M3 14l5-2 4-6 4 6 5 2-9 1z', F),                                 // wings
+  P('M8 7v10M12 5v14M16 7v10'),                                       // bars
+  P('M12 4l2 5.5 5.5.5-4.2 3.6 1.4 5.4L12 16l-4.7 3 1.4-5.4L4.5 10l5.5-.5z', F),   // star
+  P('M7 7l10 10M17 7L7 17'),                                          // cross
+  P('M12 6l5 9H7z', F),                                               // triangle
+  '<rect x="9" y="9" width="6" height="6" rx="1"' + S + '/>',         // block
+  P('M5 9c2.3-2 4.7-2 7 0s4.7 2 7 0M5 15c2.3-2 4.7-2 7 0s4.7 2 7 0'), // waves
+  C(7, 12, 1.6, S) + C(12, 12, 1.6, S) + C(17, 12, 1.6, S),           // dots
+  P('M12 3l3 4h-6zM12 21l-3-4h6z', S),                                // arrows
+  P('M4 12a8 8 0 0 1 16 0', ' stroke-dasharray="2.2 2"'),             // arc
+  P('M8 4h8l-2 6h-4zM10 14h4v6h-4z', F),                              // turret
+];
+// the generation's beam colour: red, orange, yellow, green, cyan, blue, purple — then null (the death ray)
+export const BEAM_COLORS = ['#ff3b3b', '#ff8c1a', '#ffe14a', '#4fe36b', '#3fe0e0', '#3f7bff', '#b04fff'];
+export const beamColor = gen => BEAM_COLORS[Math.max(0, (gen || 1) - 1)] || null;
+const seedOf = str => { let h = 2166136261; for (const ch of String(str)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; };
+const rng = seed => () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+export function componentIcon(model, { kind = model ? model.kind : '', color = '#9eb3d8', size = 22, title = '' } = {}) {
+  const r = rng(seedOf(model ? model.id : 'plain:' + kind)), pick = n => Math.floor(r() * n);
+  const frame = FRAMES[pick(FRAMES.length)], left = PIECES.slice(), parts = [];
+  for (let i = 0, n = 2 + (model ? pick(2) : 0); i < n; i++) {                       // 2–3 pieces on a model, 2 on the plain one
+    const p = left.splice(pick(left.length), 1)[0], rot = pick(8) * 45, sc = i ? 0.5 + r() * 0.3 : 0.75 + r() * 0.2;
+    parts.push(`<g transform="translate(12 12) rotate(${rot}) scale(${sc.toFixed(2)}) translate(-12 -12)">${p}</g>`);
+  }
+  const body = frame + parts.join(''), beam = kind === 'weapon_energy' && model, bc = beam ? beamColor(model.gen) : null;
+  const tip = title ? `<title>${title}</title>` : '', svg = (inner, st) => `<svg class="ic comp" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round" ${st}>${tip}${inner}</svg>`;
+  if (beam && !bc)                                                                  // THE DEATH RAY: black, edged white on both sides
+    return svg(`<g stroke="#fff" stroke-width="3.6" style="color:#fff">${body}</g><g stroke="#000" stroke-width="1.5" style="color:#000">${body}</g>`, 'style="vertical-align:-0.25em;filter:drop-shadow(0 0 1.5px #fff)"');
+  const col = bc || color;
+  return svg(`<g stroke="currentColor" stroke-width="1.7">${body}</g>`, `style="color:${col};vertical-align:-0.25em"`);
+}

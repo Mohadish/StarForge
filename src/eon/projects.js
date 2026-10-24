@@ -5,7 +5,8 @@
 // project's INFLUENCE (the share of the empire's research it takes) is set on its node; what no project takes flows by itself.
 // The breakthroughs found stay in the background (their capsules still work); a new one shows up as an advisor's suggestion.
 import { FAMILIES, CATEGORIES, FIELD_COL, advisors, qualityOf, needOf, nameOf, generationOf, startProject, setInfluence, dropProject, benefitsOf, textOf, CHANNEL_ICON, giftOf } from './research.js';
-import { icon, ICON_COLOR } from './techicons.js';   // placeholder icons (his call 2026-10-23: the icon generator comes later)
+import { icon, ICON_COLOR, componentIcon } from './techicons.js';
+import { KINDS } from './modules.js';   // placeholder icons (his call 2026-10-23: the icon generator comes later)
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 const $ = id => document.getElementById(id);
@@ -23,11 +24,15 @@ export function paragraph(fam, gen, ben, boosts = [], gift = []) {   // gift: th
   const html = esc(textOf(fam, gen)).replace(/\{(\d)\}/g, (m, i) => ben[+i] ? token(ben[+i].icon, ben[+i].pct, ben[+i].icon2) : '');
   return `<p class="pjdesc">${html}${boosts.length ? ` <span class="pjfind">✦ Built on ${boosts.map(esc).join(', ')}.</span>` : ''}${gift.length ? ` <span class="pjgift">Your focus adds: ${gift.map(g => `${token(g.icon, g.pct)} ${esc(g.word)}`).join(' · ')}.</span>` : ''}</p>`;
 }
+// the designer's chip for each kind of component ([its name, true when it is a system the design sizes itself])
+const CHIP_WORD = { weapon_energy: ['Beam'], weapon_kinetic: ['Gun'], weapon_missile: ['Missile'], hangar: ['Drones'], armor: ['Armoured'], shield: ['Shielded'], thruster: ['Thrusters'], reactor: ['Reactor', true], stardrive: ['Star drive', true], weapon_system: ['Weapons computer', true] };
 // a finished project in the eon's report: its name and its paragraph with the numbers it came out with
 export function researchDoneHtml(r) {
   const F = FAMILIES[r.fam]; if (!F) return esc(r.name || '');
   const ben = F.adapt ? [{ icon: 'food', icon2: CHANNEL_ICON[F.adapt], pct: r.pcts[0] }] : F.level ? [{ icon: CHANNEL_ICON[F.level], pct: r.pcts[0] }] : Object.keys(F.channels).map((ch, i) => ({ icon: CHANNEL_ICON[ch], pct: r.pcts[i] }));
-  return `<b>Research done: ${F.icon} ${esc(r.name)}</b>${paragraph(r.fam, r.gen, ben, r.boosts || [], r.gift || [])}`;
+  // a ship family makes a COMPONENT (2026-10-24): where to find it — the designer's chip — and that the built ships keep theirs
+  const comp = F.module && r.model ? `<div class="pjfind">${componentIcon({ id: r.model, kind: F.module, gen: r.gen }, { color: (KINDS[F.module] || {}).color, size: 20 })} A new ${esc(F.name.toLowerCase())} to fit: <b>${esc(r.name)}</b> — in Design, ${CHIP_WORD[F.module] && CHIP_WORD[F.module][1] ? `click the <b>${CHIP_WORD[F.module][0]}</b> chip in the ship's tray` : `tap the <b>${(CHIP_WORD[F.module] || [F.name])[0]}</b> chip`} and pick it. New ships only: the ones already built keep theirs.</div>` : '';
+  return `<b>Research done: ${F.icon} ${esc(r.name)}</b>${paragraph(r.fam, r.gen, ben, r.boosts || [], r.gift || [])}${comp}`;
 }
 
 // THE FIELDS: the research flowing through each, where it comes from, what there is to find

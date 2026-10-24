@@ -137,8 +137,8 @@ function fightEmpires(W, rep) {
       const mineOf = (units, built) => units.map((u, k) => ({ name: u.name, en0: built[k].en0, strain: u.strain || 0, design: { ...cloneDesign(u.design), paint: u.design.paint } }));
       const planA = planOf(Si, A0, A), planB = planOf(Sj, B0, B), seed = Math.floor(worldRand(W) * 1e9);
       Si.battles = Si.battles || []; Sj.battles = Sj.battles || [];
-      Si.battles.push({ id: uid('b'), eon: Si.eon, sys, seed, foe: planB, foeTech: Sj.breakthroughs, mine: mineOf(A0, A) });
-      Sj.battles.push({ id: uid('b'), eon: Sj.eon, sys, seed, foe: planA, foeTech: Si.breakthroughs, mine: mineOf(B0, B), swapped: true });
+      Si.battles.push({ id: uid('b'), eon: Si.eon, sys, seed, foe: planB, foeTech: Sj.breakthroughs, foeModels: Sj.models || [], mine: mineOf(A0, A) });   // foeModels: its components (2026-10-24), for the replay
+      Sj.battles.push({ id: uid('b'), eon: Sj.eon, sys, seed, foe: planA, foeTech: Si.breakthroughs, foeModels: Si.models || [], mine: mineOf(B0, B), swapped: true });
       const bt = createBattle(A, B, rng32(seed), { record: 1e9 }); if (DEBUG.tap) DEBUG.tap(bt, { sys, a: Si.name, b: Sj.name, seed, eon: Si.eon }); while (!bt.done) bt.step(); const r = bt.result();
       const where = (Si.systems.find(x => x.id === sys) || {}).name || sys, lostA = [], lostB = [];
       A0.forEach((u, k) => { const sh = bt.ships[k]; if (sh.dead) lostA.push(u); else u.st = Math.max(1, Math.round(Math.max(0, sh.en) * 100)); });

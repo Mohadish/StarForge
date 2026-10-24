@@ -138,7 +138,7 @@ export function effectiveLy(S, a, b) {
   for (let i = 0; i < N; i++) { const k = (i + 0.5) / N; eff += ZONE.strain[zoneAt(S, A.x + (B.x - A.x) * k, A.y + (B.y - A.y) * k)]; }
   const v = d * eff / N; c.eff.set(key, v); return v;
 }
-export const shipRange = (t, warp = 1) => t.klass !== 'starship' || t.underDriven ? 0 : VOY.range * Math.sqrt(clampN(t.lift / Math.max(1, t.volume), 1, VOY.marginMax)) * (1 - sizeFatigue(t.cost)) * warp;
+export const shipRange = (t, warp = 1) => t.klass !== 'starship' || t.underDriven ? 0 : VOY.range * Math.sqrt(clampN(t.lift / Math.max(1, t.volume), 1, VOY.marginMax)) * (1 - sizeFatigue(t.cost)) * warp * (t.driveMul || 1);   // driveMul: its star drive's model (modules.js)
 // the chance at `x` light years travelled on a range of `R` (above 1 = a stroll); the speed there, as a share of full
 export const chanceAt = (x, R) => x <= R ? (R > 0 ? R / Math.max(x, 0.01) : 0) : Math.max(VOY.floor, 1 - VOY.fall * Math.pow(x - R, VOY.pow));
 export const speedAt = (x, R) => x <= R ? 1 : Math.max(VOY.minSpeed, 1 - Math.pow((x - R) / VOY.slow, 2));
@@ -210,7 +210,7 @@ function colonyCaps(S, pl, G) {
 function design(name, hull, kinds) {
   return { id: uid('d'), name, hull, modules: kinds.map(k => { const o = typeof k === 'string' ? { kind: k } : k; return { id: uid('m'), caps: [], n: 1, ...o }; }) };
 }
-export const cloneDesign = d => ({ id: d.id, name: d.name, hull: d.hull, modules: d.modules.map(m => ({ ...m, caps: [...m.caps] })) });
+export const cloneDesign = d => ({ id: d.id, name: d.name, hull: d.hull, modules: d.modules.map(m => ({ ...m, caps: [...m.caps] })), ...(d.sysModels ? { sysModels: { ...d.sysModels } } : {}) });   // sysModels: the models of its own systems (2026-10-24) — a built ship keeps them
 
 export function newState(seed = 7, o = {}) {           // o.galaxy: { count, radius } for a bigger sector (galaxy.js galaxyOf)
   const G = generateGalaxy(seed, o.galaxy || {});       // the same seed always gives the same galaxy
@@ -518,11 +518,15 @@ export function fleetRange(S, ships, caps = allCapsules(S)) {
   for (const u of ships) { const t = shipStats(S, u, caps); m += t.volume; r += t.volume * shipRange(t, warp); }
   return m ? r / m : 0;
 }
+// A FLEET'S PACE (2026-10-24, the drive models): it goes as fast as its slowest ship's star drive — a share of the empire's warp
+export function fleetPace(S, ships, caps = allCapsules(S)) { let m = Infinity; for (const u of ships) m = Math.min(m, shipStats(S, u, caps).driveMul || 1); return Number.isFinite(m) ? m : 1; }
+// EACH AT ITS OWN PACE (his ask, 2026-10-24): ships of one system sent apart leave as fleets of one — the quick ones arrive first, alone
 // Inside a system: a star drive arrives next eon, thrusters crawl. Between stars: star drives only — a VOYAGE (STAR TRAVEL).
 // Ships sent together leave as one FLEET: one shared range, one speed, each ship rolling its own fate.
-export function sendFleet(S, shipIds, placeId) {
+export function sendFleet(S, shipIds, placeId, { apart = false } = {}) {
   const to = S.places.find(p => p.id === placeId), ships = shipIds.map(id => S.ships.find(x => x.id === id)).filter(Boolean);
   if (!to || !ships.length) return 'Nowhere to go';
+  if (apart && ships.length > 1) { for (const u of ships) { const err = sendFleet(S, [u.id], placeId); if (err) return err; } return null; }
   const at = ships[0].at, from = S.places.find(p => p.id === at), sysOfP = id => (S.places.find(p => p.id === id) || {}).sys;
   if (ships.some(u => u.dest || sysOfP(u.at) !== from.sys)) return 'They must be at rest in the same system to leave as one fleet';   // a fleet may gather from several places of one system (the galaxy's view)
   if (from.sys === to.sys) {                                                       // inside a system: as before, ship by ship
@@ -535,11 +539,11 @@ export function sendFleet(S, shipIds, placeId) {
     if (u.klass !== 'starship') return `${u.name} has no star drive: it cannot leave the system`;
     if (shipStats(S, u, caps).underDriven) return `${u.name}'s star drive is too small for its bulk: it cannot leave the system`;
   }
-  const R = fleetRange(S, ships, caps), dist = lyBetween(S, from.sys, to.sys), fid = ships.length > 1 ? uid('f') : null, eff = dist > 0 ? effectiveLy(S, from.sys, to.sys) / dist : 1;
+  const R = fleetRange(S, ships, caps), pace = fleetPace(S, ships, caps), dist = lyBetween(S, from.sys, to.sys), fid = ships.length > 1 ? uid('f') : null, eff = dist > 0 ? effectiveLy(S, from.sys, to.sys) / dist : 1;
   for (const u of ships) {
     u.st = u.st ?? 100;
-    u.voy = { from: u.at, to: placeId, travelled: u.strain || 0, left: dist, total: dist, range: R, fleet: fid, back: false, A: from.sys, B: to.sys, D: dist, pos: 0 };   // A → B, pos 0…1: where it is on the line between the two stars; the strain it set out with counts from the first eon
-    u.dest = placeId; u.eta = u.trip = forecast(R, dist, warp, u.strain || 0, u.st, eff).eons; u.sentEon = S.eon;
+    u.voy = { from: u.at, to: placeId, travelled: u.strain || 0, left: dist, total: dist, range: R, pace, fleet: fid, back: false, A: from.sys, B: to.sys, D: dist, pos: 0 };   // A → B, pos 0…1: where it is on the line between the two stars; the strain it set out with counts from the first eon
+    u.dest = placeId; u.eta = u.trip = forecast(R, dist, warp * pace, u.strain || 0, u.st, eff).eons; u.sentEon = S.eon;
   }
   return null;
 }
@@ -618,7 +622,7 @@ export function recallShip(S, shipId) {
     const V = x.voy, covered = V.total - V.left;
     if (covered < 1e-6) { x.dest = null; x.eta = 0; delete x.voy; continue; }     // it had not left yet
     [V.from, V.to] = [V.to, V.from]; V.total = V.left = covered; V.back = !V.back;
-    x.dest = V.to; x.eta = forecast(V.range, V.left, warp, V.travelled, x.st ?? 100).eons;
+    x.dest = V.to; x.eta = forecast(V.range, V.left, warp * (V.pace || 1), V.travelled, x.st ?? 100).eons;
   }
 }
 // A ship that carries people founds a colony where it lands: the ship itself becomes the first building — at an outpost's
@@ -774,7 +778,7 @@ export function endEon(S) {
       continue;
     }
     if (!u.voy) { if (--u.eta <= 0) { u.at = u.dest; u.dest = null; rep.push({ kind: 'move', text: `${u.name} arrived at ${placeName(u.at)}`, place: u.at, ship: u.id }); } continue; }
-    const V = u.voy, step = Math.min(V.left, VOY.speed * c.warp * speedAt(V.travelled, V.range));
+    const V = u.voy, step = Math.min(V.left, VOY.speed * c.warp * (V.pace || 1) * speedAt(V.travelled, V.range));
     const SA = S.systems.find(s => s.id === V.A), SB = S.systems.find(s => s.id === V.B), zHere = SA && SB ? zoneAt(S, SA.x + (SB.x - SA.x) * (V.pos ?? 0), SA.y + (SB.y - SA.y) * (V.pos ?? 0)) : 5;
     V.travelled += step * ZONE.strain[zHere]; V.left -= step; if (V.D) V.pos = clamp((V.pos ?? 0) + (V.back ? -1 : 1) * step / V.D, 0, 1);   // the strain of the eon: none in the blue, half in the green, all of it beyond
     const F = 100 * Math.max(0, 1 - chanceAt(V.travelled, V.range));
@@ -790,7 +794,7 @@ export function endEon(S) {
       if (loss >= 1) rep.push({ kind: 'bad', text: `${u.name}: a hard eon past its range — stamina ${Math.round(st0)} → ${Math.round(u.st)} %${u.people ? ` (${peopleWord(u.people)} people left aboard)` : ''}` });
     }
     if (V.left <= 1e-9) { u.at = V.to; u.dest = null; u.strain = V.travelled; delete u.voy; rep.push({ kind: 'move', text: `${u.name} arrived at ${placeName(u.at)}${(u.st ?? 100) < 99.5 ? ` with ${Math.round(u.st)} % stamina` : ''}${u.strain > 0.05 ? `, ${u.strain.toFixed(1)} light years of strain` : ''}`, place: u.at, ship: u.id }); }   // the strain stays with the ship: it heals only inside the sphere
-    else u.eta = forecast(V.range, V.left, c.warp, V.travelled, u.st ?? 100).eons;
+    else u.eta = forecast(V.range, V.left, c.warp * (V.pace || 1), V.travelled, u.st ?? 100).eons;
   }
 
   // hostile fleets: your ships resting in their system fight them

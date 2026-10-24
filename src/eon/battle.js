@@ -556,13 +556,17 @@ export function designFromChips(S, stacks, budget, rng = rng32(1), caps = allCap
 // modules it makes (miniaturization makes them smaller, and so on). The reactor, the weapons computer and the drive are fitted to
 // what the rest needs, the shields grown to cover the hull; the price and the bulk are what all that comes to.
 // gunsPerChip: a weapon chip is two guns (the Painter's reading); the game makes it ONE, so odd counts exist and a lone gun can lead on the midline
-export function designFromStacks(S, stacks, { klass = 'starship', name = '', hull = 'dart', id = null, caps = allCapsules(S), gunsPerChip = 2 } = {}) {
+// models (2026-10-24): a stack's own model (s.model) goes on its modules; sysModels: the models of the systems the design sizes itself
+// (reactor, star drive, weapons computer); newest: no choice made — the newest model of every kind (the AI)
+export function designFromStacks(S, stacks, { klass = 'starship', name = '', hull = 'dart', id = null, caps = allCapsules(S), gunsPerChip = 2, sysModels = null, newest = false } = {}) {
+  const newestOf = kind => { const l = (S.models || []).filter(m => m.kind === kind); return l.length ? l[l.length - 1].id : null; };
   const d = { id: id || uid(), name, hull, modules: [] };
+  d.sysModels = sysModels ? { ...sysModels } : newest ? Object.fromEntries(['reactor', 'stardrive', 'weapon_system'].map(k => [k, newestOf(k)]).filter(x => x[1])) : {};
   if (klass === 'starship') d.modules.push({ id: uid(), kind: 'stardrive', caps: [], n: 1, k: 1 });
   const tune = (m, dl) => { if (!dl) return; for (const k of ['dmg', 'rof', 'rng', 'chg']) if (dl[k]) m[k] = dl[k]; };
   for (const s of stacks) {
     if (s.off) continue;                                                             // a HIDDEN stack (the editor's 👁): kept in the tray, left out of the ship
-    const h = Math.max(1, s.h || 1), dl = s.dials || null, cp = (s.caps || []).slice(), add = m => { m.caps = cp.slice(); m.src = s.id; d.modules.push(m); };
+    const h = Math.max(1, s.h || 1), dl = s.dials || null, cp = (s.caps || []).slice(), add = m => { m.caps = cp.slice(); m.src = s.id; const md = s.model || (newest ? newestOf(m.kind) : null); if (md) m.model = md; d.modules.push(m); };
     if (s.kind === 'hangar') add(hangarFor(4 * h, (dl && dl.sz) || 1, s.role));
     else if (KINDS[s.kind]?.mount) { const m = { id: uid(), kind: s.kind, n: gunsPerChip * h }; applyPreset(m, s.role && PRESETS[s.role] ? s.role : 'standard'); tune(m, dl); add(m); }
     else if (s.kind === 'armor') add({ id: uid(), kind: 'armor', n: 4 * h });

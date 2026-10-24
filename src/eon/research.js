@@ -20,7 +20,8 @@ export const FIELD_COL = { materials: '#c9a27a', fabrication: '#ffb347', energy:
 export const RESEARCH = {
   need: 1500, growth: 1.5,                   // research a family's first generation takes; × growth for every generation after
   strength: { base: 0.55, potential: 0.6, perFind: 0.04, booster: 0.06, boosters: 3 },   // a field's strength for a project; at most 3 finds boost one project
-  mag: 10,                                   // % a generation adds to its family's main channel at quality 1 (the other channels by their weight)
+  mag: 10,                                   // % a generation adds to its family's main channel at quality 1 (the other channels by their weight) — an empire-wide boost (sensors)
+  modelMag: 20,                              // % a generation of a COMPONENT adds to its main channel at quality 1, on top of the generation before (2026-10-24)
   level: { base: 0.4, q: 0.6 },              // a civil generation raises its kind's level by base + q × quality (a level = +25 % output)
   adapt: { base: 0.25, q: 0.25 },            // a climate generation adapts the crops by base + q × quality (of 1: fully adapted, the hazard gone)
   profileBase: 0.03,                         // every field has something to learn wherever you look
@@ -32,22 +33,23 @@ const CHARACTER = { industry: { fabrication: 0.6, materials: 0.4 }, science: { i
 // THE FAMILIES (his tree, 2026-10-23: categories, then the things themselves) — the RECIPE: the share of research each field carries;
 // what a generation improves: CHANNELS (properties.js, every module of that kind gets them) or a district LEVEL
 export const CATEGORIES = [
-  { id: 'military', name: 'Military', fams: ['beam', 'gun', 'missile', 'armor'] },
+  { id: 'military', name: 'Military', fams: ['beam', 'gun', 'missile', 'drones', 'armor'] },
   { id: 'energy', name: 'Energy', fams: ['shield', 'reactor'] },
   { id: 'propulsion', name: 'Propulsion', fams: ['drive', 'thruster'] },
   { id: 'information', name: 'Information', fams: ['computer', 'sensors'] },
   { id: 'civil', name: 'Civil', fams: ['farms', 'farms_cold', 'farms_hot', 'farms_rad', 'homes', 'works', 'labs'] },
 ];
 export const FAMILIES = {
-  beam:     { name: 'Energy weapon',    icon: '⚡', base: 'Lance',   recipe: { energy: 0.4, optics: 0.35, thermal: 0.25 }, channels: { beam_power: 1, weapon_range: 0.6, rate_of_fire: 0.6 } },
-  gun:      { name: 'Kinetic gun',      icon: '⦿', base: 'Driver',  recipe: { materials: 0.35, fabrication: 0.35, motion: 0.3 }, channels: { kinetic_penetration: 1, accuracy: 0.6, rate_of_fire: 0.6 } },
-  missile:  { name: 'Missile',          icon: '➹', base: 'Viper',   recipe: { fabrication: 0.35, materials: 0.25, life: 0.2, motion: 0.2 }, channels: { warhead_yield: 1, weapon_range: 0.6, targeting: 0.4 } },
-  armor:    { name: 'Armour',           icon: '⛨', base: 'Plate',   recipe: { materials: 0.45, fabrication: 0.35, thermal: 0.2 }, channels: { armor_integrity: 1, armor_deflection: 0.6, hull_integrity: 0.4 } },
-  shield:   { name: 'Shield',           icon: '◎', base: 'Aegis',   recipe: { motion: 0.4, energy: 0.25, electrics: 0.2, fabrication: 0.15 }, channels: { shield_capacity: 1, shield_recovery: 0.6, shield_reach: 0.4 } },
-  reactor:  { name: 'Reactor',          icon: '☢', base: 'Heart',   recipe: { energy: 0.5, thermal: 0.3, materials: 0.2 }, channels: { reactor_output: 1, energy_storage: 0.6, power_efficiency: 0.4 } },
-  drive:    { name: 'Star drive',       icon: '➶', base: 'Strider', recipe: { motion: 0.4, energy: 0.35, thermal: 0.25 }, channels: { drive_efficiency: 1, thrust: 0.4 } },
-  thruster: { name: 'Thrusters',        icon: '⇶', base: 'Swift',   recipe: { motion: 0.5, fabrication: 0.25, electrics: 0.25 }, channels: { thrust: 1, agility: 0.6, evasion: 0.4 } },
-  computer: { name: 'Weapons computer', icon: '▣', base: 'Oracle',  recipe: { electrics: 0.4, information: 0.4, optics: 0.2 }, channels: { targeting: 1, computing: 0.6, synthetic_neural: 0.4 } },
+  beam:     { module: 'weapon_energy', name: 'Energy weapon',    icon: '⚡', base: 'Lance',   recipe: { energy: 0.4, optics: 0.35, thermal: 0.25 }, channels: { beam_power: 1, weapon_range: 0.6, rate_of_fire: 0.6 } },
+  gun:      { module: 'weapon_kinetic', name: 'Kinetic gun',      icon: '⦿', base: 'Driver',  recipe: { materials: 0.35, fabrication: 0.35, motion: 0.3 }, channels: { kinetic_penetration: 1, accuracy: 0.6, rate_of_fire: 0.6 } },
+  missile:  { module: 'weapon_missile', name: 'Missile',          icon: '➹', base: 'Viper',   recipe: { fabrication: 0.35, materials: 0.25, life: 0.2, motion: 0.2 }, channels: { warhead_yield: 1, weapon_range: 0.6, targeting: 0.4 } },
+  drones:   { module: 'hangar', name: 'Drones',           icon: '✈', base: 'Wasp',    recipe: { information: 0.4, motion: 0.3, fabrication: 0.3 }, channels: { structural_scale: 1, power_efficiency: 0.4 } },
+  armor:    { module: 'armor', name: 'Armour',           icon: '⛨', base: 'Plate',   recipe: { materials: 0.45, fabrication: 0.35, thermal: 0.2 }, channels: { armor_integrity: 1, armor_deflection: 0.6, hull_integrity: 0.4 } },
+  shield:   { module: 'shield', name: 'Shield',           icon: '◎', base: 'Aegis',   recipe: { motion: 0.4, energy: 0.25, electrics: 0.2, fabrication: 0.15 }, channels: { shield_capacity: 1, shield_recovery: 0.6, shield_reach: 0.4 } },
+  reactor:  { module: 'reactor', name: 'Reactor',          icon: '☢', base: 'Heart',   recipe: { energy: 0.5, thermal: 0.3, materials: 0.2 }, channels: { reactor_output: 1, energy_storage: 0.6, power_efficiency: 0.4 } },
+  drive:    { module: 'stardrive', name: 'Star drive',       icon: '➶', base: 'Strider', recipe: { motion: 0.4, energy: 0.35, thermal: 0.25 }, channels: { drive_efficiency: 1, thrust: 0.4 } },
+  thruster: { module: 'thruster', name: 'Thrusters',        icon: '⇶', base: 'Swift',   recipe: { motion: 0.5, fabrication: 0.25, electrics: 0.25 }, channels: { thrust: 1, agility: 0.6, evasion: 0.4 } },
+  computer: { module: 'weapon_system', name: 'Weapons computer', icon: '▣', base: 'Oracle',  recipe: { electrics: 0.4, information: 0.4, optics: 0.2 }, channels: { targeting: 1, computing: 0.6, synthetic_neural: 0.4 } },
   sensors:  { name: 'Sensors',          icon: '◉', base: 'Argus',   recipe: { optics: 0.45, information: 0.35, electrics: 0.2 }, channels: { sensor_range: 1, sensor_resolution: 0.6 } },
   farms:    { name: 'Farms',            icon: '🌾', base: 'Harvest', recipe: { life: 0.6, thermal: 0.2, materials: 0.2 }, level: 'food' },
   // THE CLIMATE'S CROPS (his call 2026-10-23): each generation ADAPTS the farms to one hazard (districts.js CLIMATE) — the cut it makes shrinks
@@ -63,13 +65,14 @@ export const FAMILIES = {
 // channels (the main one first) — the UI puts the icon and the number there. CHANNEL_ICON: which icon (techicons.js) a channel shows
 const T3 = (...t) => t;
 const TEXT = {
-  beam:     T3('Tighter focusing coils and a cooler lens: every energy weapon hits {0} harder, reaches {1} further and fires {2} faster.', 'A second resonance chamber feeds the beam: {0} more punch, {1} more reach, and the capacitors refill {2} quicker.', 'Phase-locked emitters fire as one: {0} damage, {1} range, {2} rate of fire.'),
+  beam:     T3('Tighter focusing coils and a cooler lens: the new emitter hits {0} harder, reaches {1} further and fires {2} faster.', 'A second resonance chamber feeds the beam: {0} more punch, {1} more reach, and the capacitors refill {2} quicker.', 'Phase-locked emitters fire as one: {0} damage, {1} range, {2} rate of fire.'),
   gun:      T3('Denser slugs and a longer rail: shells bite {0} deeper, land {1} truer and cycle {2} faster.', 'A recoil-damped breech: {0} more penetration, {1} tighter groups, {2} quicker reloads.', 'Self-forging rounds: {0} penetration, {1} accuracy, {2} rate of fire.'),
+  drones:   T3('Smarter hulls on the little craft: every drone of this kind is {0} bigger and draws {1} less.', 'Longer-legged drones: {0} size, {1} less power.', 'A swarm that thinks: {0} size, {1} efficiency.'),
   missile:  T3('A richer charge and a leaner motor: warheads hit {0} harder, fly {1} further, and the seeker locks {2} better.', 'Staged boosters and a shaped charge: {0} yield, {1} reach, {2} sharper terminal guidance.', 'A smarter swarm: {0} yield, {1} range, {2} lock.'),
   armor:    T3('Layered plate with a soft core: armour holds {0} more, shrugs off {1} more of every hit, and the frame behind it is {2} tougher.', 'Graded alloys from skin to spine: {0} plate strength, {1} deflection, {2} hull.', 'Plates that spread a blow across the hull: {0} integrity, {1} deflection, {2} frame.'),
   shield:   T3('A tighter field lattice: shields hold {0} more, recover {1} faster and stretch {2} further over the hull.', 'Overlapping emitters: {0} capacity, {1} recovery, {2} reach.', 'A field that hardens where it is struck: {0} capacity, {1} recovery, {2} coverage.'),
   reactor:  T3('Hotter, cleaner burns: reactors give {0} more power, store {1} more, and everything aboard draws {2} less.', 'A denser core: {0} output, {1} reserve, {2} efficiency.', 'Magnetic bottling: {0} output, {1} storage, {2} less draw.'),
-  drive:    T3('A smoother fold in the star drive: fleets cross {0} faster between the stars and push {1} harder in battle.', 'A lighter drive core: {0} between the stars, {1} thrust.', 'A drive that drinks less: {0} star travel, {1} thrust.'),
+  drive:    T3('A smoother fold in the star drive: a ship with it crosses {0} faster between the stars and pushes {1} harder in battle.', 'A lighter drive core: {0} between the stars, {1} thrust.', 'A drive that drinks less: {0} star travel, {1} thrust.'),
   thruster: T3('Vectored nozzles: ships push {0} harder, turn {1} sharper and slip {2} more of the fire.', 'Pulse thrusters: {0} thrust, {1} agility, {2} evasion.', 'Thrust where it is needed: {0} thrust, {1} turn, {2} evasion.'),
   computer: T3('Faster fire control: guns pick their aim {0} better, the computer runs {1} more, and decides {2} more by itself.', 'Predictive tracking: {0} targeting, {1} computing, {2} autonomy.', 'A mind in the turret: {0} targeting, {1} computing, {2} autonomy.'),
   sensors:  T3('Wider apertures and a cleaner signal: you see {0} further and {1} sharper.', 'Arrays that listen across the bands: {0} range, {1} resolution.', 'Quiet sensors: {0} range, {1} resolution.'),
@@ -107,15 +110,18 @@ export function benefitsOf(S, fields, fam, q = null) {
   const F = FAMILIES[fam]; if (q == null) q = qualityOf(S, fields, fam).q;
   if (F.level) return [{ channel: F.level, icon: CHANNEL_ICON[F.level], pct: Math.round((RESEARCH.level.base + RESEARCH.level.q * q) * 25) }];
   if (F.adapt) { const a = (S.adapt || {})[F.adapt] || 0, a2 = a + RESEARCH.adapt.base + RESEARCH.adapt.q * q; return [{ channel: F.adapt, icon: 'food', icon2: CHANNEL_ICON[F.adapt], pct: Math.max(1, Math.round(adaptGain(F.adapt, a, a2) * 100)) }]; }
-  return Object.entries(F.channels).map(([channel, w]) => ({ channel, icon: CHANNEL_ICON[channel], pct: Math.max(1, Math.round(RESEARCH.mag * w * q)) }));
+  return Object.entries(F.channels).map(([channel, w]) => ({ channel, icon: CHANNEL_ICON[channel], pct: Math.max(1, Math.round((F.module ? RESEARCH.modelMag : RESEARCH.mag) * w * q)) }));
 }
 // the paragraph's text for a generation: the template with {i} still in it (the UI fills them)
 export const textOf = (fam, gen) => { const t = TEXT[fam] || ['{0}']; return t[(Math.max(1, gen) - 1) % t.length]; };
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
+const roman = n => { let s = '', v = Math.max(1, Math.floor(n)); for (const [a, r] of [[1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'], [100, 'C'], [90, 'XC'], [50, 'L'], [40, 'XL'], [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']]) while (v >= a) { s += r; v -= a; } return s; };
 export const generationOf = (S, fam) => ((S.gens || {})[fam] || 0) + 1;
+// THE COMPONENTS (2026-10-24): every model of a module kind the empire has developed, the newest last
+export const modelsOf = (S, kind) => (S.models || []).filter(m => m.kind === kind);
+export const newestModel = (S, kind) => { const l = modelsOf(S, kind); return l.length ? l[l.length - 1] : null; };
 export const needOf = (S, fam) => Math.round(RESEARCH.need * Math.pow(RESEARCH.growth, generationOf(S, fam) - 1));
-export const nameOf = (S, fam) => { const g = generationOf(S, fam); return `${FAMILIES[fam].base} Mk ${ROMAN[g] || g}`; };
+export const nameOf = (S, fam) => { const g = generationOf(S, fam); return `${FAMILIES[fam].base} Mk ${roman(g)}`; };
 export const strengthOf = (potential, found, boosts = 0) => { const M = RESEARCH.strength; return M.base + M.potential * potential + M.perFind * Math.min(10, found) + M.booster * boosts; };
 
 // a place's research split over the fields: what it has to give, plus a little of everything
@@ -185,6 +191,13 @@ export function advanceProjects(S, plans, rep) {
     if (F.adapt) {
       S.adapt = S.adapt || {}; S.adapt[F.adapt] = Math.min(1, (S.adapt[F.adapt] || 0) + RESEARCH.adapt.base + RESEARCH.adapt.q * pl.q);
       rep.push({ kind: 'breakthrough', research, text: `Research done: ${pl.name} — farms on ${F.adapt === 'cold' ? 'cold' : F.adapt === 'heat' ? 'hot' : 'radiation-exposed'} worlds feed ${ben[0].pct} % more (quality ${Math.round(pl.q * 100)} %)` });
+    } else if (F.module) {
+      // A COMPONENT (2026-10-24): a new model of its kind, its own numbers — on top of the family's last one; fitted on new designs only
+      S.models = S.models || []; const prev = newestModel(S, F.module), boost = { ...(prev ? prev.boost : {}) };
+      for (const b of ben) boost[b.channel] = (boost[b.channel] || 0) + b.pct;
+      const model = { id: `md${S.eon}${pl.fam}${pl.gen}`, fam: pl.fam, kind: F.module, name: pl.name, gen: pl.gen, boost, eon: S.eon, q: +pl.q.toFixed(2) }; S.models.push(model); research.model = model.id;
+      if (giftProp) S.breakthroughs.unshift({ id: `pj${S.eon}${pl.fam}g`, name: `${pl.name} (focus gift)`, field: top, fieldName: DOMAINS[top].name, eon: S.eon, origin: 'a research project', under: null, project: pl.fam, props: [giftProp] });
+      rep.push({ kind: 'breakthrough', research, text: `Research done: ${pl.name} — a new ${F.name.toLowerCase()} to fit on new designs: ${ben.map(b => `${b.channel.replace(/_/g, ' ')} +${b.pct} %`).join(', ')} over the plain one${prev ? ` (${prev.name} and before included)` : ''}` });
     } else if (F.level) {
       const up = RESEARCH.level.base + RESEARCH.level.q * pl.q; S.slotLevels = S.slotLevels || {}; S.slotLevels[F.level] = (S.slotLevels[F.level] || 1) + up;
       rep.push({ kind: 'breakthrough', research, text: `Research done: ${pl.name} — every ${F.level === 'food' ? 'farm' : F.level === 'housing' ? 'home' : F.level === 'industry' ? 'works' : 'lab'} district gives ${ben[0].pct} % more (quality ${Math.round(pl.q * 100)} %)` });

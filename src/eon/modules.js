@@ -194,13 +194,16 @@ export function allCapsules(S) {
 // what every module gets without anyone placing anything
 export function passiveOf(caps) { const p = {}; for (const c of caps) p[c.channel] = (p[c.channel] || 0) + c.pct * c.share; return p; }
 
-export function moduleStats(mod, capMap, passive) {
+// A COMPONENT (2026-10-24, research.js S.models): a module may be a MODEL the empire developed — its own boosts on top of the empire's, and
+// a little dearer each generation (new tech costs); a built ship keeps the models it was built with (no retrofitting — his call)
+export const MODEL = { cost: 0.06 };
+export function moduleStats(mod, capMap, passive, model = null) {
   const K = KINDS[mod.kind], k = scaleOf(mod), tune = K.mount ? gunTune(mod, K) : null;
   const rect = K.rect ? [clamp(mod.w || GANTRY.w, 1, GANTRY.maxW), clamp(mod.h || GANTRY.h, 1, GANTRY.maxH)] : null, area = rect ? rect[0] * rect[1] : 1;
   const mine = mod.caps.map(id => capMap.get(id)).filter(c => c && !c.done);
   const extra = ch => mine.reduce((a, c) => a + (c.channel === ch ? c.pct * (1 - c.share) : 0), 0);   // what placing it adds on top
   const stats = K.stats.map(s => {
-    const pas = s.from.reduce((a, ch) => a + (passive[ch] || 0), 0), app = s.from.reduce((a, ch) => a + extra(ch), 0);
+    const pas = s.from.reduce((a, ch) => a + (passive[ch] || 0) + (model && model.boost ? model.boost[ch] || 0 : 0), 0), app = s.from.reduce((a, ch) => a + extra(ch), 0);
     const base = K.base[s.k] * (rect && s.k === 'power' ? area : 1) * (K.scale?.stats.includes(s.k) ? k : K.scale?.sqrtStats?.includes(s.k) ? Math.sqrt(k) : 1) * (tune ? tune[s.k] || 1 : 1), kStd = 1 + pas / 100, kNow = 1 + (pas + app) / 100;
     let std = s.less ? base / kStd : base * kStd, val = s.less ? base / kNow : base * kNow;
     if (s.max) { std = Math.min(s.max, std); val = Math.min(s.max, val); }
@@ -210,14 +213,29 @@ export function moduleStats(mod, capMap, passive) {
   const shrink = 1 + ((passive.miniaturization || 0) + extra('miniaturization')) / 100;
   const cheapen = 1 + ((passive.affordability || 0) + extra('affordability')) / 100;
   const v = Object.fromEntries(stats.map(s => [s.k, s.val])), size = area * k;
-  return { kind: mod.kind, K, k, tune, stats, v, mine, rect, load: K.mount ? K.mount * tune.load : 0,
-    cost: K.cost * size * (tune ? tune.cost : 1) * (1 + burden / 100 * 0.8) / cheapen, volume: K.volume * size * (tune ? tune.volume : 1) * (1 + burden / 100 * 0.6) / shrink };
+  return { kind: mod.kind, K, k, tune, stats, v, mine, rect, model, load: K.mount ? K.mount * tune.load : 0,
+    cost: K.cost * size * (tune ? tune.cost : 1) * (1 + burden / 100 * 0.8) / cheapen * (model ? 1 + MODEL.cost * (model.gen || 1) : 1), volume: K.volume * size * (tune ? tune.volume : 1) * (1 + burden / 100 * 0.6) / shrink };
+}
+
+// A MODEL'S CARD (2026-10-24, the designer's list): one plain module of the kind against the same module as that model — every stat with
+// the empire's know-how in both, the boosts that serve the whole ship (spill), the cost, and a star drive's pace between the stars
+export function modelCard(S, kind, model, passive = passiveOf(allCapsules(S))) {
+  const K = KINDS[kind]; if (!K) return null;
+  const mod = { id: 'card', kind, caps: [], n: 1, k: 1 }, none = new Map(), a = moduleStats(mod, none, passive, null), b = model ? moduleStats(mod, none, passive, model) : a;
+  const rows = b.stats.map((s, i) => ({ k: s.k, label: s.label, unit: s.unit, less: !!s.less, dec: s.dec, plain: a.stats[i].val, val: s.val }));
+  const spill = model ? Object.entries(model.boost || {}).filter(([ch]) => !K.stats.some(s => s.from.includes(ch))).map(([channel, pct]) => ({ channel, pct })) : [];
+  return { rows, spill, cost: [a.cost, b.cost], drive: kind === 'stardrive' ? 1 + ((model && model.boost && model.boost.drive_efficiency) || 0) / 100 : null };
 }
 
 // The whole design, rolled up.
 export function designStats(S, design, caps = allCapsules(S)) {
   const capMap = new Map(caps.map(c => [c.id, c])), passive = passiveOf(caps);
-  const mods = design.modules.map(m => ({ mod: m, n: Math.max(1, m.n || 1), ...moduleStats(m, capMap, passive) }));
+  const models = new Map((S.models || []).map(x => [x.id, x])), modelOf = m => models.get(m.model || (!m.src && design.sysModels ? design.sysModels[m.kind] : null)) || null;   // a chip's own model; the systems the design sizes itself by the design's choice
+  // a model's boost on a channel its own module never reads serves the WHOLE SHIP (a reactor model's "everything aboard draws less") — the best one, never stacked
+  const spill = {};
+  for (const m of design.modules) { const md = modelOf(m), K = KINDS[m.kind]; if (!md || !K) continue; for (const [ch, p] of Object.entries(md.boost || {})) if (!K.stats.some(s => s.from.includes(ch))) spill[ch] = Math.max(spill[ch] || 0, p); }
+  const pass = Object.keys(spill).length ? { ...passive } : passive; for (const [ch, p] of Object.entries(spill)) pass[ch] = (pass[ch] || 0) + p;
+  const mods = design.modules.map(m => ({ mod: m, n: Math.max(1, m.n || 1), ...moduleStats(m, capMap, pass, modelOf(m)) }));
   const t = { cost: 0, volume: 0, powerOut: 0, powerUse: 0, reserve: 0, reactorVol: 0, heatLoad: 0, hp: 0, deflect: 0, repair: 0,
     shieldRaw: 0, shieldRec: 0, thrust: 0, evasionRaw: 0, lift: 0, dpsRaw: 0, ground: 0, range: 0, accSum: 0, weapons: 0, mounts: 0, mountsUsed: 0, bonus: 0,
     industry: 0, research: 0, social: 0, housing: 0, missiles: 0, drones: 0, fabStock: 0, missileVol: 0, droneVol: 0, armor: 0, gantries: [], engines: { thruster: 0, stardrive: 0 } };
@@ -282,6 +300,10 @@ export function designStats(S, design, caps = allCapsules(S)) {
   t.maxSorties = t.droneCost ? Math.floor(t.fabStock / t.droneCost) : 0;          // if the whole stock went on drones
   t.upkeep = t.klass === 'structure' ? t.cost * 0.02 / (1 + (passive.maintenance || 0) / 100) : 0;
   t.underDriven = t.klass === 'starship' && t.lift < t.volume - 1e-6;     // too much hull for its star drive: it cannot leave the system
+  // THE DRIVE MODEL (2026-10-24): a star drive the empire developed carries the ship faster and further between the stars than the plain one —
+  // its own pace (the slowest drive aboard sets it); a fleet goes at its slowest ship's (model.js fleetPace)
+  const drives = mods.filter(m => m.kind === 'stardrive'); t.driveMul = drives.length ? Math.min(...drives.map(m => 1 + ((m.model && m.model.boost && m.model.boost.drive_efficiency) || 0) / 100)) : 1;
+  t.models = [...new Set(mods.filter(m => m.model).map(m => m.model.id))];
   // where the guns sit; the ones beyond what the weapons computer can run are marked
   const mounts = hardPoints(hull, guns);
   let left = t.mounts;                                       // the computer serves the guns in the order they were added: the newest go short

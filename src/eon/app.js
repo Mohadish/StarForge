@@ -5,7 +5,7 @@ import { DOMAINS } from '../data/properties.js';
 import { XS, X_INFO, T, CENTER, FIELD_IDS, newState, compute, endEon, uid, isIntegrated, giveAttention, sendShip, recallShip, settle, starEons, sysDistance, worldOf,
   setSplit, setCampaign, setSkim, setDevFocus, supportColony, queueAdd, queueCount, queueMove, queueDrop, canUndoSend, undoSend, regroupSend,
   explored, knowledgeOf, fleetSight, KNOW_WORD, LY, VOY, SCALE, shipRange, forecast, fleetRange, sendFleet, lyBetween, peopleWord, upgrade, hostileIn, hostileWord, hostileWorth, ZONE, bubbles, zoneOfSys, effectiveLy, setRelay, unrelay, moveRelay, dropRelay, relayOf, relayAt } from './model.js';
-import { KINDS, KIND_IDS, CLASS_NAME, GANTRY, GUN, PRESETS, applyPreset, allCapsules, designStats, isRelevant, dockFit, reachBand, fitModule, autoFit, traverseOf } from './modules.js';
+import { KINDS, KIND_IDS, CLASS_NAME, GANTRY, GUN, PRESETS, applyPreset, allCapsules, designStats, isRelevant, dockFit, reachBand, fitModule, autoFit, traverseOf, modelCard } from './modules.js';
 import { GALAXY, STARS, galaxyOf } from './galaxy.js';
 import { createTetra } from './tetra.js';
 import { drawHull } from './hullview.js';
@@ -28,8 +28,8 @@ import { designSpecHtml, modulesLine, chipStripHtml } from './spec.js';
 import { FACTORS, FACTOR_COLOR, SIZES, sizeClassOf, gridOf, habitabilityOf, habWord } from './districts.js';
 import { DEV, LEVEL1, KIND_WORD as SLOT_WORD, filletWhy, isFull, counts, planetOf, unitCap, districtInfo, jobsOf, bOf } from './colony.js';
 import { renderResearch, initResearch, researchDoneHtml } from './projects.js';
-import { FAMILIES as RFAM } from './research.js';
-import { icon as ticon, slotIcon, personIcon, ICON_COLOR } from './techicons.js';
+import { FAMILIES as RFAM, modelsOf, newestModel, CHANNEL_ICON } from './research.js';
+import { icon as ticon, slotIcon, personIcon, ICON_COLOR, componentIcon } from './techicons.js';
 import { globeTexture, drawGlobe, globeIcon } from './globe.js';
 initResearch({ save: () => save(), refresh: () => refresh() });   // the Research tab's orders save and redraw like every other
 import { TRI_COLOR, drawSurface, focusTetra, drawTri as drawEffortTri, triFromPoint, triBall, toCanvas, districtAt as surfaceCellAt, mapSize } from './colonyview.js';
@@ -74,6 +74,7 @@ const empireLook = E => { const L = E.look || {}, lk = lookFromColors(L.style ||
 // count to send. Pick some, then click where they go: a star on the galaxy map (only ships that can cross between stars are
 // offered there), a place on the system map. At most MAX_SHIP_DESIGNS ship designs (structures do not count).
 const MAX_SHIP_DESIGNS = 12;
+let apartSend = false;                                // each at its own pace (2026-10-24): the picked ships leave as lone ships, not one fleet
 let picks = new Map(), pickScope = null, sendTo = null, sendPlace = null;   // sendPlace: on the galaxy, WHERE in the chosen system (his ask, 2026-10-18) — the star when none
 const sendDest = () => pickScope && (pickScope.kind === 'galaxy' || pickScope.kind === 'outgoing') ? (sendPlace && placeOf(sendPlace)?.sys === sendTo ? sendPlace : sysOf(sendTo).star) : sendTo;   // design id → how many of it are picked · { kind: 'galaxy', sys } | { kind: 'system', place } · the destination clicked (a system, or a place)
 let fleetPopPlace = null;                            // the system map's fleet pop-up: the place whose parked ships it shows (its triangles clicked)
@@ -141,16 +142,25 @@ function stackRow(g, { send = true, settleAt = null, supportAt = null, foe = nul
     ${send ? `<span class="stepper" title="how many of them to send"><button data-gpick="${g.key}" data-max="${total}" data-d="-1">−</button><b>${n}</b><button data-gpick="${g.key}" data-max="${total}" data-d="1">+</button><button class="x" data-gall="${g.key}" data-max="${total}">${n === total ? 'none' : 'all'}</button></span>` : foe ? '' : '<span class="tiny">stays in its system</span>'}</div>
     <div class="tiny">${line}</div>${settler ? `<div class="acts"><button class="go" data-settle="${settler.u.id}">Settle ${esc(settleAt.name)} with one</button></div>` : ''}${!foe && supportAt ? `<div class="acts"><button class="x" data-support="${g.ships[0].u.id}" title="the ship lands for good: its people join the colony, its systems work for it at an outpost's scale (a hundredth of a ship's industry, research and social output)">⬇ Land one on ${esc(supportAt.name)} — support the colony</button></div>` : ''}</div>`;
 }
+// A FLEET'S PACE (2026-10-24, the drive models): the slowest ship's drive sets it — and the picked ships may go each at its own instead
+function paceOf(ships) { const p = ships.map(s => (s.t && s.t.driveMul) || 1), slow = Math.min(...p), fast = Math.max(...p); return { slow, fast, mixed: fast > slow + 0.004 }; }
+function paceHtml(P, n) {
+  if (!P.mixed || n < 2) return '';
+  return `<div class="tiny" style="margin-top:4px">${ticon('reach', { size: 14 })} top speed <b>×${P.slow.toFixed(2)}</b> of a plain drive — the slowest ship sets it (the quickest could go ×${P.fast.toFixed(2)}) · <label style="cursor:pointer;white-space:nowrap"><input type="checkbox" data-papart ${apartSend ? 'checked' : ''} style="vertical-align:-2px"> each at its own pace</label></div>`
+    + (apartSend ? `<div class="note" style="margin-top:3px">⚠ They leave one by one: the quick ones arrive first, alone. A small group is easier to destroy — a big fleet holds together better.</div>` : '');
+}
+// each at its own pace: when the first and the last arrive
+function apartEons(ships, d, eff, warp) { const e = ships.map(s => forecast(fleetRange(S, [s.u]), d, warp * ((s.t && s.t.driveMul) || 1), s.u.strain || 0, s.u.st ?? 100, eff).eons), lo = Math.min(...e), hi = Math.max(...e); return lo === hi ? plural(lo, 'eon') : `the first in ${plural(lo, 'eon')}, the last in ${hi}`; }
 // what is picked, and where it would go
 function sendBar(c, groups) {
   const ships = picked(groups); if (!ships.length) return '';
   const names = groups.filter(g => picks.get(g.key)).map(g => `${esc(g.name)} ×${Math.min(picks.get(g.key), g.ships.length)}`).join(', ');
   if (pickScope.kind === 'galaxy') {
-    const R = fleetRange(S, ships.map(s => s.u)), st = Math.min(...ships.map(s => s.u.st ?? 100)), worth = ships.reduce((a, s) => a + s.t.cost, 0);
-    let h = `<div class="okbox" style="margin:6px 0"><b>${ships.length} picked</b>: ${names} · worth ${fmt(worth)} · reach <b>${R.toFixed(1)} ly</b> (by bulk) · the weakest at ${Math.round(st)} % — <b>click a star on the map to send them</b> <button class="x" data-pclear>clear</button>`;
+    const R = fleetRange(S, ships.map(s => s.u)), st = Math.min(...ships.map(s => s.u.st ?? 100)), worth = ships.reduce((a, s) => a + s.t.cost, 0), P = paceOf(ships);
+    let h = `<div class="okbox" style="margin:6px 0"><b>${ships.length} picked</b>: ${names} · worth ${fmt(worth)} · reach <b>${R.toFixed(1)} ly</b> (by bulk) · the weakest at ${Math.round(st)} % — <b>click a star on the map to send them</b> <button class="x" data-pclear>clear</button>${paceHtml(P, ships.length)}`;
     if (sendTo) {
-      const d = lyBetween(S, pickScope.sys, sendTo), eff = d > 0 ? effectiveLy(S, pickScope.sys, sendTo) / d : 1, strain = Math.max(0, ...ships.map(s => s.u.strain || 0)), f = forecast(R, d, c.warp, strain, st, eff), foe = seenHostile(sendTo), z = zoneOfSys(S, sendTo);
-      h += `<div style="margin-top:6px;padding-top:6px;border-top:1px dashed var(--line)">To <b>${esc(sysOf(sendTo).name)}</b> <span class="tiny">(${ZONE.names[z]}${z < 5 ? ', restocking +' + ZONE.recover[z] + ' an eon' : ', no restocking'})</span>: ${d.toFixed(1)} ly, ${(d * eff).toFixed(1)} of strain${strain > 0.05 ? ` on top of ${strain.toFixed(1)} carried` : ''} · ${plural(f.eons, 'eon')} · <b>${f.chance >= 1 ? 'sure to make it' : Math.round(f.chance * 100) + ' %'}</b>${f.chance < 1 ? ` · in at ~${Math.round(f.expected)} %${f.lost ? ' — some could be lost' : ` (worst ${Math.round(f.worst)} %)`}` : ''}${foe ? ` · <b class="up">⚔ ${esc(hostileSeen(foe))}</b>` : ''}
+      const d = lyBetween(S, pickScope.sys, sendTo), eff = d > 0 ? effectiveLy(S, pickScope.sys, sendTo) / d : 1, strain = Math.max(0, ...ships.map(s => s.u.strain || 0)), f = forecast(R, d, c.warp * P.slow, strain, st, eff), foe = seenHostile(sendTo), z = zoneOfSys(S, sendTo);
+      h += `<div style="margin-top:6px;padding-top:6px;border-top:1px dashed var(--line)">To <b>${esc(sysOf(sendTo).name)}</b> <span class="tiny">(${ZONE.names[z]}${z < 5 ? ', restocking +' + ZONE.recover[z] + ' an eon' : ', no restocking'})</span>: ${d.toFixed(1)} ly, ${(d * eff).toFixed(1)} of strain${strain > 0.05 ? ` on top of ${strain.toFixed(1)} carried` : ''} · ${apartSend && P.mixed ? apartEons(ships, d, eff, c.warp) : plural(f.eons, 'eon')} · <b>${f.chance >= 1 ? 'sure to make it' : Math.round(f.chance * 100) + ' %'}</b>${f.chance < 1 ? ` · in at ~${Math.round(f.expected)} %${f.lost ? ' — some could be lost' : ` (worst ${Math.round(f.worst)} %)`}` : ''}${foe ? ` · <b class="up">⚔ ${esc(hostileSeen(foe))}</b>` : ''}
         <div class="acts" style="margin-top:4px"><button class="go" data-psend>Send them</button><button class="x" data-pcancel>pick another star</button></div></div>`;
     }
     return h + '</div>';
@@ -1015,13 +1025,13 @@ function renderSendBadge() {
     const ships = picked(scopeGroups(LAST)); if (!ships.length) continue;
     let line;
     if (kind === 'galaxy') {
-      const R = fleetRange(S, ships.map(s => s.u)), st = Math.min(...ships.map(s => s.u.st ?? 100)), d = lyBetween(S, pickScope.sys, sendTo), eff = d > 0 ? effectiveLy(S, pickScope.sys, sendTo) / d : 1, strain = Math.max(0, ...ships.map(s => s.u.strain || 0)), f = forecast(R, d, LAST.warp, strain, st, eff), z = zoneOfSys(S, sendTo), foe = seenHostile(sendTo), them = (S.others || []).filter(o => o.fleets.some(x => x.sys === sendTo) || o.colonies.some(x => x.sys === sendTo));
+      const R = fleetRange(S, ships.map(s => s.u)), st = Math.min(...ships.map(s => s.u.st ?? 100)), d = lyBetween(S, pickScope.sys, sendTo), eff = d > 0 ? effectiveLy(S, pickScope.sys, sendTo) / d : 1, strain = Math.max(0, ...ships.map(s => s.u.strain || 0)), P = paceOf(ships), f = forecast(R, d, LAST.warp * P.slow, strain, st, eff), z = zoneOfSys(S, sendTo), foe = seenHostile(sendTo), them = (S.others || []).filter(o => o.fleets.some(x => x.sys === sendTo) || o.colonies.some(x => x.sys === sendTo));
       // THE SYSTEM, IN THE BADGE (his ask, 2026-10-18: "open the system as a pop-up and let me pick exactly where to send it"): its
       // places in a row, the star first — click one, then Send here; a colony of yours ringed, another empire's in its colour
       const dest = placeOf(sendDest()), places = placesIn(sendTo);
       const row = places.map(pl => { const lk = lookOf(pl), r = Math.round(Math.max(5, Math.min(12, lk.size * 0.9))), own = pl.colony ? null : ownerOfPlace(pl.id), ring = pl.colony ? myCol() : own ? own.col : 'transparent';
         return `<button class="sp ${dest && dest.id === pl.id ? 'on' : ''}" data-sendplace="${pl.id}" title="${esc(pl.name)} — ${KIND_WORD[pl.kind]}${pl.colony ? ' · your colony' : own ? ` · ${esc(own.E.name)}'s colony` : pl.landable ? ' · can be settled' : ''}"><i style="width:${2 * r}px;height:${2 * r}px;background:${lk.color};outline:2px solid ${ring};outline-offset:1px"></i><small>${esc(pl.name)}</small></button>`; }).join('');
-      line = `<b>${plural(ships.length, 'ship')} → ${esc(dest ? dest.name : sysOf(sendTo).name)}${dest && dest.kind !== 'star' ? ` <span class="tiny">(${esc(sysOf(sendTo).name)})</span>` : ''}</b><div class="sprow">${row}</div><div class="tiny">${d.toFixed(1)} ly · ${plural(f.eons, 'eon')} · <b class="${f.chance < 0.9 ? 'up' : 'down'}">${f.chance >= 1 ? 'sure' : Math.round(f.chance * 100) + ' %'}</b> to make it${f.chance < 1 ? ` (in at ~${Math.round(f.expected)} %)` : ''} · ${ZONE.names[z]}${z < 5 ? '' : ' — no restocking there'}${foe ? ` · <b class="up">⚔ ${esc(hostileSeen(foe))}</b>` : ''}${them.length ? ` · <b class="up">${them.map(o => `<span style="color:${o.color}">${esc(o.name)}</span>`).join(', ')} ${them.some(o => o.fleets.some(x => x.sys === sendTo)) ? 'has a fleet there — a fight on arrival' : 'holds a colony there — a blockade on arrival'}</b>` : ''}</div>`;
+      line = `<b>${plural(ships.length, 'ship')} → ${esc(dest ? dest.name : sysOf(sendTo).name)}${dest && dest.kind !== 'star' ? ` <span class="tiny">(${esc(sysOf(sendTo).name)})</span>` : ''}</b><div class="sprow">${row}</div><div class="tiny">${d.toFixed(1)} ly · ${apartSend && P.mixed ? apartEons(ships, d, eff, LAST.warp) : plural(f.eons, 'eon')} · <b class="${f.chance < 0.9 ? 'up' : 'down'}">${f.chance >= 1 ? 'sure' : Math.round(f.chance * 100) + ' %'}</b> to make it${f.chance < 1 ? ` (in at ~${Math.round(f.expected)} %)` : ''} · ${ZONE.names[z]}${z < 5 ? '' : ' — no restocking there'}${foe ? ` · <b class="up">⚔ ${esc(hostileSeen(foe))}</b>` : ''}${them.length ? ` · <b class="up">${them.map(o => `<span style="color:${o.color}">${esc(o.name)}</span>`).join(', ')} ${them.some(o => o.fleets.some(x => x.sys === sendTo)) ? 'has a fleet there — a fight on arrival' : 'holds a colony there — a blockade on arrival'}</b>` : ''}</div>${paceHtml(P, ships.length)}`;
     } else { const to = placeOf(sendTo), eta = Math.max(...ships.map(s => T.travel[s.u.klass] || 0)), own = ownerOfPlace(sendTo); line = `<b>${plural(ships.length, 'ship')} → ${esc(to.name)}</b><div class="tiny">${plural(eta, 'eon')}${own ? ` · <b style="color:${own.col}">${esc(own.E.name)}'s colony</b>${ships.some(s => s.u.people > 0) ? ' — troops aboard can land there' : ''}` : to.landable && !to.colony && ships.some(s => s.u.people > 0) ? ' · settlers aboard can land there' : ''}</div>`; }
     el.innerHTML = `${line}<div class="acts"><button class="go" data-psend>⤵ Send here</button><button class="x" data-pcancel>✕ cancel</button></div>`;
     el.hidden = false; placeOverlay(el, cv, { x: p.x - el.offsetWidth / 2, y: p.y + 30 }, 0);   // under the star or place, centred (clear of the fleet pop-up)
@@ -1584,9 +1594,12 @@ const hullEd = createHullEditor($('hullEd'), {
 });
 // ---- the CHIPS (chipeditor.js — the Fleet Generator's and the Painter's) on a ship design: the stacks become the modules
 // (battle.js designFromStacks) and the price and the bulk follow — a capital gun is a given size, two of them twice that
+// the models' list and its keep (modelList, below) — declared before the editor, which draws itself at once
+const MODEL_SYS = ['reactor', 'stardrive', 'weapon_system'];
+let MLC = { at: null, n: -1, map: new Map() };
 const gameChips = createChipEditor({ palette: $('cPalette'), tray: $('cTray'), info: $('cInfo'), sheet: $('cSheet'), dropZones: ['#dPaint'] },
   { extra: { ...CIVIL, names: { fast: 'Thrusters' } }, onChange: chipsChanged, infoExtra: capsuleHtml, onInfoClick: capsuleClick, labels: { weapon: 'Military', role: 'Roles', trait: 'Utilities' },
-    groupBy: s => s.kind === 'fast' ? 'Energy & thrust' : s.type === 'weapon' ? 'Military' : 'Utilities', groupOrder: ['Energy & thrust', 'Utilities', 'Military'], openOnClick: true, onRender: placeInfo, autoChips, gunsPerChip: 1, stackSub });   // "Fast" is the thrusters here (his call); a weapon chip is one gun
+    groupBy: s => s.kind === 'fast' ? 'Energy & thrust' : s.type === 'weapon' ? 'Military' : 'Utilities', groupOrder: ['Energy & thrust', 'Utilities', 'Military'], openOnClick: true, onRender: placeInfo, autoChips, gunsPerChip: 1, stackSub, models: modelList, onAutoPick: pickSysModel });   // "Fast" is the thrusters here (his call); a weapon chip is one gun
 // what a pile gives the ship, under its name (his ask, 2026-10-16): armour its HP, a shield its capacity, a gun its damage …
 function stackSub(s, mods) {
   if (!DS || !mods.length) return '';
@@ -1602,6 +1615,32 @@ function stackSub(s, mods) {
   if (KINDS[s.kind]?.mount) { const d = mods.reduce((a, m) => a + m.v.damage * m.v.rate * Math.min(98, m.v.accuracy + t.bonus) / 100 * m.n, 0) * t.powerFactor * t.fireFactor; return `${fmt(d)} dmg/s · reach ${fmt(mods[0].v.range)}`; }
   return '';
 }
+// THE COMPONENTS IN THE DESIGNER (his ask, 2026-10-24: "click on a weapon … a list of all the energy weapons developed, with unique names;
+// hovering shows the detailed output"): every model of a kind, the plain one first — its icon, a line of its numbers, and its details against
+// the plain one (with the empire's know-how in both). Kept while the eon's numbers stand
+function modelList(kind) {
+  const K = KINDS[kind]; if (!K || !K.stats) return [];
+  if (MLC.at !== LAST || MLC.n !== (S.models || []).length) MLC = { at: LAST, n: (S.models || []).length, map: new Map() };
+  if (MLC.map.has(kind)) return MLC.map.get(kind);
+  const pas = (LAST && LAST.passive) || {}, plain = modelCard(S, kind, null, pas);
+  const entry = m => { const c = m ? modelCard(S, kind, m, pas) : plain; return { id: m ? m.id : null, name: m ? m.name : `Standard ${K.name.toLowerCase()}`, gen: m ? m.gen : 0,
+    icon: componentIcon(m, { kind, color: K.color, size: 18 }), line: modelLine(c), detail: modelDetail(kind, m, c) }; };
+  const list = [entry(null), ...modelsOf(S, kind).map(entry)]; MLC.map.set(kind, list); return list;
+}
+function statTxt(r, v) { return `${num(v, r.dec ?? (Math.abs(v) >= 10 ? 0 : 1))}${r.unit ? ' ' + r.unit : ''}`; }
+function modelLine(c) { return c.rows.filter(r => r.k !== 'power').slice(0, 3).map(r => statTxt(r, r.val)).join(' · '); }
+function modelDetail(kind, m, c) {
+  const gain = r => r.less ? r.plain / Math.max(1e-9, r.val) - 1 : r.val / Math.max(1e-9, r.plain) - 1, K = KINDS[kind];
+  const rows = c.rows.map(r => { const g = gain(r), d = m && Math.abs(g) > 0.004; return `<div class="r"><span class="muted">${esc(r.label)}</span><span>${d ? `<s class="muted">${statTxt(r, r.plain)}</s> → ` : ''}<b>${statTxt(r, r.val)}</b>${d ? ` <b style="color:${g > 0 ? '#7ef3b0' : '#ff7979'}">${g > 0 ? '+' : ''}${Math.round(g * 100)} %</b>` : ''}</span></div>`; }).join('');
+  const spill = c.spill.map(x => `<div>${ticon(CHANNEL_ICON[x.channel] || 'power', { size: 14 })} everything aboard: <b>+${x.pct} %</b> ${x.channel.replace(/_/g, ' ')}</div>`).join('');
+  const drive = c.drive > 1.004 ? `<div>${ticon('reach', { size: 14 })} between the stars: <b>×${c.drive.toFixed(2)}</b> the plain drive's pace and reach</div>` : '';
+  const cost = m ? `<div class="muted">cost ${c.cost[1] >= c.cost[0] ? '+' : ''}${Math.round((c.cost[1] / Math.max(1e-9, c.cost[0]) - 1) * 100)} % against the plain one (new tech is dearer)</div>` : '';
+  const head = m ? `<div><b>${esc(m.name)}</b> — generation ${m.gen}, developed in eon ${m.eon}${m.q ? `, quality ${Math.round(m.q * 100)} %` : ''}</div>` : `<div><b>The standard ${esc(K.name.toLowerCase())}</b> — what every yard builds, with what your empire knows in it</div>`;
+  return head + rows + spill + drive + cost + '<div class="muted" style="margin-top:3px">New ships only: the ones already built keep what they were built with.</div>';
+}
+const newestSys = () => Object.fromEntries(MODEL_SYS.map(k => [k, newestModel(S, k)?.id]).filter(x => x[1]));
+// the model of a system the design sizes itself (the reactor, the star drive, the weapons computer): the design's choice
+function pickSysModel(kind, id) { const d = design(); if (!d) return; d.sysModels = { ...(d.sysModels || {}) }; if (id) d.sysModels[kind] = id; else delete d.sysModels[kind]; rebuildFromChips(d, LAST); fitGunsFor = d.id; save(); refresh(); }
 // the systems the design sizes for itself — not chips, but shown among them (his ask, 2026-10-15): the reactor, the star drive and
 // the thrusters under Energy & thrust, the weapons computer first under Military, shields added for cover under Utilities; each
 // with its size (×k) and count (×n), which grow with what the piles ask for
@@ -1611,19 +1650,19 @@ function autoChips(group) {
   const t = DS.t, what = m => {                       // what it gives the ship, on the chip (his ask: the reactor's MW, the thrusters' speed and evasion …)
     const v = m.v, n = m.n;
     if (m.kind === 'reactor') return `${fmt(v.output * n)} MW`;
-    if (m.kind === 'stardrive') return `moves ${fmt(v.lift * n)} volume · speed ${fmt(t.speed)}`;
+    if (m.kind === 'stardrive') return `moves ${fmt(v.lift * n)} volume · speed ${fmt(t.speed)}${t.driveMul > 1.004 ? ` · ×${t.driveMul.toFixed(2)} between stars` : ''}`;
     if (m.kind === 'thruster') return `speed ${fmt(t.speed)} · evasion ${Math.round(t.evasion)} %`;
     if (m.kind === 'weapon_system') return `${num(v.mounts * n, 1)} mounts · +${num(v.bonus, 1)} % aim`;
     return '';
   };
-  const item = m => ({ label: m.K.name, sub: `${what(m)} · ${m.K.scale ? 'size ×' + m.k : ''}${m.n > 1 ? `${m.K.scale ? ' ' : ''}×${m.n}` : ''}`.replace(/ · $/, ''), color: m.K.color, title: 'sized by the design itself — it grows with what you add; not a chip' });
+  const item = m => ({ label: m.model ? m.model.name : m.K.name, kind: MODEL_SYS.includes(m.kind) ? m.kind : null, model: m.model ? m.model.id : null, icon: MODEL_SYS.includes(m.kind) && modelsOf(S, m.kind).length ? componentIcon(m.model, { kind: m.kind, color: m.K.color, size: 16 }) : '', sub: `${what(m)} · ${m.K.scale ? 'size ×' + m.k : ''}${m.n > 1 ? `${m.K.scale ? ' ' : ''}×${m.n}` : ''}`.replace(/ · $/, ''), color: m.K.color, title: 'sized by the design itself — it grows with what you add; not a chip' });
   const auto = DS.mods.filter(m => !m.mod.src);
   if (group === 'Energy & thrust') return auto.filter(m => ENERGY.includes(m.kind)).map(item);
   if (group === 'Military') return auto.filter(m => m.kind === 'weapon_system').map(item);
   if (group === 'Utilities') return auto.filter(m => !ENERGY.includes(m.kind) && m.kind !== 'weapon_system').map(item);
   return [];
 }
-document.addEventListener('click', e => { if (gameChips.openId == null || !e.target.isConnected || e.target.closest('#cInfo, [data-stack], .hdlg')) return; gameChips.close(); });   // a click anywhere else closes a pile's details (his ask); a click that re-rendered its own target (a pile, its + / −) is not "elsewhere"
+document.addEventListener('click', e => { if (gameChips.openId == null || !e.target.isConnected || e.target.closest('#cInfo, [data-stack], .hdlg, .ce-menu, [data-automenu]')) return; gameChips.close(); });   // a click anywhere else closes a pile's details (his ask); a click that re-rendered its own target (a pile, its + / −) is not "elsewhere"
 // the details panel floats over the stage beside the pile it belongs to (his ask, 2026-10-15: "on the right side of the element")
 function placeInfo(openId) {
   const info = $('cInfo'); if (openId == null || info.hidden) return;
@@ -1632,11 +1671,11 @@ function placeInfo(openId) {
   info.style.top = clamp(top, 8, Math.max(8, st.clientHeight - info.offsetHeight - 8)) + 'px';
 }
 let chipsFor = null, fitGunsFor = null;              // the design whose chips are in the editor · the design whose guns must be fitted on the next paint (its piles changed)
-const stacksOut = () => gameChips.stacks.map(s => ({ id: s.id, type: s.type, kind: s.kind, h: s.h, role: s.role, ...(s.off ? { off: true } : {}), ...(s.dials ? { dials: { ...s.dials } } : {}), ...(s.caps && s.caps.length ? { caps: s.caps.slice() } : {}) }));
+const stacksOut = () => gameChips.stacks.map(s => ({ id: s.id, type: s.type, kind: s.kind, h: s.h, role: s.role, ...(s.model ? { model: s.model } : {}), ...(s.off ? { off: true } : {}), ...(s.dials ? { dials: { ...s.dials } } : {}), ...(s.caps && s.caps.length ? { caps: s.caps.slice() } : {}) }));
 function rebuildFromChips(d, c) {
   d.chips = stacksOut();
-  const made = designFromStacks(S, d.chips, { klass: d.klass, name: d.name, hull: d.hull || undefined, id: d.id, caps: c ? c.caps : allCapsules(S), gunsPerChip: 1 });   // a chip is ONE gun here (odd counts: a lone gun leads on the midline)
-  d.modules = made.modules; if (!d.hull) d.hull = made.hull;
+  const made = designFromStacks(S, d.chips, { klass: d.klass, name: d.name, hull: d.hull || undefined, id: d.id, caps: c ? c.caps : allCapsules(S), gunsPerChip: 1, sysModels: d.sysModels || {} });   // a chip is ONE gun here (odd counts: a lone gun leads on the midline)
+  d.modules = made.modules; d.sysModels = made.sysModels; if (!d.hull) d.hull = made.hull;
 }
 function chipsChanged() { const d = design(); if (!d || chipsFor !== d.id || d.klass === 'structure') return; rebuildFromChips(d, LAST); fitGunsFor = d.id; save(); refresh(); }
 // breakthrough CAPSULES on a stack (one use per design, as on a module): under the stack's details
@@ -1963,7 +2002,8 @@ document.addEventListener('click', e => {
   if ((t = q('[data-gall]'))) { const k = t.dataset.gall, max = +t.dataset.max; if ((picks.get(k) || 0) === max) picks.delete(k); else picks.set(k, max); return refresh(); }
   if ((t = q('[data-pclear]'))) { picks.clear(); sendTo = null; return refresh(); }
   if ((t = q('[data-pcancel]'))) { sendTo = null; return refresh(); }
-  if ((t = q('[data-psend]'))) { const ships = picked(scopeGroups(LAST)), dest = sendDest(); if (pickScope && pickScope.kind === 'outgoing') { const all = scopeGroups(LAST).flatMap(g => g.ships.map(x => x.u.id)); toastErr(regroupSend(S, all, ships.map(x => x.u.id), dest)); picks.clear(); sendTo = null; sendPlace = null; pickScope = null; save(); return refresh(); } toastErr(sendFleet(S, ships.map(x => x.u.id), dest)); picks.clear(); sendTo = null; sendPlace = null; save(); return refresh(); }
+  if ((t = q('[data-psend]'))) { const ships = picked(scopeGroups(LAST)), dest = sendDest(); if (pickScope && pickScope.kind === 'outgoing') { const all = scopeGroups(LAST).flatMap(g => g.ships.map(x => x.u.id)); toastErr(regroupSend(S, all, ships.map(x => x.u.id), dest)); picks.clear(); sendTo = null; sendPlace = null; pickScope = null; save(); return refresh(); } toastErr(sendFleet(S, ships.map(x => x.u.id), dest, { apart: apartSend })); apartSend = false; picks.clear(); sendTo = null; sendPlace = null; save(); return refresh(); }
+  if ((t = q('[data-papart]'))) { apartSend = !!t.checked; return refresh(); }
   if ((t = q('[data-ptogalaxy]'))) { const keep = new Map(picks), sys = placeOf(pickScope.place).sys; pickScope = { kind: 'galaxy', sys }; picks = keep; sendTo = null; gSel = sys; gMode = 'fleet'; return go('galaxy'); }
   if ((t = q('[data-watch]'))) return watchBattle(t.dataset.watch);
   if ((t = q('[data-gsys]'))) { gMode = 'system'; return refresh(); }
@@ -2024,7 +2064,7 @@ $('dAuto').onclick = () => { const d = design(); if (!d) return; const done = au
 $('dName').oninput = e => { const d = design(); if (d) { d.name = e.target.value; save(); } };
 $('dName').onblur = () => refresh();
 // a new design is a starship with a pair of beams (a structure when the ship slots are full); a copy keeps chips, paint and class
-$('dNew').onclick = () => { leaveOutline(); const full = shipDesignCount() >= MAX_SHIP_DESIGNS; const d = { id: uid('d'), name: 'New design', klass: full ? 'structure' : 'starship', modules: [], chips: full ? [] : [{ type: 'weapon', kind: 'weapon_energy', h: 1, role: null }], paint: { plating: 0, fittings: 0, seed: Math.floor(Math.random() * 1000) } }; S.designs.push(d); curDesign = d.id; selMod = null; chipsFor = null; save(); if (full) say(`${MAX_SHIP_DESIGNS} ship designs at most — this one is a district; delete a ship design to make room`); else refresh(); };
+$('dNew').onclick = () => { leaveOutline(); const full = shipDesignCount() >= MAX_SHIP_DESIGNS; const d = { id: uid('d'), name: 'New design', klass: full ? 'structure' : 'starship', modules: [], sysModels: full ? {} : newestSys(), chips: full ? [] : [{ type: 'weapon', kind: 'weapon_energy', h: 1, role: null, ...(newestModel(S, 'weapon_energy') ? { model: newestModel(S, 'weapon_energy').id } : {}) }], paint: { plating: 0, fittings: 0, seed: Math.floor(Math.random() * 1000) } }; S.designs.push(d); curDesign = d.id; selMod = null; chipsFor = null; save(); if (full) say(`${MAX_SHIP_DESIGNS} ship designs at most — this one is a district; delete a ship design to make room`); else refresh(); };
 $('dCopy').onclick = () => { const d = design(); if (!d) return; if ((d.klass || DS?.t.klass) !== 'structure' && shipDesignCount() >= MAX_SHIP_DESIGNS) return say(`${MAX_SHIP_DESIGNS} ship designs at most — delete one first (refits come later)`); leaveOutline(); const c = JSON.parse(JSON.stringify(d)); c.id = uid('d'); c.name = d.name + ' II'; for (const m of c.modules) m.id = uid('m'); S.designs.push(c); curDesign = c.id; selMod = null; chipsFor = null; save(); refresh(); };
 $('dDel').onclick = () => { const d = design(); if (!d || !confirm(`Delete the design "${d.name}"? What is already built stays.`)) return; leaveOutline(); S.designs = S.designs.filter(x => x.id !== d.id); curDesign = S.designs[0]?.id || null; selMod = null; chipsFor = null; save(); refresh(); };
 $('eEnd').onclick = () => {
@@ -2143,7 +2183,7 @@ function watchBattle(id, E = S) {                    // E: whose record (God mod
   const L = E.look || {}, hulls = {}, mine = E === S ? 'Your fleet' : `${E.name}'s fleet`;
   for (const m of b.mine) { const h = hullDef(m.design.hull); if (h && h.user) { const { user, ...rec } = h; hulls[h.id] = rec; } }
   const pa = { name: mine, style: L.style || styleChoices()[0].id, colA: L.colA || '#7fb3ff', colB: L.colB || '#ffb347', hulls, ships: b.mine.map(m => ({ design: m.design, keep: true, name: m.name, en0: m.en0, strain: m.strain || 0, cost: 0, seed: 1, locked: true })) };
-  const msg = { type: 'fight', a: planCode(pa), b: planCode(b.foe), seed: b.seed, techA: E.breakthroughs, techB: b.foeTech || [] };   // another empire's fleet brings its own tech (world.js)
+  const msg = { type: 'fight', a: planCode(pa), b: planCode(b.foe), seed: b.seed, techA: E.breakthroughs, techB: b.foeTech || [], modelsA: E.models || [], modelsB: b.foeModels || [] };   // and its components (2026-10-24)   // another empire's fleet brings its own tech (world.js)
   $('arenaWrap').hidden = false; $('shipInfo').hidden = true; $('arenaNote').textContent = `Battle at ${esc(sysOf(b.sys)?.name || '?')}, eon ${b.eon} — ${E === S ? 'your' : esc(E.name) + "'s"} ${plural(b.mine.length, 'ship')} against ${esc(b.foe.name)} — replaying…`;
   const fr = $('arenaFrame'); if (!fr.getAttribute('src') || fr.getAttribute('src') === 'about:blank') { arenaReady = false; fr.src = 'lab.html#arena'; }
   if (arenaReady) fr.contentWindow.postMessage(msg, '*'); else arenaPending = msg;

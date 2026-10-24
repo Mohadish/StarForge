@@ -59,7 +59,20 @@ const CSS = `
 .ce-sheet .row { display: flex; justify-content: space-between; gap: 8px; border-bottom: 1px dotted rgba(31,42,68,.9); padding: 1px 0 }
 .ce-sheet .row span { color: var(--muted, #9eb3d8) }
 .ce-sheet .warn { color: var(--bad, #ff7979); margin-top: 4px }
-.ce-sheet .sys { color: #6f83a8; font-size: 11px; margin-top: 6px }`;
+.ce-sheet .sys { color: #6f83a8; font-size: 11px; margin-top: 6px }
+.chipb.models::after { content: ' ▾'; opacity: .7 }
+.ce-tray .stack .newer { font-size: 11px; font-weight: 800; color: #ffb347 }
+.ce-tray .stack.auto.pick { cursor: pointer }
+.ce-tray .stack.auto.pick:hover { background: rgba(255,255,255,.07) }
+.ce-menu { position: fixed; z-index: 120; min-width: 280px; max-width: 400px; background: #0b1120; border: 1px solid var(--line, #1f2a44); border-radius: 10px; padding: 6px; box-shadow: 0 10px 28px rgba(0,0,0,.55); font-size: 12px; color: var(--fg, #e8f0ff) }
+.ce-menu .muted { color: var(--muted, #9eb3d8) }
+.ce-menu .hd { color: var(--muted, #9eb3d8); font-size: 11px; margin: 0 4px 4px }
+.ce-mi { display: flex; gap: 8px; align-items: center; padding: 4px 6px; border-radius: 6px; cursor: pointer }
+.ce-mi:hover, .ce-mi.on { background: rgba(255,255,255,.07) }
+.ce-mi small { color: var(--muted, #9eb3d8); margin-left: auto; white-space: nowrap; padding-left: 10px }
+.ce-mi .tag { font-size: 10px; color: var(--warn, #ffd26a); border: 1px solid currentColor; border-radius: 999px; padding: 0 5px }
+.ce-mdet { border-top: 1px solid var(--line, #1f2a44); margin-top: 4px; padding: 6px 4px 2px; line-height: 1.55 }
+.ce-mdet .r { display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px dotted rgba(31,42,68,.9) }`;
 let styled = false;
 const ensure = () => { if (styled) return; styled = true; const s = document.createElement('style'); s.textContent = CSS; document.head.appendChild(s); };
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -87,41 +100,66 @@ const DRONE_ROLES = ['standard', 'sniper', 'capital', 'antiarmor', 'antishield',
 // autoChips(group) → [{ label, sub, color, title }]: chips shown first in that group that are not stacks (the game's reactor, drive, weapons computer)
 // stackSub(stack, mods, ship) → text under a stack's name: what it gives the ship (the game: HP, dmg/s, capacity …)
 // gunsPerChip: how many guns a weapon chip stands for in the details' wording (2 here and in the Fleet Generator; the game says 1)
-export function createChipEditor({ palette, tray, info, sheet, dropZones = [] }, { onChange, extra = null, infoExtra = null, onInfoClick = null, labels = null, groupBy = null, groupOrder = [], openOnClick = false, onRender = null, autoChips = null, gunsPerChip = 2, stackSub = null } = {}) {
+export function createChipEditor({ palette, tray, info, sheet, dropZones = [] }, { onChange, extra = null, infoExtra = null, onInfoClick = null, labels = null, groupBy = null, groupOrder = [], openOnClick = false, onRender = null, autoChips = null, gunsPerChip = 2, stackSub = null, models = null, onAutoPick = null } = {}) {
   ensure(); tray.classList.add('ce-tray'); info.classList.add('ce-info'); sheet.classList.add('ce-sheet'); info.hidden = true;
   let stacks = [], sel = null, open = null, nextId = 1, ship = null;
   const LIST = { weapon: CHIPS.weapon, role: CHIPS.role, trait: [...CHIPS.trait, ...((extra && extra.trait) || [])] }, nameOf = (type, key) => (LIST[type] || []).find(c => c[0] === key)?.[1] || key;
   if (extra && extra.names) for (const t in LIST) LIST[t] = LIST[t].map(([k, l]) => [k, extra.names[k] || l]);   // a page's own names for some chips (the game calls "Fast" Thrusters)
+  // THE MODELS (2026-10-24): models(kind) → [the plain one (id null), …every model developed, the newest last] as { id, name, icon, line, detail }
+  // (the page's); a chip's kind of module (the "Fast" chip is the thrusters); a stack may carry one (s.model) — dragged in, it is the newest
+  const MK = { fast: 'thruster', fab: 'works' }, mkOf = k => MK[k] || k, listOf = kind => (models && models(kind)) || [];
+  const modelIn = (kind, id) => listOf(kind).find(m => m.id === (id ?? null)) || null, newestOf = key => { const l = listOf(mkOf(key)); return l.length > 1 ? l[l.length - 1].id : null; };
+  const stackIcon = s => { const m = modelIn(mkOf(s.kind), s.model); return m && listOf(mkOf(s.kind)).length > 1 ? m.icon || '' : ''; };
+  const newerOf = s => { const l = listOf(mkOf(s.kind)); if (l.length < 2 || l[l.length - 1].id === (s.model ?? null)) return ''; return `<span class="newer" title="a newer model exists: ${esc(l[l.length - 1].name)} — pick it in its details (new ships only: the ones built keep theirs)">⬆</span>`; };
   const emit = () => { render(); if (onChange) onChange(stacks); };
   palette.innerHTML = ['weapon', 'role', 'trait'].map(type => `<div class="ce-prow" data-prow="${type}"><span class="tiny">${(labels && labels[type]) || { weapon: 'Weapons', role: 'Roles', trait: 'Traits' }[type]}</span>${LIST[type].map(([k, l]) => `<span class="chipb ${type}" data-chip="${type}:${k}" style="--c:${CHIPC[k] || '#ffd26a'}" title="drag it into the tray (or onto a stack), or tap it">${l}</span>`).join('')}</div>`).join('');
-  const label = s => nameOf(s.type || (CHIPS.weapon.some(c => c[0] === s.kind) ? 'weapon' : 'trait'), s.kind);
+  const label = s => (s.model && modelIn(mkOf(s.kind), s.model)?.name) || nameOf(s.type || (CHIPS.weapon.some(c => c[0] === s.kind) ? 'weapon' : 'trait'), s.kind);
   const isWeapon = s => CHIPS.weapon.some(c => c[0] === s.kind);
   function render() {
     const subOf = s => { if (s.off) return '<small class="stat">hidden — left out of the ship</small>'; if (!stackSub) return ''; const t = stackSub(s, ship ? ship.ds.mods.filter(x => x.mod.src === s.id) : [], ship); return t ? `<small class="stat">${t}</small>` : ''; };
     // 👁 HIDES a stack (his ask, 2026-10-16): it stays here, dimmed, but is left out of the ship — to try setups without losing the chips
-    const chip = s => `<span class="stack ${s.id === sel ? 'sel' : ''}${s.off ? ' off' : ''}" data-stack="${s.id}" style="--c:${CHIPC[s.kind]}" title="double-click: its details and dials"><b>${label(s)}</b>${s.h > 1 ? `<i class="hh">×${s.h}</i>` : ''}${s.role ? `<small>${nameOf('role', s.role)}</small>` : ''}${subOf(s)}${s.caps && s.caps.length ? `<span class="tuned" title="breakthrough capsules on it">✦${s.caps.length}</span>` : ''}${s.dials && Object.keys(s.dials).length ? '<span class="tuned" title="its dials are turned">⚙</span>' : ''}<span class="btns"><button class="x" data-sopen="${s.id}" title="its details and dials">${open === s.id ? '▴' : '▾'}</button><button class="x" data-stackup="${s.id}" title="one more">+</button><button class="x" data-unstack="${s.id}" title="one off">−</button><button class="x eye" data-shide="${s.id}" title="${s.off ? 'show it: build it into the ship again' : 'hide it: keep it here, leave it out of the ship'}">👁</button></span></span>`;
+    const chip = s => `<span class="stack ${s.id === sel ? 'sel' : ''}${s.off ? ' off' : ''}" data-stack="${s.id}" style="--c:${CHIPC[s.kind]}" title="double-click: its details and dials">${stackIcon(s)}<b>${label(s)}</b>${newerOf(s)}${s.h > 1 ? `<i class="hh">×${s.h}</i>` : ''}${s.role ? `<small>${nameOf('role', s.role)}</small>` : ''}${subOf(s)}${s.caps && s.caps.length ? `<span class="tuned" title="breakthrough capsules on it">✦${s.caps.length}</span>` : ''}${s.dials && Object.keys(s.dials).length ? '<span class="tuned" title="its dials are turned">⚙</span>' : ''}<span class="btns"><button class="x" data-sopen="${s.id}" title="its details and dials">${open === s.id ? '▴' : '▾'}</button><button class="x" data-stackup="${s.id}" title="one more">+</button><button class="x" data-unstack="${s.id}" title="one off">−</button><button class="x eye" data-shide="${s.id}" title="${s.off ? 'show it: build it into the ship again' : 'hide it: keep it here, leave it out of the ship'}">👁</button></span></span>`;
     let html;
     if (groupBy) {                                     // in groups, each under its header, the groups in the order given; a group's AUTO chips (the ship's own systems, not added by hand) come first in it
       const by = new Map(); for (const s of stacks) { const g = groupBy(s); (by.get(g) || by.set(g, []).get(g)).push(s); }
       const names = [...groupOrder, ...[...by.keys()].filter(g => !groupOrder.includes(g))];
       html = names.map(g => {
         const autos = (autoChips && autoChips(g)) || [], list = by.get(g) || []; if (!autos.length && !list.length) return '';
-        return `<div class="ce-grp">${esc(g)}</div>` + autos.map(a => `<span class="stack auto" style="--c:${a.color || '#9eb3d8'}" title="${esc(a.title || '')}"><b>${esc(a.label)}</b>${a.sub ? `<small>${esc(a.sub)}</small>` : ''}</span>`).join('') + list.map(chip).join('');
+        return `<div class="ce-grp">${esc(g)}</div>` + autos.map(a => { const pick = a.kind && listOf(a.kind).length > 1; return `<span class="stack auto${pick ? ' pick' : ''}" style="--c:${a.color || '#9eb3d8'}" title="${esc(pick ? 'click: which model — new ships only; the ones built keep theirs' : a.title || '')}"${pick ? ` data-automenu="${a.kind}" data-autocur="${a.model || ''}"` : ''}>${a.icon || ''}<b>${esc(a.label)}</b>${pick ? ' ▾' : ''}${a.sub ? `<small>${esc(a.sub)}</small>` : ''}</span>`; }).join('') + list.map(chip).join('');
       }).join('');
     } else html = stacks.map(chip).join('');
     tray.innerHTML = html || '<span class="tiny">Empty. Tap or drag chips from above; drop a chip on a stack to pile it up; drop a role on a weapon to give it that role. Double-click a stack for its details.</span>';
     palette.querySelector('[data-prow="role"]')?.classList.toggle('off', !stacks.some(isWeapon));   // a role wants a weapon to sit on
+    for (const c of palette.querySelectorAll('[data-chip]')) { const [t, k] = c.dataset.chip.split(':'), has = t !== 'role' && listOf(mkOf(k)).length > 1; c.classList.toggle('models', has); c.title = has ? 'tap it: pick which model — or drag it in (the newest)' : 'drag it into the tray (or onto a stack), or tap it'; }
     renderInfo();
     if (onRender) onRender(open);
   }
-  function drop(type, key, onStack) {
-    const s = onStack != null ? stacks.find(x => x.id === onStack) : null;
+  // model: which model the new pile is (undefined: the newest — a drag); a chip dropped ON a pile adds one more of that pile's own
+  function drop(type, key, onStack, model) {
+    const s = onStack != null ? stacks.find(x => x.id === onStack) : null, md = model === undefined ? newestOf(key) : model;
     if (type === 'role') { const w = s && isWeapon(s) ? s : stacks.find(x => x.id === sel && isWeapon(x)) || stacks.filter(isWeapon).at(-1); if (w) { w.role = w.role === key ? null : key; sel = w.id; } }
     else if (s && s.kind === key) { s.h++; sel = s.id; }
-    else if (type === 'trait' && stacks.some(x => x.kind === key) && !s) { const x = stacks.find(x => x.kind === key); x.h++; sel = x.id; }
-    else { const n = { id: nextId++, type, kind: key, h: 1, role: null }; stacks.push(n); sel = n.id; }
+    else if (type === 'trait' && !s && stacks.some(x => x.kind === key && (x.model ?? null) === md)) { const x = stacks.find(x => x.kind === key && (x.model ?? null) === md); x.h++; sel = x.id; }
+    else { const n = { id: nextId++, type, kind: key, h: 1, role: null, ...(md ? { model: md } : {}) }; stacks.push(n); sel = n.id; }
     emit();
   }
+  // THE LIST OF MODELS (his ask, 2026-10-24): under the chip — the newest first, the plain one last; hover one for its numbers against the
+  // plain one, click to take it. onPick(id | null)
+  let menu = null;
+  const closeMenu = () => { if (menu) { menu.remove(); menu = null; } };
+  function openMenu(anchor, kind, what, onPick, current) {
+    closeMenu(); const list = listOf(kind).slice().reverse(); if (!list.length) return;
+    const at = Math.max(0, current === undefined ? 0 : list.findIndex(m => m.id === (current ?? null)));
+    menu = document.createElement('div'); menu.className = 'ce-menu';
+    menu.innerHTML = `<div class="hd">${esc(what)} — hover for its numbers, click to take it</div>` + list.map((m, i) => `<div class="ce-mi${i === at ? ' on' : ''}" data-mi="${i}">${m.icon || ''}<b>${esc(m.name)}</b>${i === 0 && m.id ? '<span class="tag">newest</span>' : ''}${current !== undefined && m.id === (current ?? null) ? '<span class="tag">fitted</span>' : ''}<small>${m.line || ''}</small></div>`).join('') + `<div class="ce-mdet">${list[at].detail || ''}</div>`;
+    document.body.appendChild(menu);
+    const r = anchor.getBoundingClientRect(), h = menu.offsetHeight, w = menu.offsetWidth;
+    menu.style.left = clamp(r.left, 4, Math.max(4, innerWidth - w - 4)) + 'px'; menu.style.top = (r.bottom + 4 + h > innerHeight ? Math.max(4, r.top - h - 4) : r.bottom + 4) + 'px';
+    menu.addEventListener('mouseover', e => { const it = e.target.closest('[data-mi]'); if (!it) return; for (const x of menu.querySelectorAll('.ce-mi')) x.classList.toggle('on', x === it); menu.querySelector('.ce-mdet').innerHTML = list[+it.dataset.mi].detail || ''; });
+    menu.addEventListener('click', e => { const it = e.target.closest('[data-mi]'); if (!it) return; const m = list[+it.dataset.mi]; closeMenu(); onPick(m.id); });
+  }
+  document.addEventListener('pointerdown', e => { if (menu && !menu.contains(e.target)) closeMenu(); }, true);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenu(); });
   { // drag a chip (or tap it)
     let drag = null, ghost = null;
     const under = (x, y) => { if (ghost) ghost.style.display = 'none'; const el = document.elementFromPoint(x, y); if (ghost) ghost.style.display = ''; return el; };
@@ -135,12 +173,13 @@ export function createChipEditor({ palette, tray, info, sheet, dropZones = [] },
     });
     const end = e => {
       if (!drag) return; const d = drag; drag = null; for (const s of tray.querySelectorAll('[data-stack]')) s.classList.remove('over'); tray.classList.remove('over'); if (ghost) { ghost.remove(); ghost = null; }
-      if (e.type === 'pointercancel') return; if (!d.moved) return drop(d.type, d.key, null);
+      if (e.type === 'pointercancel') return; if (!d.moved) return d.type !== 'role' && listOf(mkOf(d.key)).length > 1 ? openMenu(d.el, mkOf(d.key), `Which ${nameOf(d.type, d.key)}?`, id => drop(d.type, d.key, null, id)) : drop(d.type, d.key, null);   // a tap on a chip with models: the list
       const el = under(e.clientX, e.clientY), st = el?.closest?.('[data-stack]'); if (st && tray.contains(st)) return drop(d.type, d.key, +st.dataset.stack); if (inZone(el)) return drop(d.type, d.key, null);
     };
     document.addEventListener('pointerup', end); document.addEventListener('pointercancel', end);
   }
   tray.addEventListener('click', e => {
+    const am = e.target.closest('[data-automenu]'); if (am) { const kind = am.dataset.automenu; return openMenu(am, kind, `Which ${am.querySelector('b')?.textContent || kind}? (the design sizes it itself)`, id => { if (onAutoPick) onAutoPick(kind, id); }, am.dataset.autocur || null); }
     const up = e.target.closest('[data-stackup]'); if (up) { const s = stacks.find(x => x.id === +up.dataset.stackup); if (s) { s.h++; sel = s.id; } return emit(); }
     const hide = e.target.closest('[data-shide]'); if (hide) { const s = stacks.find(x => x.id === +hide.dataset.shide); if (s) { s.off = !s.off; if (!s.off) delete s.off; sel = s.id; } return emit(); }
     const u = e.target.closest('[data-unstack]'); if (u) { const s = stacks.find(x => x.id === +u.dataset.unstack); if (s) { s.h--; if (s.h <= 0) { stacks = stacks.filter(x => x !== s); if (open === s.id) open = null; } } return emit(); }
@@ -155,7 +194,7 @@ export function createChipEditor({ palette, tray, info, sheet, dropZones = [] },
     const s = stacks.find(x => x.id === open); if (!s) { info.hidden = true; info.innerHTML = ''; return; }
     info.hidden = false; info.style.setProperty('--c', CHIPC[s.kind]);
     const mods = ship ? ship.ds.mods.filter(x => x.mod.src === s.id) : [], t = ship && ship.t, dl = s.dials || {};
-    let html = `<div class="top"><b>${label(s)}${s.h > 1 ? ' ×' + s.h : ''}</b>`;
+    let html = `<div class="top">${stackIcon(s)}<b>${label(s)}${s.h > 1 ? ' ×' + s.h : ''}</b>${listOf(mkOf(s.kind)).length > 1 ? `<button class="x" data-smodel title="which model of it — new ships only; the ones built keep theirs">model ▾</button>` : ''}`;
     if (KINDS[s.kind]?.mount && s.kind !== 'hangar') {
       const p = PRESETS[s.role] || PRESETS.standard, base = { dmg: p.dmg, rof: p.rof, rng: p.rng, chg: 1 };
       html += `<span class="muted">${gunsPerChip * s.h} gun${gunsPerChip * s.h === 1 ? '' : 's'} · role</span><select data-srole>${['standard', ...CHIPS.role.map(c => c[0])].map(id => `<option value="${id}" ${(s.role || 'standard') === id ? 'selected' : ''}>${PRESETS[id].name}</option>`).join('')}</select><span class="muted">${esc(p.what)}</span><button class="x" data-sclose>✕</button></div>`;
@@ -195,6 +234,7 @@ export function createChipEditor({ palette, tray, info, sheet, dropZones = [] },
     const s = stacks.find(x => x.id === open); if (!s) return;
     if (onInfoClick && onInfoClick(e, s)) return emit();
     if (e.target.closest('[data-sclose]')) { open = null; return render(); }
+    const mb = e.target.closest('[data-smodel]'); if (mb) return openMenu(mb, mkOf(s.kind), `Which ${nameOf(s.type || 'trait', s.kind)}?`, id => { if (id) s.model = id; else delete s.model; emit(); }, s.model ?? null);
     if (e.target.closest('[data-sreset]')) { delete s.dials; return emit(); }
     const b = e.target.closest('[data-dial]'); if (!b) return;
     const [k, d] = b.dataset.dial.split(':'), dir = +d, p = PRESETS[s.role] || PRESETS.standard, base = { dmg: p.dmg, rof: p.rof, rng: p.rng, chg: 1, sz: 1 };

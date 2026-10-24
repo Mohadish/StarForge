@@ -33,14 +33,14 @@ export function applyAction(S, a) {
       const ships = S.ships.filter(u => !u.dest && u.design && u.design.id === a.design && place(u.at)?.sys === a.from).slice(0, a.n);
       if (!ships.length) return 'no such ships resting there';
       const to = a.toPlace || starOf(a.to); if (!to) return 'nowhere to go';
-      return sendFleet(S, ships.map(u => u.id), to);
+      return sendFleet(S, ships.map(u => u.id), to, { apart: !!a.apart });   // apart: each at its own pace (2026-10-24)
     }
     case 'sendmix': {                                // { type: 'sendmix', from: sysId, to: sysId, toPlace?, mix: [{ design, n }] }: ships of several designs leave as ONE fleet (one voyage, one arrival)
       const ships = [];
       for (const m of a.mix || []) ships.push(...S.ships.filter(u => !u.dest && u.design && u.design.id === m.design && place(u.at)?.sys === a.from && !ships.includes(u)).slice(0, m.n));
       if (!ships.length) return 'no such ships resting there';
       const to = a.toPlace || starOf(a.to); if (!to) return 'nowhere to go';
-      return sendFleet(S, ships.map(u => u.id), to);
+      return sendFleet(S, ships.map(u => u.id), to, { apart: !!a.apart });
     }
     case 'support': {                                // { type: 'support', design, place }: a resting ship of that design lands on the colony there (2026-10-24)
       const u = S.ships.find(x => !x.dest && x.design && x.design.id === a.design && x.at === a.place); if (!u) return 'no such ship there';
