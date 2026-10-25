@@ -39,6 +39,9 @@ button.on { background: rgba(95,227,208,.16); border-color: var(--accent) }
 <div class="tiny">Every style's sheet, cut: the whole pieces trimmed to their ink, panels and bands off the plating strip, and tiles of whole fittings layered. Devices are solid blocks in the strip's texture and CARDS — the whole greebles as flat pieces in space, their outline overhanging: flanges, fins, plates, pillars, discs. Devices: a technology as hardware, its level a colour (red → orange → yellow → green → blue → purple → violet → black with white outlines). Hover a device to turn it.</div>
 <div class="ctl">
   <label>Style <select id="style"></select></label>
+  <label>Mix with <select id="mix"><option value="">— one style —</option></select></label>
+  <label data-mixed hidden>Its tone <input type="color" id="toneA" value="#d6a46a" style="width:44px;height:32px;padding:0;border:0;background:none"></label>
+  <label data-mixed hidden>The other's <input type="color" id="toneB" value="#6aa8d6" style="width:44px;height:32px;padding:0;border:0;background:none"></label>
   <button id="tStock" class="on">The stock</button><button id="tIso">Buildings</button><button id="tDev">Devices</button><button id="tShow">Weapons showcase</button>
   <label data-iso hidden>Building <select id="kind"><option value="all">all six</option></select></label>
   <label data-dev hidden>Technology <select id="fam"><option value="all">all of them</option></select></label>
@@ -53,13 +56,13 @@ button.on { background: rgba(95,227,208,.16); border-color: var(--accent) }
 <div id="note" class="tiny"></div>
 <script type="module">
 import { mountNav } from './src/eon/nav.js';
-import { stockOf, pieceCanvas, drawBuilding, ARCHETYPES, DEVICES, drawDevice, iconBadge, styleIds, tilesOf } from './src/eon/greeblelab.js';
+import { stockOf, pieceCanvas, drawBuilding, ARCHETYPES, DEVICES, drawDevice, iconBadge, styleIds, tilesOf, mixStock } from './src/eon/greeblelab.js';
 import { LEVEL_COLORS, levelColor } from './src/eon/techicons.js';
 import { STYLES } from './src/eon/styles.js';
 mountNav('greeble');
 const $ = id => document.getElementById(id);
 let tab = 'stock', stock = null;
-const ids = styleIds(); $('style').innerHTML = ids.map(id => `<option value="${id}">${STYLES[id].name}</option>`).join('');
+const ids = styleIds(); $('style').innerHTML = ids.map(id => `<option value="${id}">${STYLES[id].name}</option>`).join(''); $('mix').innerHTML += ids.map(id => `<option value="${id}">${STYLES[id].name}</option>`).join('');
 $('kind').innerHTML += Object.entries(ARCHETYPES).map(([k, a]) => `<option value="${k}">${a.name}</option>`).join('');
 $('fam').innerHTML += Object.entries(DEVICES).map(([k, a]) => `<option value="${k}">${a.name}</option>`).join('');
 const LEVEL_NAME = ['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'violet', 'black'];
@@ -71,7 +74,8 @@ const lookFor = (fam, seed) => { const L = LOOKS[fam]; return L ? L[(seed - 1) %
 function setTab(t) { tab = t; for (const [b, k] of [['tStock', 'stock'], ['tIso', 'iso'], ['tDev', 'dev'], ['tShow', 'show']]) $(b).classList.toggle('on', k === t); for (const el of document.querySelectorAll('[data-iso], [data-dev]')) el.hidden = !(t === 'iso' && el.hasAttribute('data-iso')) && !(t === 'dev' && el.hasAttribute('data-dev')); }
 async function show() {
   $('out').innerHTML = '<div class="tiny">cutting…</div>';
-  stock = await stockOf($('style').value);
+  const mixId = $('mix').value && $('mix').value !== $('style').value ? $('mix').value : null; for (const el of document.querySelectorAll('[data-mixed]')) el.hidden = !mixId;
+  stock = mixId ? mixStock([await stockOf($('style').value), await stockOf(mixId)], [$('toneA').value, $('toneB').value]) : await stockOf($('style').value);   // MIXING (his idea): both styles' pieces at random, each in its own tone
   if (tab === 'stock') {
     const by = {}; for (const p of stock.pieces) (by[p.kind] = by[p.kind] || []).push(p);
     $('out').innerHTML = Object.keys(KIND_NAME).filter(k => by[k]).map(k => `<h2>${KIND_NAME[k]} · ${by[k].length}</h2><div class="grid" data-k="${k}"></div>`).join('');
@@ -79,7 +83,7 @@ async function show() {
       for (const p of list) { const d = document.createElement('div'); d.className = 'pc'; const cv = pieceCanvas(p, Math.min(1, 150 / p.w, 110 / p.h)); d.append(cv); const s = document.createElement('span'); s.textContent = `${p.w} × ${p.h}`; d.append(s); host.append(d); } }
     const tl = tilesOf(stock); $('out').insertAdjacentHTML('beforeend', `<h2>Tiles (whole fittings layered over a strip panel) · ${tl.length}</h2><div class="grid" data-k="tile"></div>`);
     const th = $('out').querySelector('[data-k="tile"]'); for (const t0 of tl) { const d = document.createElement('div'); d.className = 'pc'; const c2 = document.createElement('canvas'); c2.width = 128; c2.height = 128; c2.getContext('2d').drawImage(t0, 0, 0, 128, 128); d.append(c2); th.append(d); }
-    $('note').textContent = `${stock.pieces.length} pieces and ${tl.length} tiles in ${STYLES[stock.style].name}.`;
+    $('note').textContent = `${stock.pieces.length} pieces and ${tl.length} tiles in ${stock.name || STYLES[stock.style].name}.`;
   } else if (tab === 'iso') drawIso(); else if (tab === 'show') await drawShow(); else await drawDev();
 }
 function drawIso() {
@@ -89,7 +93,7 @@ function drawIso() {
   for (const [k, s, yaw0] of list) {
     const d = document.createElement('div'); d.className = 'cell'; let cv = null;
     try { cv = drawBuilding(k, stock, { seed: s, tint: $('tint').checked, yaw: yaw0 }); d.append(cv); } catch (e) { d.textContent = e.message; console.error(e); }
-    const b = document.createElement('b'); b.textContent = ARCHETYPES[k].name; const sp = document.createElement('span'); sp.textContent = `${STYLES[stock.style].name} · seed ${s}${angles ? ` · turned ${Math.round(yaw0 * 180 / Math.PI)}°` : ''}`; d.append(b, sp); host.append(d);
+    const b = document.createElement('b'); b.textContent = ARCHETYPES[k].name; const sp = document.createElement('span'); sp.textContent = `${stock.name || (STYLES[stock.style] || {}).name} · seed ${s}${angles ? ` · turned ${Math.round(yaw0 * 180 / Math.PI)}°` : ''}`; d.append(b, sp); host.append(d);
     if (cv) d.onmouseenter = () => { let yaw = yaw0; clearInterval(spin); spin = setInterval(() => { yaw += 0.06; const n = drawBuilding(k, stock, { seed: s, tint: $('tint').checked, yaw }), g = cv.getContext('2d'); g.clearRect(0, 0, cv.width, cv.height); g.drawImage(n, (cv.width - n.width) / 2, (cv.height - n.height) / 2); }, 50); d.onmouseleave = () => clearInterval(spin); };
   }
   $('note').textContent = 'Walls: the plating strip\'s panels · roofs: the top-down pieces · cylinders: a band wrapped round, a mount ring on top · glass and cores drawn.';
@@ -152,14 +156,15 @@ async function drawShow() {
   $('note').textContent = 'Weapon types by what they do — the long reach, the heavy hitters, the rapid fire — each in a different style and level.';
 }
 $('tShow').onclick = () => { setTab('show'); show(); };
-$('style').onchange = show; $('tStock').onclick = () => { setTab('stock'); show(); }; $('tIso').onclick = () => { setTab('iso'); show(); }; $('tDev').onclick = () => { setTab('dev'); show(); };
+$('style').onchange = show; $('mix').onchange = show; $('toneA').onchange = show; $('toneB').onchange = show; $('tStock').onclick = () => { setTab('stock'); show(); }; $('tIso').onclick = () => { setTab('iso'); show(); }; $('tDev').onclick = () => { setTab('dev'); show(); };
 $('kind').onchange = drawIso; $('seed').onchange = () => tab === 'iso' ? drawIso() : drawDev(); $('tint').onchange = () => tab === 'iso' ? drawIso() : 0;
 $('fam').onchange = drawDev; $('level').onchange = drawDev; $('icon').onchange = drawDev;
 $('again').onclick = () => { $('seed').value = (+$('seed').value || 1) + (tab === 'iso' ? 6 : 1); tab === 'iso' ? drawIso() : drawDev(); };
 $('cat').onclick = async () => { const all = []; for (const id of ids) { const s = await stockOf(id); all.push(...s.pieces.map(({ _cv, ...p }) => p)); } window.__catalog = all; try { await navigator.clipboard.writeText(JSON.stringify(all)); $('note').textContent = `${all.length} pieces copied.`; } catch { $('note').textContent = `${all.length} pieces — in window.__catalog (the clipboard was refused).`; } };
 // ?style=crystal1&tab=iso|dev&kind=all&fam=reactor&level=5&seed=3&sheet=angles — straight to a view (for a picture taken without hands)
 { const q = new URLSearchParams(location.search); if (q.get('style') && ids.includes(q.get('style'))) $('style').value = q.get('style');
-  for (const k of ['kind', 'fam', 'level', 'seed']) if (q.get(k)) $(k).value = q.get(k);
+  for (const k of ['kind', 'fam', 'level', 'seed', 'mix']) if (q.get(k)) $(k).value = q.get(k);
+  for (const k of ['toneA', 'toneB']) if (q.get(k)) $(k).value = '#' + q.get(k).replace('#', '');
   setTab(['iso', 'dev', 'show'].includes(q.get('tab')) ? q.get('tab') : 'stock'); }
 show().then(() => { document.body.dataset.ready = '1'; });
 </script>

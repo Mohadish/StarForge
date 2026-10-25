@@ -37,11 +37,16 @@ export const ICONS = {
   growth:   C(8, 7, 3) + P('M3 20c0-4 2.5-6.5 5-6.5s5 2.5 5 6.5M17 20V9M14 12l3-3 3 3'),
   emp:      C(12, 12, 9.5, ' stroke-dasharray="3 2.5"') + P('M13 5.5l-3.6 6h3.2l-1.4 6.5 4-7.2h-3.3z', S),
   heatsink: P('M5 20V8M9 20V5M13 20V8M17 20V5M3 20h17'),
+  // the works' technologies (his ask, 2026-10-25: "we're gonna need a factory icon"): manufacturing, mining, the hands' efficiency
+  factory:  P('M2 21V11l5 3v-3l5 3v-3l5 3V4h3v17z', F) + P('M6 18h2M11 18h2M16 18h2'),
+  mining:   P('M4 21l9.5-9.5') + P('M13 3.5c3.2.2 6.2 2.2 7.5 5.2-2.1-.9-4.3-1.2-6.4-.8l-2.8 2.8-2-2 2.8-2.8c.4-2.1.1-4.3-.8-6.4z', F),
+  labor:    P('M3 16.5h18', ' stroke-width="2.2"') + P('M5 16a7 7 0 0 1 14 0z', F) + P('M12 9V6.5M9.5 9.5l-1-1.8M14.5 9.5l1-1.8'),
 };
 export const ICON_COLOR = {
   damage: '#ff6b5b', range: '#ffb347', rate: '#ffd84f', accuracy: '#ffd84f', shield: '#6db7ff', recovery: '#6db7ff', drain: '#b06bff', armor: '#c9a27a', pierce: '#ff9f43',
   hull: '#c9cfdb', speed: '#5fe0b4', reach: '#7fd8ff', evasion: '#5fe0b4', power: '#ffd84f', storage: '#ffd84f', sensors: '#7fd8ff', computing: '#4fa3ff',
   food: '#8fd16a', homes: '#f5a3c7', works: '#ffb347', labs: '#4fa3ff', cold: '#bfe6ff', heat: '#ff7a59', radiation: '#d7ff4f', water: '#4fa3ff', cost: '#ffd26a', upkeep: '#c9cfdb', growth: '#8fd16a', emp: '#b06bff', heatsink: '#ff7a59',
+  factory: '#ffb347', mining: '#c9a27a', labor: '#ffd26a',
 };
 export function icon(name, { color = ICON_COLOR[name] || 'currentColor', size = 18, title = '' } = {}) {
   const body = ICONS[name]; if (!body) return '';

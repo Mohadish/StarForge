@@ -62,7 +62,18 @@ export async function stockOf(styleId) {
 // a piece on its own canvas (tinted later by the caller)
 export function pieceCanvas(p, scale = 1) {
   const S = SHEETS.get(p.url); const cv = document.createElement('canvas'); cv.width = Math.max(1, Math.round(p.w * scale)); cv.height = Math.max(1, Math.round(p.h * scale));
-  cv.getContext('2d').drawImage(S.img, p.x, p.y, p.w, p.h, 0, 0, cv.width, cv.height); return cv;
+  cv.getContext('2d').drawImage(S.img, p.x, p.y, p.w, p.h, 0, 0, cv.width, cv.height); return p.tone ? toned(cv, p.tone) : cv;
+}
+// a grey piece in a colour (the 'color' blend: the art's light and dark stay, the colour is the tone's) — its alpha kept
+export function toned(cv, tone, a = 0.62) {
+  const o = document.createElement('canvas'); o.width = cv.width; o.height = cv.height; const g = o.getContext('2d');
+  g.drawImage(cv, 0, 0); g.globalCompositeOperation = 'color'; g.globalAlpha = a; g.fillStyle = tone; g.fillRect(0, 0, o.width, o.height); g.globalAlpha = 1; g.globalCompositeOperation = 'destination-in'; g.drawImage(cv, 0, 0); return o;
+}
+// MIXING STYLES (his idea, 2026-10-25: "mix two styles together… a random assignment of both ribbons and greebles… each style its own
+// colour, a multi-tone"): both stocks as one, every piece keeping its own style's tone — no new art
+export function mixStock(stocks, tones = []) {
+  const pieces = stocks.flatMap((st, i) => st.pieces.map(p => ({ ...p, _cv: undefined, tone: tones[i] || null })));
+  return { style: stocks.map(x => x.style).join('+'), name: stocks.map(x => x.name).join(' + '), pieces, mixed: stocks.length > 1 };
 }
 
 // ---------------------------------------------------------------- THE ISOMETRIC LAB
@@ -120,7 +131,8 @@ function stockSet(styleStock) {
   if (styleStock._set) return styleStock._set;
   const by = k => styleStock.pieces.filter(p => p.kind === k), cvOf = p => p._cv || (p._cv = pieceCanvas(p)), st = STYLES[styleStock.style] || {};
   const panel = by('panel').map(cvOf), band = (by('band').length ? by('band') : by('panel')).map(cvOf), fitting = by('fitting').map(cvOf), engine = by('engine').map(cvOf), mount = by('mount').map(cvOf);
-  const set = { panel, band, fitting, engine: engine.length ? engine : fitting, mount: mount.length ? mount : fitting, downQ: st.flipEngines ? 1 : 3 };   // nozzles point left on most sheets: a quarter turn back puts them down
+  const set = { panel, band, fitting, engine: engine.length ? engine : fitting, mount: mount.length ? mount : fitting };
+  set.engDown = by('engine').length ? by('engine').map(p => rotq(cvOf(p), (STYLES[p.style] || st).flipEngines ? 1 : 3)) : fitting;   // nozzles point left on most sheets: a quarter turn back puts them down — each by its own style (a mix has two)
   set.tile = makeTiles(set, rnd('tiles:' + styleStock.style), 8);
   Object.assign(set, { roof: fitting, wall: [...panel, ...set.tile], ring: set.mount, bit: set.tile });   // the buildings' names for them
   return (styleStock._set = set);
@@ -132,7 +144,7 @@ function builder(R, st) {
   const pick = list => list && list.length ? list[Math.floor(R() * list.length)] : null, B = [];
   const f = {
     B, R, st, v: (a, b) => a + (b - a) * R(), pick, roof: () => pick(st.roof), wall: () => pick(st.wall), band: () => pick(st.band), ring: () => pick(st.ring), bit: () => pick(st.bit),
-    fit: () => pick(st.fitting), eng: () => pick(st.engine), mount: () => pick(st.mount), tile: () => pick(st.tile), panel: () => pick(st.panel), downQ: st.downQ,
+    fit: () => pick(st.fitting), eng: () => pick(st.engine), engDown: () => pick(st.engDown), mount: () => pick(st.mount), tile: () => pick(st.tile), panel: () => pick(st.panel),
     box: (x, y, z, w, d, h, o = {}) => B.push({ t: 'box', x, y, z, w, d, h, roof: o.roof === undefined ? f.roof() : o.roof, wall: o.wall || f.wall(), ...o }),
     cyl: (x, y, z, r, h, o = {}) => B.push({ t: 'cyl', x, y, z, r, h, band: o.band || f.band(), cap: o.cap === undefined ? f.ring() : o.cap, ...o }),
     dome: (x, y, z, r, o = {}) => B.push({ t: 'dome', x, y, z, r, glass: true, ...o }),
@@ -275,7 +287,8 @@ export function renderSolids(B, o = {}) {
       let n = unit([u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]), [na, nb] = rot(n[0], n[1]), nz = n[2];
       if (na + nb + nz * 1.4 < 0) { na = -na; nb = -nb; nz = -nz; }                 // two-sided: the side we see
       const lit = (nb - na) / Math.SQRT2 * 0.8 + nz * 0.6, k = Math.max(0, Math.min(0.62, 0.3 - 0.26 * lit + (s.dim || 0)));
-      g.save(); g.setTransform(...curT(g, [ax / img.width, ay / img.width, bx / img.height, by / img.height, TL[0], TL[1]])); g.drawImage(shaded(img, k), 0, 0); g.restore();
+      const [sx, sy, sw, sh] = s.src || [0, 0, img.width, img.height];
+      g.save(); g.setTransform(...curT(g, [ax / sw, ay / sw, bx / sh, by / sh, TL[0], TL[1]])); g.drawImage(shaded(img, k), sx, sy, sw, sh, 0, 0, sw, sh); g.restore();
     } else if (s.t === 'ring') {
       const [cx, cy] = pr(s.x, s.y, s.z), rx = s.r * Math.SQRT2 * C30 * U, ry = s.r * Math.SQRT2 * S30 * U;
       glowStroke(() => { g.beginPath(); g.ellipse(cx, cy, rx, ry, 0, 0, 7); }, 2.2);
@@ -307,7 +320,7 @@ function buildingRecipe(kind, f) {
   if (kind === 'generator') {
     const P = plinth(v(3.8, 4.6), v(3.6, 4.4), v(0.35, 0.5));
     const x = PARTS.body[f.pick(['cage', 'column', 'stack'])](f, { z: P.z, r: 1.5 }); PARTS.top.core(f, x);
-    const img = rotq(f.eng(), f.downQ); for (const [px, py] of [[-1.45, -1.45], [1.45, 1.45]]) f.cross(px, py, P.z + 0.6, 1.2, img, { byH: true, a: Math.PI / 4 });   // engines standing on two corners
+    const img = f.engDown(); for (const [px, py] of [[-1.45, -1.45], [1.45, 1.45]]) f.cross(px, py, P.z + 0.6, 1.2, img, { byH: true, a: Math.PI / 4 });   // engines standing on two corners
     for (const [px, py] of [[1.45, -1.45], [-1.45, 1.45]]) at(px, py, () => { const r = 0.35, h = v(0.7, 1.1); cyl(0, 0, P.z, r, h, { glowRings: [0.5] }); fins(f, P.z + h / 2, r, h * 0.9, 5, 'plates'); light(0, 0, P.z + h + 0.05, 0.08); });   // capacitors
   } else if (kind === 'shield') {
     const P = plinth(v(3.2, 3.8), v(3.2, 3.8), 0.4), h = v(2.0, 2.8), r = 0.45; cyl(0, 0, P.z, r, h, { glowRings: [0.3, 0.7] }); fins(f, P.z + h * 0.45, r, h * 0.8, 4, 'radial');
@@ -343,7 +356,7 @@ function centre(B) {
 export function drawBuilding(kind, styleStock, { seed = 1, U = 34, tint = true, yaw = 0 } = {}) {
   const A = ARCHETYPES[kind] || ARCHETYPES.generator, f = builder(rnd(kind + ':' + seed + ':' + styleStock.style), stockSet(styleStock));
   buildingRecipe(kind, f);
-  return renderSolids(centre(f.B), { U, yaw, glow: A.glow, glass: A.glow, wash: tint ? A.tint : null, washA: 0.55, seed });
+  return renderSolids(centre(f.B), { U, yaw, glow: A.glow, glass: A.glow, wash: tint ? A.tint : null, washA: styleStock.mixed ? 0.18 : 0.55, seed });   // a mix keeps its two tones under a lighter wash
 }
 
 // THE DEVICES (his ask, 2026-10-24: "look at this piece of hardware I've just designed — it represents this advancement… in a cool,
@@ -361,6 +374,10 @@ export const DEVICES = {
   sensors:  { name: 'Sensors', icon: 'sensors' },
   drones:   { name: 'Drone bay', icon: 'evasion' },
   drone:    { name: 'Drone', icon: 'evasion', craft: true },
+  works:    { name: 'Factory (manufacturing)', icon: 'factory' },
+  mining:   { name: 'Mining rig', icon: 'mining' },
+  labor:    { name: 'Efficient works (labour)', icon: 'labor' },
+  farms:    { name: 'Farms', icon: 'food', farm: true },
   beam:     { name: 'Energy weapon', icon: 'damage', weapon: true },
   gun:      { name: 'Kinetic gun', icon: 'pierce', weapon: true },
   missile:  { name: 'Missile pod', icon: 'damage', weapon: true },
@@ -409,7 +426,7 @@ const PARTS = {
   base: {
     plinth(f) { const w = f.v(2.0, 2.7), d = f.v(1.5, 2.3), h = f.v(0.22, 0.38); f.box(-w / 2, -d / 2, 0, w, d, h, { roof: f.tile(), strip: true }); flanges(f, w, d, h * 0.6, w >= d ? 'x' : 'y', h * f.v(1.4, 2.2)); return { z: h, r: Math.min(w, d) / 2 }; },
     drum(f) { const r = f.v(1.0, 1.35), h = f.v(0.28, 0.45); f.cyl(0, 0, 0, r, h, { r2: r * 0.88, cap: null }); fins(f, h * 0.55, r * 0.9, h * 1.5, 6 + Math.floor(f.R() * 3), 'radial'); f.disc(0, 0, h + 0.01, r * 0.92, f.mount()); return { z: h, r: r * 0.85 }; },
-    pylons(f) { const s = f.v(0.8, 1.1), ph = f.v(0.22, 0.32), lh = f.v(0.8, 1.25), img = rotq(f.eng(), f.downQ); f.box(-s * 1.22, -s * 1.22, 0, s * 2.44, s * 2.44, ph, { roof: f.tile(), strip: true }); for (const [x, y] of [[-s, -s], [s, -s], [s, s], [-s, s]]) f.cross(x, y, ph + lh / 2, lh, img, { byH: true, a: Math.PI / 4 }); return { z: ph, r: s * 0.72 }; },   // four engines standing on the corners, exhaust down on the plinth; the body rises between them
+    pylons(f) { const s = f.v(0.8, 1.1), ph = f.v(0.22, 0.32), lh = f.v(0.8, 1.25), img = f.engDown(); f.box(-s * 1.22, -s * 1.22, 0, s * 2.44, s * 2.44, ph, { roof: f.tile(), strip: true }); for (const [x, y] of [[-s, -s], [s, -s], [s, s], [-s, s]]) f.cross(x, y, ph + lh / 2, lh, img, { byH: true, a: Math.PI / 4 }); return { z: ph, r: s * 0.72 }; },   // four engines standing on the corners, exhaust down on the plinth; the body rises between them
     nozzle(f) { const r = f.v(0.9, 1.15), h = f.v(0.6, 0.9); f.cyl(0, 0, 0, r, h, { r2: r * 0.6, glowRings: [0.15], cap: null }); fins(f, h / 2, r * 0.8, h * 1.25, 4, 'radial'); return { z: h, r: r * 0.6 }; },
   },
   body: {
@@ -437,6 +454,7 @@ const PARTS = {
     antennae(f, x) { const n = 2 + Math.floor(f.R() * 2); for (let i = 0; i < n; i++) { const h = f.v(0.7, 1.3), px = f.v(-x.r * 0.6, x.r * 0.6), py = f.v(-x.r * 0.6, x.r * 0.6); f.cross(px, py, x.z + h / 2, h, rotq(f.fit(), 1), { byH: true, a: f.R() * Math.PI }); f.light(px, py, x.z + h + 0.03, 0.06); } return x; },
     plates(f, x) { let z = x.z; for (let i = 0; i < 3; i++) { const s = x.r * 2 * (1.15 - i * 0.22), a = f.R() * Math.PI; f.card([0, 0, z + 0.03], [Math.cos(a), Math.sin(a), 0], [-Math.sin(a), Math.cos(a), 0], s, f.fit()); z += 0.12; } return { z, r: x.r }; },
     swarm(f, x) { for (let k = 0; k < 3; k++) drone(f, f.v(-x.r, x.r), f.v(-x.r, x.r), x.z + f.v(0.6, 1.4), f.v(0.75, 1.05)); return x; },
+    chimneys(f, x) { const n = 2 + Math.floor(f.R() * 2); for (let i = 0; i < n; i++) { const px = (i - (n - 1) / 2) * Math.max(0.35, x.r * 0.55), h = f.v(0.8, 1.4); f.cyl(px, 0, x.z, 0.17, h, { smoke: true }); fins(f, x.z + h * 0.35, 0.17, h * 0.45, 4, 'radial'); } return x; },
     none(f, x) { return x; },
   },
 };
@@ -495,6 +513,27 @@ function weaponRecipe(fam, f, L) {
   if (L.trait === 'auto') f.card([tip - 0.3, 0, bz], [0, 1, 0], [0, 0, 1], [cs * 0.9, cs * 0.9], ring);   // the rotary's front ring
   f.B.recipe = `mount + ${['block', 'drum', 'H'][kind]} + ${n > 1 ? n + ' barrels' : 'a barrel'}${L.trait ? ' · ' + L.trait : ''}`;
 }
+// ARMOUR (his design, 2026-10-25: "an arc — say 30 degrees — extruded, given a shell; the outer rim is what you see; multiple layers,
+// offset; the outer one tiley, the middle ones the greebles with intricate details"): curved plates, each a strip of cards round an
+// arc (one picture sliced along it), a rim on top; the layers stepped back, each a little wider, taller and turned — so they peek out
+function shell(f, R, a0, a1, z0, h, img, rimImg, rim = 0.08) {
+  if (!img) return; const n = Math.max(5, Math.round((a1 - a0) / 0.06)), cx = -R;   // the arc's centre behind the plate: the plate sits about the origin
+  for (let i = 0; i < n; i++) {
+    const t0 = a0 + (a1 - a0) * i / n, t1 = a0 + (a1 - a0) * (i + 1) / n, p0 = [cx + R * Math.cos(t0), R * Math.sin(t0)], p1 = [cx + R * Math.cos(t1), R * Math.sin(t1)];
+    f.B.push({ t: 'card', c: [(p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2, z0 + h / 2], u: [(p1[0] - p0[0]) / 2, (p1[1] - p0[1]) / 2, 0], v: [0, 0, h / 2], img, src: [img.width * i / n, 0, img.width / n, img.height] });
+    if (rimImg) { const tm = (t0 + t1) / 2, rc = R - rim / 2, c = [cx + rc * Math.cos(tm), rc * Math.sin(tm), z0 + h]; f.B.push({ t: 'card', c, u: [(p1[0] - p0[0]) / 2, (p1[1] - p0[1]) / 2, 0], v: [Math.cos(tm) * rim / 2, Math.sin(tm) * rim / 2, 0], img: rimImg, src: [rimImg.width * i / n, 0, rimImg.width / n, rimImg.height * 0.3] }); }   // the rim: the plate's thickness, seen from above
+  }
+}
+function armorRecipe(f) {
+  const { light, v, R } = f, n = 3 + (R() < 0.45 ? 1 : 0), Rr = v(2.4, 3.0), span = v(0.62, 0.82), h0 = v(1.0, 1.3), rimImg = f.band();
+  for (let i = n - 1; i >= 0; i--) {                                                     // the innermost first (they sit behind)
+    const r = Rr - i * 0.24, off = (i % 2 ? 1 : -1) * v(0.02, 0.07) * Math.min(1, i), sp = span * (1 + 0.14 * i), h = h0 * (1 + 0.08 * i), z0 = 0.1 - 0.03 * i;
+    shell(f, r, -sp / 2 + off, sp / 2 + off, z0, h, i === 0 ? f.tile() : f.fit(), rimImg);   // the outer plate in tiles; the inner ones the greebles, their outline the detail
+  }
+  for (const a of [-span * 0.4, span * 0.4]) for (const z of [0.25, h0 - 0.1]) light(-Rr + Rr * Math.cos(a) + 0.04, Rr * Math.sin(a), z, 0.05);   // the bolts, in the level's colour
+  f.cyl(-0.55, 0, 0, 0.45, 0.1, { cap: null });                                          // a foot under it
+  f.B.recipe = `${n} curved plates`;
+}
 // A DRONE CRAFT (his ask: "create the drone itself out of the greebles"): a slab body in the strip's texture with greeble flanges and a
 // greeble on its back, cross-bars out to ring rotors glowing underneath — a STANDARD one, a HEAVY gunship (bigger, a gun slung under),
 // a LEAN scout (long, two rotors, a tail fin), or a SWARM of the small ones
@@ -517,7 +556,10 @@ function droneRecipe(f, L) {
 // each technology leans to some parts (picked by the seed — the same technology comes out in many shapes)
 const PLAN = {
   shield:   { base: ['drum', 'plinth', 'pylons'], body: ['column', 'stack', 'cage'], top: ['emitter', 'emitter', 'dome'] },
-  armor:    { base: ['plinth', 'drum', 'plinth'], body: ['H', 'tower', 'H2'], top: ['none', 'plates', 'antennae'] },
+  // the works (the old armour's look was a factory — his call): blocks with flanges, chimneys; a rig of engines and a cage; a busy hall
+  works:    { base: ['plinth', 'plinth', 'drum'], body: ['H', 'tower', 'H2'], top: ['chimneys', 'chimneys', 'antennae'] },
+  mining:   { base: ['pylons', 'plinth'], body: ['cage', 'tower'], top: ['spire', 'chimneys'] },
+  labor:    { base: ['plinth', 'drum'], body: ['H2', 'tower', 'H'], top: ['chimneys', 'plates', 'antennae'] },
   reactor:  { base: ['drum', 'plinth', 'pylons'], body: ['cage', 'column', 'stack'], top: ['core', 'emitter', 'core'] },
   drive:    { base: ['pylons', 'nozzle', 'nozzle'], body: ['column', 'stack', 'H'], top: ['spire', 'core', 'none'] },
   thruster: { base: ['nozzle', 'pylons'], body: ['stack', 'column', 'cage'], top: ['none', 'core', 'spire'] },
@@ -527,6 +569,8 @@ const PLAN = {
 };
 function deviceRecipe(fam, f, look) {
   const { box, cyl, dome, core, light, v, R } = f, D = DEVICES[fam] || {}, P = PLAN[fam];
+  if (fam === 'armor') { armorRecipe(f); return; }
+  if (D.farm) { buildingRecipe('farm', f); centre(f.B); f.B.recipe = 'fields, glasshouses, a silo'; return; }   // the building's farm (his call: "way, way nicer")
   if (P) {
     const pick = l => l[Math.floor(R() * l.length)], b = pick(P.base), y = pick(P.body), t = pick(P.top);
     let x = PARTS.base[b](f); x = PARTS.body[y](f, x); PARTS.top[t](f, x);
@@ -545,7 +589,8 @@ export function drawDevice(fam, styleStock, { seed = 1, level = 3, yaw = 0, U = 
   deviceRecipe(fam, f, look);
   if (!U) U = Math.min(64, width / (2 * bounds(f.B).rho * Math.SQRT2 * C30));   // every device as wide as the frame (a long gun is not a speck)
   const glow = levelColor(level), farm = DEVICES[fam] && DEVICES[fam].farm;
-  if (DEVICES[fam] && DEVICES[fam].weapon) yaw -= 0.6;   // a weapon from three quarters: its side, the greebles round the barrels
+  if (DEVICES[fam] && DEVICES[fam].weapon) yaw -= 0.6;
+  if (fam === 'armor') yaw += 0.42;   // armour faces you from three quarters: its convex face, its layers stepping back   // a weapon from three quarters: its side, the greebles round the barrels
   const cv = renderSolids(f.B, { U, yaw, glow, light: glow || '#ffffff', glass: farm ? '#b6f08a' : glow || '#e6f0ff', wash: glow && !farm ? glow : null, washA: 0.12, seed });
   cv.recipe = f.B.recipe || ''; return cv;   // which parts it was built of (the grammar)
 }
