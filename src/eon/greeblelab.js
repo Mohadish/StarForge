@@ -8,7 +8,9 @@
 //   drawn from above — on a roof they read right), cylinders wrapped in a band and capped with a mount ring, domes of glass, a glowing
 //   core; shaded per face and washed in a colour. A building is a few blocks laid by a seeded recipe (generator, shield, farm, works,
 //   lab, homes). A first try — to see whether the style survives the turn to isometric.
-import { STYLES } from './styles.js';
+import { STYLES, loadStyle } from './styles.js';
+import { hullOf, hullsFor, inside, bboxOf } from './hull.js';
+import { paintHull, recipeFor } from './paint.js';
 import { levelColor, icon as ticon, ICON_COLOR } from './techicons.js';
 
 const loadImg = url => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('no image ' + url)); i.src = url; });
@@ -169,6 +171,7 @@ function bounds(B) {
   let rho = 0.5, zt = 0.5;
   for (const s of B) {
     if (s.t === 'card') { for (const a of [-1, 1]) for (const b of [-1, 1]) { const x = s.c[0] + a * s.u[0] + b * s.v[0], y = s.c[1] + a * s.u[1] + b * s.v[1], z = s.c[2] + a * s.u[2] + b * s.v[2]; rho = Math.max(rho, Math.hypot(x, y)); zt = Math.max(zt, z); } continue; }
+    if (s.t === 'prism') { for (const [x, y] of s.poly) rho = Math.max(rho, Math.hypot(x, y)); zt = Math.max(zt, s.z + s.h); continue; }
     const pts = s.t === 'box' ? [[s.x, s.y], [s.x + s.w, s.y], [s.x + s.w, s.y + s.d], [s.x, s.y + s.d]] : [[s.x, s.y]], r = s.t === 'box' ? 0 : Math.max(s.r || 0, s.r2 || 0) * (s.t === 'core' ? 1.8 : 1);
     for (const [x, y] of pts) rho = Math.max(rho, Math.hypot(x, y) + r);
     zt = Math.max(zt, s.z + (s.h || 0) + (s.t === 'dome' ? s.r : s.t === 'core' || s.t === 'light' ? (s.r || 0) * 2 : 0) + (s.smoke ? 1.2 : 0));
@@ -181,6 +184,7 @@ function bounds(B) {
 // overlap ON SCREEN are ordered, and a topological sort lays them out (a cycle, from the fallback, is broken by depth)
 function boxOf(s) {
   if (s.t === 'box') return [s.x, s.x + s.w, s.y, s.y + s.d, s.z, s.z + s.h];
+  if (s.t === 'prism') { const b = bboxOf(s.poly); return [b.minx, b.maxx, b.miny, b.maxy, s.z, s.z + s.h]; }
   if (s.t === 'card') { let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z0 = Infinity, z1 = -Infinity; for (const a of [-1, 1]) for (const b of [-1, 1]) { const x = s.c[0] + a * s.u[0] + b * s.v[0], y = s.c[1] + a * s.u[1] + b * s.v[1], z = s.c[2] + a * s.u[2] + b * s.v[2]; x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); z0 = Math.min(z0, z); z1 = Math.max(z1, z); } return [x0, x1, y0, y1, z0, z1]; }
   const r = Math.max(s.r || 0, s.r2 || 0);
   if (s.t === 'cyl') return [s.x - r, s.x + r, s.y - r, s.y + r, s.z, s.z + s.h];
@@ -280,6 +284,21 @@ export function renderSolids(B, o = {}) {
       const [cx, cy] = pr(s.x, s.y, s.z), r = Math.max(2, s.r * U * (s.t === 'core' ? 0.95 : 0.7)), c2 = s.color ? rgb(s.color) : grgb;
       if (black && !s.color) { const gr = g.createRadialGradient(cx, cy, r * 0.8, cx, cy, r * 2.4); gr.addColorStop(0, 'rgba(255,255,255,.75)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.beginPath(); g.arc(cx, cy, r * 2.4, 0, 7); g.fill(); g.fillStyle = '#000'; g.beginPath(); g.arc(cx, cy, r, 0, 7); g.fill(); g.strokeStyle = '#fff'; g.lineWidth = 1.5; g.stroke(); g.beginPath(); g.arc(cx, cy, r + 3, 0, 7); g.stroke(); }
       else { const gr = g.createRadialGradient(cx, cy, 0, cx, cy, r * 2.2); gr.addColorStop(0, 'rgba(255,255,240,1)'); gr.addColorStop(0.3, `rgba(${c2},.95)`); gr.addColorStop(0.55, `rgba(${c2},.35)`); gr.addColorStop(1, `rgba(${c2},0)`); g.fillStyle = gr; g.beginPath(); g.arc(cx, cy, r * 2.2, 0, 7); g.fill(); }
+    } else if (s.t === 'prism') {                                                    // an outline extruded: the walls that face us (back to front) in the strip, the top the painted ship
+      const P = s.poly, n = P.length, z1 = s.z + s.h, walls = []; let run = 0;
+      for (let i = 0; i < n; i++) {
+        const A = P[i], Bq = P[(i + 1) % n], len = Math.hypot(Bq[0] - A[0], Bq[1] - A[1]) || 1e-6, u0 = run; run += len;
+        let nx = (Bq[1] - A[1]) / len, ny = -(Bq[0] - A[0]) / len; const mx = (A[0] + Bq[0]) / 2, my = (A[1] + Bq[1]) / 2; if (inside(P, mx + nx * 0.02, my + ny * 0.02)) { nx = -nx; ny = -ny; }
+        const [na, nb] = rot(nx, ny); if (na + nb <= 0.02) continue; const [ma, mb] = rot(mx, my); walls.push({ A, Bq, len, u0, lit: (nb - na) / Math.SQRT2, d: ma + mb });
+      }
+      walls.sort((p, q) => p.d - q.d);
+      const src = s.wall, per = src ? s.h * src.width / src.height : 1;                 // the strip's height is the wall's: along the edge it runs on and repeats
+      for (const w of walls) { const P0 = pr(w.A[0], w.A[1], z1), P1 = pr(w.Bq[0], w.Bq[1], z1), P2 = pr(w.A[0], w.A[1], s.z), sx = src ? ((w.u0 / per) % 1) * src.width : 0, sw = src ? Math.max(1, Math.min(src.width - sx, w.len / per * src.width)) : 1; face(g, src, P0, sub(P1, P0), sub(P2, P0), 0.3 - 0.2 * w.lit, sx, 0, sw, src ? src.height : 1); }
+      const path = () => { g.beginPath(); P.forEach(([x, y], i) => { const q = pr(x, y, z1); i ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1]); }); g.closePath(); };
+      g.save(); path(); g.fillStyle = '#2a3142'; g.fill(); g.clip();
+      const T = s.top; if (T) { const Q0 = pr(T.x0, T.y0, z1), Q1 = pr(T.x0 + T.img.width / T.S, T.y0, z1), Q2 = pr(T.x0, T.y0 + T.img.height / T.S, z1); g.setTransform(...curT(g, [(Q1[0] - Q0[0]) / T.img.width, (Q1[1] - Q0[1]) / T.img.width, (Q2[0] - Q0[0]) / T.img.height, (Q2[1] - Q0[1]) / T.img.height, Q0[0], Q0[1]])); g.drawImage(T.img, 0, 0); }
+      g.restore(); g.save(); path(); g.strokeStyle = 'rgba(0,0,0,.55)'; g.lineWidth = 1.2; g.stroke(); g.restore();
+      if (s.rim) glowStroke(() => path(), 1.2);                                          // the top step's edge in the level's colour
     } else if (s.t === 'card') {                                                     // a flat greeble in space: its picture laid on the parallelogram, its outline its alpha
       const { c: C, u, v, img } = s, P = (k1, k2) => pr(C[0] + k1 * u[0] + k2 * v[0], C[1] + k1 * u[1] + k2 * v[1], C[2] + k1 * u[2] + k2 * v[2]);
       const TL = P(-1, 1), TR = P(1, 1), BL = P(-1, -1), ax = TR[0] - TL[0], ay = TR[1] - TL[1], bx = BL[0] - TL[0], by = BL[1] - TL[1];
@@ -312,7 +331,13 @@ export const ARCHETYPES = {
 };
 // THE BUILDINGS out of the same parts as the devices (his call, 2026-10-25): plinths with greeble flanges, cages, columns with fins and
 // plates, engines standing on corners, towers with set-backs, tiles on the roofs — laid out over a bigger footprint
-function shift(s, dx, dy) { if (s.t === 'card') s.c = [s.c[0] + dx, s.c[1] + dy, s.c[2]]; else { s.x += dx; s.y += dy; } }
+function shift(s, dx, dy) { if (s.t === 'card') s.c = [s.c[0] + dx, s.c[1] + dy, s.c[2]]; else if (s.t === 'prism') s.poly = s.poly.map(([x, y]) => [x + dx, y + dy]); else { s.x += dx; s.y += dy; } }
+// a solid scaled by k about the origin, then moved (a part built at its own size, set down small somewhere else)
+function xform(s, k, dx, dy, dz) {
+  if (s.t === 'card') { s.c = [s.c[0] * k + dx, s.c[1] * k + dy, s.c[2] * k + dz]; s.u = s.u.map(q => q * k); s.v = s.v.map(q => q * k); return; }
+  if (s.t === 'prism') { s.poly = s.poly.map(([x, y]) => [x * k + dx, y * k + dy]); s.z = s.z * k + dz; s.h *= k; return; }
+  s.x = s.x * k + dx; s.y = s.y * k + dy; s.z = s.z * k + dz; for (const q of ['w', 'd', 'h', 'r', 'r2']) if (s[q] != null) s[q] *= k;
+}
 function buildingRecipe(kind, f) {
   const { box, cyl, dome, light, v, R } = f;
   const at = (dx, dy, fn) => { const n0 = f.B.length, r = fn(); for (let i = n0; i < f.B.length; i++) shift(f.B[i], dx, dy); return r; };
@@ -594,6 +619,60 @@ export function drawDevice(fam, styleStock, { seed = 1, level = 3, yaw = 0, U = 
   if (fam === 'armor') yaw -= 0.5;   // armour from the side at three quarters: the bend of its profile and the layers stepping back under it   // a weapon from three quarters: its side, the greebles round the barrels
   const cv = renderSolids(f.B, { U, yaw, glow, light: glow || '#ffffff', glass: farm ? '#b6f08a' : glow || '#e6f0ff', wash: glow && !farm ? glow : null, washA: 0.12, seed });
   cv.recipe = f.B.recipe || ''; return cv;   // which parts it was built of (the grammar)
+}
+// ---------------------------------------------------------------- THE 3D SHIP (his call, 2026-10-25: "presentation first — build the lab
+// prototype"). The outline the player drew, EXTRUDED: a slab with the style's strip round its walls and the PAINTED SHIP (paint.js — the
+// very art of the 2D designer, its mounts on the hard points) laid on its top; TERRACES — the outline again, narrower and higher, up the
+// spine, each top the same painting so the art runs on; greeble FLANGES along the flanks; a SUPERSTRUCTURE of the devices' parts on the
+// top step; the 3D WEAPONS (weaponRecipe, set down small) on the hard points; ENGINES at the stern as crossed cards, glowing the level
+const PAINTED = new Map();
+async function paintedTop(styleId, hull, guns, tone) {
+  const key = [styleId, hull.id, hull.area.toFixed(2), guns.map(g => g.kind + g.n).join(';'), tone || ''].join('|'); if (PAINTED.has(key)) return PAINTED.get(key);
+  const st = STYLES[styleId], img = await loadStyle(st), deco = st.deco ? await Promise.all(st.deco.sheets.map(sh => loadStyle({ sheet: sh }).catch(() => null))) : null;
+  const S = 64, m = 0.5, W = Math.ceil((hull.bw + 2 * m) * S), H = Math.ceil((hull.bh + 2 * m) * S), cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const r = paintHull(cv, hull.poly, img, st, { ...recipeFor(hull.area * 32), px: S, center: [0, 0], guns, engines: false, wash: 0, lights: 0 }, deco);   // the guns placed by the painter's own rule, on its mounts
+  const top = { img: tone ? toned(cv, tone, 0.45) : cv, S, x0: -W / 2 / S, y0: -H / 2 / S, hps: r.hardpoints.map(h => ({ kind: h.kind, x: (h.x - W / 2) / S, y: (h.y - H / 2) / S, r: h.r / S, size: h.size })) };   // the mounts back in squares
+  PAINTED.set(key, top); return top;
+}
+export const SHIP_HULLS = () => [...hullsFor('starship'), ...hullsFor('platform')];
+export const LOADOUTS = { 'two beams': [['weapon_energy', 2]], 'guns and a pod': [['weapon_kinetic', 2], ['weapon_missile', 1]], 'a battery of beams': [['weapon_energy', 4]], 'missile boat': [['weapon_missile', 3]], 'mixed broadside': [['weapon_energy', 2], ['weapon_kinetic', 2], ['weapon_missile', 1]] };
+const KIND_FAM = { weapon_energy: 'beam', weapon_kinetic: 'gun', weapon_missile: 'missile' };
+export async function buildShip(hullId, styleStock, { styleId, volume = 700, loadout = 'two beams', seed = 1, level = 3, tone = null, looks = {} } = {}) {
+  const hull = hullOf(hullId, volume), R = rnd('ship:' + hullId + ':' + seed + ':' + styleStock.style), st = stockSet(styleStock), f = builder(R, st), v = f.v; f.glow = levelColor(level);
+  const guns = (LOADOUTS[loadout] || LOADOUTS['two beams']).map(([kind, n]) => ({ kind, n, size: 1 }));
+  const top = await paintedTop(styleId || styleStock.style.split('+')[0], hull, guns, tone), hps = top.hps;
+  // the slab and its terraces
+  const bh = hull.bh, h0 = Math.max(0.3, Math.min(0.75, 0.16 * bh + 0.2)), cx = (hull.box.minx + hull.box.maxx) / 2, steps = bh > 1.6 ? 2 : 1, layers = []; let z = 0;
+  for (let k = 0; k <= steps; k++) {
+    const P = k ? hull.poly.map(([x, y]) => [cx + (x - cx) * (1 - 0.13 * k), y * (1 - 0.3 * k)]) : hull.poly, hh = k ? h0 * (k === 1 ? 0.55 : 0.45) : h0;
+    f.B.push({ t: 'prism', poly: P, z, h: hh, wall: f.band(), top, rim: k === steps }); z += hh; layers.push({ P, z });
+  }
+  const topZ = z, tb = bboxOf(layers[layers.length - 1].P);
+  // greeble flanges along the long flanks
+  for (let i = 0; i < hull.poly.length; i++) {
+    const A = hull.poly[i], Bq = hull.poly[(i + 1) % hull.poly.length], dx = Bq[0] - A[0], dy = Bq[1] - A[1], len = Math.hypot(dx, dy); if (len < 0.8 || Math.abs(dy) > Math.abs(dx) * 0.7 || R() < 0.3) continue;
+    let nx = dy / len, ny = -dx / len; const mx = (A[0] + Bq[0]) / 2, my = (A[1] + Bq[1]) / 2; if (inside(hull.poly, mx + nx * 0.05, my + ny * 0.05)) { nx = -nx; ny = -ny; }
+    f.card([mx + nx * 0.06, my + ny * 0.06, h0 * 0.5], [dx / len, dy / len, 0], [0, 0, 1], [len * 0.85, h0 * 1.6], f.fit());
+  }
+  // a part built at its own size, set down small: the superstructure and the weapons
+  const sub = (k, dx, dy, dz, fn) => { const g = builder(R, st); g.glow = f.glow; fn(g); for (const q of g.B) { xform(q, k, dx, dy, dz); f.B.push(q); } };
+  const parts = tb.maxx - tb.minx > 4 ? 2 : 1, ks = Math.max(0.35, Math.min(1.5, (tb.maxy - tb.miny) * 0.42));   // as big as the top deck allows
+  for (let i = 0; i < parts; i++) sub(ks, tb.minx + (tb.maxx - tb.minx) * (parts === 1 ? 0.32 : 0.22 + 0.36 * i), 0, topZ, g => { const x = PARTS.body[g.pick(['tower', 'H', 'stack', 'cage'])](g, { z: 0, r: 1 }); PARTS.top[g.pick(['spire', 'antennae', 'dish', 'core', 'none'])](g, x); });
+  for (const hp of hps) { const zAt = layers.reduce((zz, L) => inside(L.P, hp.x, hp.y) ? L.z : zz, h0); sub(Math.max(0.2, hp.r / 0.9 * 1.15), hp.x, hp.y, zAt, g => weaponRecipe(KIND_FAM[hp.kind], g, looks[hp.kind] || null)); }   // the turret's mount the size of the painted one
+  // the engines at the stern: crossed cards pointing back, the exhaust glowing the level's colour
+  const ne = Math.max(1, Math.min(3, Math.round(bh / 1.1))), sternX = hull.box.minx;
+  for (let i = 0; i < ne; i++) {
+    const y = (i - (ne - 1) / 2) * bh * 0.3, img = rotq(f.engDown(), 1); if (!img) break; const L = Math.min(3.6, Math.max(1.1, bh * 0.42)), H = L * img.height / img.width, c = [sternX - L / 2 + 0.3, y, h0 * 0.55];
+    f.card(c, [1, 0, 0], [0, 0, 1], [L, H], img); f.card(c, [1, 0, 0], [0, 1, 0], [L, H], img); f.core(sternX - L + 0.35, y, h0 * 0.55, Math.min(0.6, H * 0.45));
+  }
+  for (let i = 0; i < hull.poly.length; i += 2) light(hull.poly[i][0], hull.poly[i][1], h0 + 0.02, 0.05);   // running lights on the outline
+  f.B.recipe = `${Math.round(hull.area * 32)} volume · ${steps + 1} decks · ${parts} superstructure · ${hps.length} guns`;
+  return { B: f.B, hull };
+  function light(x, y, zz, r) { f.light(x, y, zz, r); }
+}
+export function drawShip(ship, { yaw = 0, level = 3, width = 520 } = {}) {
+  const U = Math.min(80, width / (2 * bounds(ship.B).rho * Math.SQRT2 * C30)), glow = levelColor(level);
+  return renderSolids(ship.B, { U, yaw, glow, light: glow || '#ffffff', glass: glow || '#e6f0ff', seed: 1 });
 }
 // the technology's ICON over the hardware (his example: the ice icon over the frost-hardy farm) — top right, on a dark coin
 const ICON_IMG = new Map();
