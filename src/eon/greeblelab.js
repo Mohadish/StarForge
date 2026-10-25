@@ -713,15 +713,33 @@ const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2], sub3 = (a, b) =>
 const area2 = P => P.reduce((a, [x, y], i) => { const [x2, y2] = P[(i + 1) % P.length]; return a + x * y2 - x2 * y; }, 0);
 // a quad's normal from its diagonals, turned to the side of `away` (outwards)
 function quadN(Q, away) { const n = unit(cross3(sub3(Q[2], Q[0]), sub3(Q[3], Q[1]))); return dot3(n, away) < 0 ? n.map(q => -q) : n; }
-// the outline moved in by d (out, d < 0): every corner along its mitre, kept short at the sharp ones
+// how far a ray from p along u runs inside the outline before it meets the outline (its own corner's two edges left out)
+function rayIn(P, i, u) {
+  const n = P.length, p = P[i]; let best = Infinity;
+  for (let k = 0; k < n; k++) {
+    if (k === i || (k + 1) % n === i) continue; const a = P[k], b = P[(k + 1) % n], ex = b[0] - a[0], ey = b[1] - a[1], den = u[0] * ey - u[1] * ex; if (Math.abs(den) < 1e-12) continue;
+    const wx = a[0] - p[0], wy = a[1] - p[1], t = (wx * ey - wy * ex) / den, sg = (wx * u[1] - wy * u[0]) / den; if (t > 1e-6 && sg >= 0 && sg <= 1) best = Math.min(best, t);
+  }
+  return best;
+}
+// the outline moved in by d (out, d < 0): every corner along its mitre, never past 40 % of the way across; an edge that would turn over
+// (a thin fin's two sides crossing) pulls both its corners back, and a corner that left the outline comes back in
 function insetPoly(P, d) {
-  const n = P.length, ccw = area2(P) > 0;
-  return P.map((p, i) => {
-    const a = P[(i + n - 1) % n], b = P[(i + 1) % n], e1 = unit([p[0] - a[0], p[1] - a[1]]), e2 = unit([b[0] - p[0], b[1] - p[1]]);
-    const in1 = ccw ? [-e1[1], e1[0]] : [e1[1], -e1[0]], in2 = ccw ? [-e2[1], e2[0]] : [e2[1], -e2[0]], k = Math.max(0.05, 1 + in1[0] * in2[0] + in1[1] * in2[1]);
-    let m = [(in1[0] + in2[0]) / k, (in1[1] + in2[1]) / k]; const L = Math.hypot(m[0], m[1]); if (L > 2.5) m = m.map(q => q * 2.5 / L);
-    return [p[0] + m[0] * d, p[1] + m[1] * d];
-  });
+  const n = P.length, ccw = area2(P) > 0, dir = [], go = [];
+  for (let i = 0; i < n; i++) {
+    const p = P[i], a = P[(i + n - 1) % n], b = P[(i + 1) % n], e1 = unit([p[0] - a[0], p[1] - a[1]]), e2 = unit([b[0] - p[0], b[1] - p[1]]);
+    const in1 = ccw ? [-e1[1], e1[0]] : [e1[1], -e1[0]], in2 = ccw ? [-e2[1], e2[0]] : [e2[1], -e2[0]], k = Math.max(0.03, 1 + in1[0] * in2[0] + in1[1] * in2[1]);
+    const m = [(in1[0] + in2[0]) / k, (in1[1] + in2[1]) / k], ml = Math.min(6, Math.hypot(m[0], m[1])) || 1, u = unit(m); dir.push(u);
+    go.push(d > 0 ? Math.min(d * ml, 0.4 * rayIn(P, i, u)) : d * ml);
+  }
+  const at = i => [P[i][0] + dir[i][0] * go[i], P[i][1] + dir[i][1] * go[i]];
+  if (d > 0) for (let pass = 0; pass < 8; pass++) {
+    let moved = false;
+    for (let i = 0; i < n; i++) { const j = (i + 1) % n, q = at(i), r = at(j); if ((r[0] - q[0]) * (P[j][0] - P[i][0]) + (r[1] - q[1]) * (P[j][1] - P[i][1]) < 0) { go[i] *= 0.6; go[j] *= 0.6; moved = true; } }
+    for (let i = 0; i < n; i++) { let t = 0; while (t++ < 6 && go[i] > 1e-3 && !inside(P, ...at(i))) { go[i] *= 0.5; moved = true; } }
+    if (!moved) break;
+  }
+  return P.map((_, i) => at(i));
 }
 // a RIBBON round the outline: from ring T (z1) down to ring Bo (z0), the strip along it (o.sh: the share of the strip's height it shows),
 // cut where the strip repeats — so it runs on round the whole ship at its own proportions
@@ -765,7 +783,7 @@ export async function buildShip(hullId, styleStock, { styleId, volume = 700, loa
   const hull = hullOf(hullId, volume), st = stockSet(styleStock), R = rnd('ship:' + hullId + ':' + seed + ':' + styleStock.style), pick = l => l && l.length ? l[Math.floor(R() * l.length)] : null, clamp = (x, a, b) => Math.max(a, Math.min(b, x));
   const guns = (LOADOUTS[loadout] || LOADOUTS['two beams']).map(([kind, n]) => ({ kind, n, size: 1 }));
   const top = await paintedTop(styleId || styleStock.style.split('+')[0], hull, guns, tone);
-  const P0 = hull.poly, ccw = area2(P0) > 0, outN = P0.map((p, i) => { const q = P0[(i + 1) % P0.length], e = unit([q[0] - p[0], q[1] - p[1]]); return ccw ? [e[1], -e[0]] : [-e[1], e[0]]; }), items = [];
+  const P0 = hull.poly.filter((p, i, A) => Math.hypot(p[0] - A[(i + 1) % A.length][0], p[1] - A[(i + 1) % A.length][1]) > 0.02), ccw = area2(P0) > 0, outN = P0.map((p, i) => { const q = P0[(i + 1) % P0.length], e = unit([q[0] - p[0], q[1] - p[1]]); return ccw ? [e[1], -e[0]] : [-e[1], e[0]]; }), items = [];
   // the skirt and the ribbons of tiles, each a step in and up, its lower edge over the one beneath
   const bh = hull.bh, h0 = clamp(0.1 * bh + 0.22, 0.28, 0.6), nb = bh > 2.6 ? 3 : 2, w = clamp(0.065 * bh, 0.09, 0.3), rise = w * 1.25, ov = w * 0.22, drop = rise * 0.2, lip = Math.min(0.06, rise * 0.2);
   ribbon(items, P0, h0, P0, 0, pick(st.panel.length ? st.panel : st.band), outN, { dim: 0.08 });
