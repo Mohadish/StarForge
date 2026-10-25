@@ -327,18 +327,22 @@ export function renderSolids(B, o = {}) {
       for (const q of S) { x0 = Math.min(x0, q[0] - gr); x1 = Math.max(x1, q[0] + gr); y0 = Math.min(y0, q[1] - gr); y1 = Math.max(y1, q[1] + gr); }
       const m = it.P.reduce((a, p) => [a[0] + p[0], a[1] + p[1], a[2] + p[2]], [0, 0, 0]).map(q => q / it.P.length);
       let za = Infinity, zb = -Infinity; for (const p of it.P) { za = Math.min(za, p[2]); zb = Math.max(zb, p[2]); }
-      list.push({ it, S, sb: [x0, x1, y0, y1], d: dot3(m, v), z0: za, z1: zb, out: [], deg: 0 });
+      const pts = gr ? [[x0, y0], [x1, y0], [x1, y1], [x0, y1]] : S;
+      list.push({ it, S, sb: [x0, x1, y0, y1], hull: hull2(pts), d: dot3(m, v), z0: za, z1: zb, out: [], deg: 0 });
     }
-    const test = (F, pts) => { let f = 0, b = 0; for (const p of pts) { const q = dot3(F.it.n, sub3(p, F.it.P[0])); if (q > E) f++; else if (q < -E) b++; } return b ? (f ? 0 : -1) : f ? 1 : 2; };   // 1 all in front, -1 all behind, 0 both, 2 on the plane
-    const first = (A, B) => {
-      if (A.z1 <= B.z0 + E) return true; if (B.z1 <= A.z0 + E) return false;          // one wholly above the other: the upper goes after
-      if (A.it.n) { const t = test(A, B.it.P); if (t === 1) return true; if (t === -1) return false; if (t === 2) return A.d <= B.d; }
-      if (B.it.n) { const t = test(B, A.it.P); if (t === 1) return false; if (t === -1) return true; }
-      return A.d <= B.d;
+    const test = (F, pts, most) => { let f = 0, b = 0; for (const p of pts) { const q = dot3(F.it.n, sub3(p, F.it.P[0])); if (q > E) f++; else if (q < -E) b++; } if (most && f + b) { if (f >= 0.85 * (f + b)) return 1; if (b >= 0.85 * (f + b)) return -1; } return b ? (f ? 0 : -1) : f ? 1 : 2; };   // 1 all in front, -1 all behind, 0 both, 2 on the plane (a many-pointed piece: most of it)
+    const rel = (A, B) => {                                                            // -1: A first, 1: B first, 0: no matter
+      if (A.z1 <= B.z0 + E) return -1; if (B.z1 <= A.z0 + E) return 1;                // one wholly above the other: the upper goes after
+      const ta = A.it.n ? test(A, B.it.P, !B.it.n) : 0, tb = B.it.n ? test(B, A.it.P, !A.it.n) : 0;
+      if (ta === 2 || tb === 2) return 0;                                              // in one plane: neither hides the other
+      const va = ta === 1 ? -1 : ta === -1 ? 1 : 0, vb = tb === 1 ? 1 : tb === -1 ? -1 : 0;
+      if (va && vb) return va === vb ? va : 0;                                         // they disagree: two neighbours of one surface, apart
+      if (va || vb) return va || vb;
+      return A.d <= B.d ? -1 : 1;                                                      // both straddle: the depth decides
     };
     for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
-      const A = list[i], B = list[j]; if (A.sb[1] < B.sb[0] || B.sb[1] < A.sb[0] || A.sb[3] < B.sb[2] || B.sb[3] < A.sb[2]) continue;
-      if (first(A, B)) { A.out.push(B); B.deg++; } else { B.out.push(A); A.deg++; }
+      const A = list[i], B = list[j]; if (A.sb[1] < B.sb[0] || B.sb[1] < A.sb[0] || A.sb[3] < B.sb[2] || B.sb[3] < A.sb[2] || apart(A.hull, B.hull)) continue;
+      const r = rel(A, B); if (r < 0) { A.out.push(B); B.deg++; } else if (r > 0) { B.out.push(A); A.deg++; }
     }
     for (const it of pre) shipFace(it, [pr(...it.P[0])]);
     // a group along its axis: the far end first (a camera astern sees the back last), each drum's slices back to front
@@ -727,6 +731,22 @@ function rayIn(P, i, u) {
   }
   return best;
 }
+// a convex hull on screen (monotone chain), and whether two hulls are apart (a separating axis; touching counts as apart)
+function hull2(P) {
+  const p = P.map(q => [q[0], q[1]]).sort((a, b) => a[0] - b[0] || a[1] - b[1]); if (p.length < 3) return p;
+  const cr = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]), lo = [], up = [];
+  for (const q of p) { while (lo.length >= 2 && cr(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop(); lo.push(q); }
+  for (let i = p.length - 1; i >= 0; i--) { const q = p[i]; while (up.length >= 2 && cr(up[up.length - 2], up[up.length - 1], q) <= 0) up.pop(); up.push(q); }
+  return lo.slice(0, -1).concat(up.slice(0, -1));
+}
+function apart(A, B) {
+  for (const H of [A, B]) for (let i = 0; i < H.length; i++) {
+    const a = H[i], b = H[(i + 1) % H.length], nx = a[1] - b[1], ny = b[0] - a[0]; if (!nx && !ny) continue;
+    let a0 = Infinity, a1 = -Infinity, b0 = Infinity, b1 = -Infinity; for (const q of A) { const t = q[0] * nx + q[1] * ny; a0 = Math.min(a0, t); a1 = Math.max(a1, t); } for (const q of B) { const t = q[0] * nx + q[1] * ny; b0 = Math.min(b0, t); b1 = Math.max(b1, t); }
+    const tol = 0.5 * Math.hypot(nx, ny); if (a1 <= b0 + tol || b1 <= a0 + tol) return true;
+  }
+  return false;
+}
 // the outline moved in by d (out, d < 0): every corner along its mitre, never past 40 % of the way across; an edge that would turn over
 // (a thin fin's two sides crossing) pulls both its corners back, and a corner that left the outline comes back in
 function insetPoly(P, d) {
@@ -799,22 +819,21 @@ function engineSpec(R, st, strips) {
   return { out: v(0.35, 0.75), col: v(0.14, 0.26), colR: v(1.08, 1.22), bell: v(0.5, 0.95), b0: v(0.7, 0.85), b1: v(0.95, 1.12), house: (pick(strips) || {}).img || pick(st.band), collar: pick(st.band), nozzle: (pick(strips) || {}).img || pick(st.band) };
 }
 function engine(items, sp, xs, y, z, r) {
-  const x1 = xs - r * sp.out, x2 = x1 - r * sp.col, x3 = x2 - r * sp.bell, inner = [], outer = [];
-  drum(inner, xs + r * 1.2, xs, r * 0.94, r * 0.94, y, z, sp.house);                 // sunk into the hull (it shows where the tiles dip under it)
-  drum(outer, xs, x1, r, r, y, z, sp.house);
+  const x1 = xs - r * sp.out, x2 = x1 - r * sp.col, x3 = x2 - r * sp.bell, outer = [];
+  drum(outer, xs, x1, r, r, y, z, sp.house);                                          // out of the stern, against it
   disc(outer, x1, r * sp.colR, y, z, 1); drum(outer, x1, x2, r * sp.colR, r * sp.colR, y, z, sp.collar, { dim: 0.12 }); disc(outer, x2, r * sp.colR, y, z, -1);   // the collar
   drum(outer, x2, x3, r * sp.b0, r * sp.b1, y, z, sp.nozzle, { dim: 0.18 });                                                // the bell, flared
   disc(outer, x3, r * sp.b1 * 0.97, y, z, -1, { exhaust: true });
-  for (const parts of [inner, outer]) items.push({ k: 'group', parts, P: parts.flatMap(p => p.P) });   // each half one piece in the hull's order: in and out of the stern
+  items.push({ k: 'group', parts: outer, P: outer.flatMap(p => p.P) });               // one piece in the hull's order
   items.push({ k: 'glow', P: [[x3 - r * 0.15, y, z]], r: r * sp.b1 * 0.75, behind: outer[outer.length - 1] });   // the glow behind the engine when its nozzle faces away
 }
 // the GREEBLES on the hull (his list: the works, mining rigs, labour, computers, beams, missile pods, guns — none of the drives, reactors,
 // shields or thrusters): a device built at its own size, centred, set down at k
 const SHIP_GREEBLES = ['works', 'mining', 'labor', 'computer', 'beam', 'missile', 'gun'];
-function greebleAt(fam, seed, styleStock, st, level, x, y, z, rho, mirror) {
+function greebleAt(fam, seed, styleStock, st, level, x, y, z, rho, mirror, maxH = Infinity) {
   const f = builder(rnd(fam + ':' + seed + ':' + styleStock.style), st); f.glow = levelColor(level); deviceRecipe(fam, f, null);
   const b = [Infinity, -Infinity, Infinity, -Infinity, Infinity, -Infinity]; for (const q of f.B) { const o = boxOf(q); for (let i = 0; i < 6; i += 2) { b[i] = Math.min(b[i], o[i]); b[i + 1] = Math.max(b[i + 1], o[i + 1]); } }
-  const cx = (b[0] + b[1]) / 2, cy = (b[2] + b[3]) / 2, k = Math.min(1.0, rho / Math.max(0.3, Math.max(b[1] - b[0], b[3] - b[2]) / 2 * 1.1));
+  const cx = (b[0] + b[1]) / 2, cy = (b[2] + b[3]) / 2, k = Math.min(1.0, rho / Math.max(0.3, Math.hypot(b[1] - b[0], b[3] - b[2]) / 2), maxH / Math.max(0.05, b[5] - b[4]));   // its corners inside its circle; no taller than it may be
   for (const q of f.B) { shift(q, -cx, -cy); if (q.t !== 'card') q.z -= b[4]; else q.c = [q.c[0], q.c[1], q.c[2] - b[4]]; if (mirror) mirrorY(q); xform(q, k, x, y, z); }
   const o = [Infinity, -Infinity, Infinity, -Infinity, Infinity, -Infinity]; for (const q of f.B) { const w = boxOf(q); for (let i = 0; i < 6; i += 2) { o[i] = Math.min(o[i], w[i]); o[i + 1] = Math.max(o[i + 1], w[i + 1]); } }
   const P = []; for (const X of [o[0], o[1]]) for (const Y of [o[2], o[3]]) for (const Z of [o[4], o[5]]) P.push([X, Y, Z]);
@@ -827,11 +846,11 @@ export async function buildShip(hullId, styleStock, { styleId, volume = 700, loa
   const P0 = hull.poly.filter((p, i, A) => Math.hypot(p[0] - A[(i + 1) % A.length][0], p[1] - A[(i + 1) % A.length][1]) > 0.02), ccw = area2(P0) > 0, outN = P0.map((p, i) => { const q = P0[(i + 1) % P0.length], e = unit([q[0] - p[0], q[1] - p[1]]); return ccw ? [e[1], -e[0]] : [-e[1], e[0]]; }), items = [];
   // THE TIERS: each stands back from the one under it (a ledge), a COOKIE (a straight wall, the strip's ragged top up past it) or a SLOPE
   // (a short foot, then leaning in) — the outer ones mostly sloped, the inner ones mostly stepped; every top the painted ship
-  const bh = hull.bh, nt = bh > 3.2 ? 4 : bh > 1.8 ? 3 : 2, h0 = clamp(0.12 * bh + 0.2, 0.3, 0.75), tiers = []; let z = 0, b = 0;
+  const bh = hull.bh, nt = bh > 3.2 ? 4 : bh > 1.8 ? 3 : 2, h0 = clamp(0.15 * bh + 0.25, 0.35, 1.0), tiers = []; let z = 0, b = 0;
   const plan = Array.from({ length: nt }, (_, k) => { const slope = R() < [0.9, 0.6, 0.35, 0.2][k]; return { slope, run: slope ? v(0.6, 1.1) : 0, ledge: k < nt - 1 ? (R() < 0.45 ? v(0.3, 0.55) : v(1.0, 1.6)) : 0 }; });
   const per = bh / 2 * v(0.42, 0.55) / (plan.reduce((a, p) => a + p.run + p.ledge, 0) || 1);   // all the insets together: about half the half-width
   for (let k = 0; k < nt; k++) {
-    const slope = plan[k].slope, H = k ? h0 * v(0.55, 0.95) : h0, run = plan[k].run * per, hv = slope ? H * v(0.15, 0.4) : H, S = pickS();
+    const slope = plan[k].slope, H = k ? h0 * v(0.45, 0.8) : h0, run = plan[k].run * per, hv = slope ? H * v(0.15, 0.4) : H, S = pickS();
     let Bk = insetPoly(P0, b), Tk = slope ? insetPoly(P0, b + run) : Bk;
     if (k === nt - 1 && k >= 2 && R() < 0.6) {                                            // the innermost: sometimes a short island, the superstructure
       const bb = bboxOf(Bk), cx = (bb.minx + bb.maxx) / 2 - (bb.maxx - bb.minx) * 0.12, sq = ([x, y]) => [cx + (x - cx) * 0.55, y], B2 = Bk.map(sq), T2 = Tk.map(sq);
@@ -844,36 +863,37 @@ export async function buildShip(hullId, styleStock, { styleId, volume = 700, loa
   }
   // THE GREEBLES: on every ledge where there is room, a mirrored pair either side of the spine (or one on it, fore and aft); on the top
   // deck, along the spine. Each its own device (the pair alike), as big as its spot allows
-  const spots = [], fit = (out, inn, x, y, r, both) => { for (const k of [1, 0.8, 0.64]) if (fits(out, inn, x, y, r * k) && (!both || fits(out, inn, x, -y, r * k))) return r * k; return 0; }, fits = (out, inn, x, y, r) => { for (let a = 0; a < 8; a++) { const px = x + 0.8 * r * Math.cos(a * Math.PI / 4), py = y + 0.8 * r * Math.sin(a * Math.PI / 4); if (!inside(out, px, py) || (inn && inside(inn, px, py))) return false; } return true; };
+  const spots = [], fit = (out, inn, x, y, r, both) => { for (const k of [1, 0.8, 0.64]) if (fits(out, inn, x, y, r * k) && (!both || fits(out, inn, x, -y, r * k))) return r * k; return 0; }, fits = (out, inn, x, y, r) => { if (inn && inn.some(([px, py]) => Math.hypot(px - x, py - y) < r)) return false; for (let a = 0; a < 16; a++) { const px = x + r * Math.cos(a * Math.PI / 8), py = y + r * Math.sin(a * Math.PI / 8); if (!inside(out, px, py) || (inn && inside(inn, px, py))) return false; } return true; };
   for (let k = 0; k < nt; k++) {
     const t = tiers[k], nx = tiers[k + 1], tb = bboxOf(t.top);
     for (const f of [0.12, 0.3, 0.48, 0.66, 0.84]) {
       const x = tb.minx + (tb.maxx - tb.minx) * f, e1 = edgeAt(t.top, x); if (!e1) continue;
-      if (!nx) { const hw = (e1.max - e1.min) / 2, r = Math.min(1.7, Math.max(0.5, hw * 1.15)); if (inside(t.top, x, 0)) spots.push({ x, y: 0, z: t.z1, r });   // the top deck: on the spine, overhanging it (above everything under it)
-        const rp = Math.min(1.2, hw * 0.6), yp = hw * 0.62; if (hw > 0.7 && inside(t.top, x, yp) && inside(t.top, x, -yp)) spots.push({ x, y: yp, z: t.z1, r: rp, pair: true }); continue; }   // and either side of it
+      if (!nx) { const hw = (e1.max - e1.min) / 2, r = Math.min(2.2, Math.max(0.6, hw * 1.5)); if (inside(t.top, x, 0)) spots.push({ x, y: 0, z: t.z1, r });   // the top deck: on the spine, overhanging it (above everything under it)
+        const rp = Math.min(1.5, hw * 0.75), yp = hw * 0.62; if (hw > 0.7 && inside(t.top, x, yp) && inside(t.top, x, -yp)) spots.push({ x, y: yp, z: t.z1, r: rp, pair: true }); continue; }   // and either side of it
       const e2 = edgeAt(nx.foot, x), yIn = e2 ? e2.max : 0, y = (e1.max + yIn) / 2, r = Math.min(1.1, (e1.max - yIn) * 0.55);
-      const rl = r > 0.22 ? fit(t.top, nx.foot, x, y, r, true) : 0; if (rl > 0.22) spots.push({ x, y, z: t.z1, r: rl, pair: true });
+      const rl = r > 0.22 ? fit(t.top, nx.foot, x, y, r, true) : 0; if (rl > 0.22) spots.push({ x, y, z: t.z1, r: rl, pair: true, h: nx.z1 - t.z1 - 0.02 });
     }
-    if (nx) { const n1 = bboxOf(t.top), n2 = bboxOf(nx.foot), x = (n1.maxx + n2.maxx) / 2, r = Math.min(1.0, (n1.maxx - n2.maxx) * 0.55); if (r > 0.18 && fits(t.top, nx.foot, x, 0, r)) spots.push({ x, y: 0, z: t.z1, r }); }   // the nose's ledge
+    if (nx) { const n1 = bboxOf(t.top), n2 = bboxOf(nx.foot), x = (n1.maxx + n2.maxx) / 2, r = Math.min(1.0, (n1.maxx - n2.maxx) * 0.55); if (r > 0.18 && fits(t.top, nx.foot, x, 0, r)) spots.push({ x, y: 0, z: t.z1, r, h: nx.z1 - t.z1 - 0.02 }); }   // the nose's ledge
   }
   const taken = []; let ng = 0;
   for (const sp of spots.sort((p, q) => q.r - p.r)) {
     if (taken.some(o => Math.hypot(o.x - sp.x, o.y - Math.abs(sp.y)) < o.r + sp.r) || R() < 0.2 || ng >= 14) continue;
     taken.push({ x: sp.x, y: Math.abs(sp.y), r: sp.r }); const fam = SHIP_GREEBLES[Math.floor(R() * SHIP_GREEBLES.length)], gs = seed * 31 + taken.length;
-    items.push(greebleAt(fam, gs, styleStock, st, level, sp.x, sp.y, sp.z, sp.r, false)); ng++;
-    if (sp.pair) { items.push(greebleAt(fam, gs, styleStock, st, level, sp.x, -sp.y, sp.z, sp.r, true)); ng++; }
+    items.push(greebleAt(fam, gs, styleStock, st, level, sp.x, sp.y, sp.z, sp.r, false, sp.h)); ng++;
+    if (sp.pair) { items.push(greebleAt(fam, gs, styleStock, st, level, sp.x, -sp.y, sp.z, sp.r, true, sp.h)); ng++; }
   }
   // THE ENGINES across the stern, sunk in to half the lower tiers' height: the outer ones in alike pairs, the middle one (an odd count) its own
-  const zE = tiers[Math.min(1, nt - 1)].z1, e = edgeAt(P0, hull.box.minx + Math.min(0.3, hull.bw * 0.05)), half = e ? (e.max - e.min) / 2 : bh / 4, cy = e ? (e.max + e.min) / 2 : 0;
-  const ne = clamp(Math.round(2 * half / 1.3), 1, 5), gap = ne > 1 ? 1.4 * half / (ne - 1) : Infinity, r0 = clamp(Math.min(0.46 * zE, 0.45 * gap), 0.14, 0.9);
+  const zE = tiers[0].z1 - 0.01, e = edgeAt(P0, hull.box.minx + Math.min(0.3, hull.bw * 0.05)), half = e ? (e.max - e.min) / 2 : bh / 4, cy = e ? (e.max + e.min) / 2 : 0;
+  const ne = clamp(Math.round(2 * half / 1.3), 1, 5), gap = ne > 1 ? 1.4 * half / (ne - 1) : Infinity, r0 = clamp(Math.min(0.42 * zE, 0.45 * gap), 0.12, 0.9);   // within the lowest tier: under everything above it
   const sternAt = y => { let m = Infinity; for (let i = 0; i < P0.length; i++) { const [x1, y1] = P0[i], [x2, y2] = P0[(i + 1) % P0.length]; if ((y1 <= y && y < y2) || (y2 <= y && y < y1)) m = Math.min(m, x1 + (x2 - x1) * (y - y1) / (y2 - y1)); } return isFinite(m) ? m : hull.box.minx; };
   const specs = new Map();
   for (let i = 0; i < ne; i++) {
     const y = ne === 1 ? cy : cy - 0.7 * half + i * gap, pair = Math.min(i, ne - 1 - i), mid = ne > 1 && ne % 2 === 1 && i === (ne - 1) / 2;
     if (!specs.has(pair)) specs.set(pair, engineSpec(rnd('engine:' + seed + ':' + pair + ':' + styleStock.style), st, strips));
-    engine(items, specs.get(pair), sternAt(y), y, zE * 0.5, mid ? Math.min(0.47 * zE, r0 * 1.15) : r0);
+    const r = mid ? Math.min(0.46 * zE, r0 * 1.15) : r0, xs = Math.min(...[-1, -0.5, 0, 0.5, 1].map(k => sternAt(y + k * r)));   // the stern's farthest-back point across the engine's width
+    engine(items, specs.get(pair), xs - 0.01, y, zE * 0.5, r);
   }
-  for (let i = 0; i < P0.length; i++) { const a = P0[i], q = P0[(i + 1) % P0.length]; if (Math.hypot(q[0] - a[0], q[1] - a[1]) < 1.2) continue; items.push({ k: 'glow', P: [[(a[0] + q[0]) / 2 + outN[i][0] * 0.03, (a[1] + q[1]) / 2 + outN[i][1] * 0.03, tiers[0].hv * 0.5]], r: 0.05 }); }   // running lights on the lowest wall
+  for (let i = 0; i < P0.length; i++) { const a = P0[i], q = P0[(i + 1) % P0.length]; if (Math.hypot(q[0] - a[0], q[1] - a[1]) < 1.2 || outN[i][0] < -0.5) continue; items.push({ k: 'glow', P: [[(a[0] + q[0]) / 2 + outN[i][0] * 0.03, (a[1] + q[1]) / 2 + outN[i][1] * 0.03, tiers[0].hv * 0.5]], r: 0.05 }); }   // running lights on the lowest wall
   const ns = tiers.filter(t => t.slope).length, B = [{ t: 'ship', items }];
   B.recipe = `${Math.round(hull.area * 32)} volume · ${nt} tiers (${ns} sloped, ${nt - ns} stepped) · ${ng} greebles · ${ne} engine${ne > 1 ? 's' : ''}`;
   return { B, hull };
