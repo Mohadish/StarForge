@@ -49,6 +49,7 @@ button.on { background: rgba(95,227,208,.16); border-color: var(--accent) }
   <label data-ship hidden>Outline <select id="hull"><option value="all">every outline</option></select></label>
   <label data-ship hidden>Size <select id="vol"><option value="300">small · 300</option><option value="700" selected>medium · 700</option><option value="1800">big · 1800</option></select></label>
   <label data-ship hidden>Guns <select id="loadout"></select></label>
+  <label data-ship hidden>Form <select id="form"><option value="roof">roof (a pyramid of the outline)</option><option value="decks">decks</option></select></label>
   <label data-dev data-ship hidden>Level <select id="level"><option value="all">every level</option></select></label>
   <label data-iso data-dev data-ship hidden>Seed <input id="seed" type="number" value="1" min="1" style="width:80px"></label>
   <button id="again" data-iso data-dev data-ship hidden>↻ another</button>
@@ -171,15 +172,15 @@ async function drawShips() {
   const tone = stock.mixed ? $('toneA').value : null;
   for (const it of list) {
     const d = document.createElement('div'); d.className = 'cell'; host.append(d); let cv = null, ship = null;
-    try { ship = await buildShip(it.hull, stock, { styleId: $('style').value, volume: vol, loadout: it.lo, seed: it.seed, level: lv, tone }); cv = drawShip(ship, { yaw: it.yaw, level: lv, width: 560 }); d.append(cv); } catch (e) { d.textContent = e.message; console.error(e); }
+    try { ship = await buildShip(it.hull, stock, { styleId: $('style').value, volume: vol, loadout: it.lo, seed: it.seed, level: lv, tone, form: $('form').value }); cv = drawShip(ship, { yaw: it.yaw, level: lv, width: 560 }); d.append(cv); } catch (e) { d.textContent = e.message; console.error(e); }
     const def = SHIP_HULLS().find(h => h.id === it.hull) || {}, col = levelColor(lv);
     d.insertAdjacentHTML('beforeend', `<b>${def.name || it.hull} · ${vol} volume</b><span>${ship ? ship.B.recipe : ''}</span><span><i class="lv" style="background:${col || '#000'};${col ? '' : 'box-shadow:0 0 0 2px #fff'}"></i>${it.cap} · level ${lv}</span>`);
     if (cv) d.onmouseenter = () => { let yaw = it.yaw; clearInterval(spin); spin = setInterval(() => { yaw += 0.05; const n = drawShip(ship, { yaw, level: lv, width: 560 }), g = cv.getContext('2d'); g.clearRect(0, 0, cv.width, cv.height); g.drawImage(n, (cv.width - n.width) / 2, (cv.height - n.height) / 2); }, 50); d.onmouseleave = () => clearInterval(spin); };
   }
-  $('note').textContent = 'Low decks of the outline (two, three or four by size), each in the style\'s long strip with the painted ship on top; a spine down the middle; plates — flat clusters of the style\'s pieces — on the ledges; cutouts along the flanks; turrets on the painter\'s hard points; engines out of a stern block, the outer ones in alike pairs. Hover one to turn it.';
+  $('note').textContent = $('form').value === 'roof' ? 'The outline as a pyramid (its straight skeleton): a low wall, then a flat face for every edge — the style\'s strip in rows up each face, its fittings lying on the eaves a third past the outline, plates on the big faces, the style\'s own turrets lying on the roof, engines out of the stern. Hover one to turn it.' : 'Low decks of the outline (two, three or four by size), each in the style\'s long strip with the painted ship on top; a spine down the middle; plates on the ledges; cutouts along the flanks; turrets on the painter\'s hard points; engines out of a stern block. Hover one to turn it.';
 }
 $('tShip').onclick = () => { setTab('ship'); show(); };
-$('hull').onchange = show; $('vol').onchange = show; $('loadout').onchange = show;
+$('hull').onchange = show; $('vol').onchange = show; $('loadout').onchange = show; $('form').onchange = show;
 $('tShow').onclick = () => { setTab('show'); show(); };
 $('style').onchange = show; $('mix').onchange = show; $('toneA').onchange = show; $('toneB').onchange = show; $('tStock').onclick = () => { setTab('stock'); show(); }; $('tIso').onclick = () => { setTab('iso'); show(); }; $('tDev').onclick = () => { setTab('dev'); show(); };
 $('kind').onchange = drawIso; $('seed').onchange = () => tab === 'iso' ? drawIso() : tab === 'ship' ? show() : drawDev(); $('tint').onchange = () => tab === 'iso' ? drawIso() : 0;
@@ -188,7 +189,7 @@ $('again').onclick = () => { $('seed').value = (+$('seed').value || 1) + (tab ==
 $('cat').onclick = async () => { const all = []; for (const id of ids) { const s = await stockOf(id); all.push(...s.pieces.map(({ _cv, ...p }) => p)); } window.__catalog = all; try { await navigator.clipboard.writeText(JSON.stringify(all)); $('note').textContent = `${all.length} pieces copied.`; } catch { $('note').textContent = `${all.length} pieces — in window.__catalog (the clipboard was refused).`; } };
 // ?style=crystal1&tab=iso|dev&kind=all&fam=reactor&level=5&seed=3&sheet=angles — straight to a view (for a picture taken without hands)
 { const q = new URLSearchParams(location.search); if (q.get('style') && ids.includes(q.get('style'))) $('style').value = q.get('style');
-  for (const k of ['kind', 'fam', 'level', 'seed', 'mix', 'hull', 'vol', 'loadout']) if (q.get(k)) $(k).value = q.get(k);
+  for (const k of ['kind', 'fam', 'level', 'seed', 'mix', 'hull', 'vol', 'loadout', 'form']) if (q.get(k)) $(k).value = q.get(k);
   for (const k of ['toneA', 'toneB']) if (q.get(k)) $(k).value = '#' + q.get(k).replace('#', '');
   setTab(['iso', 'dev', 'show', 'ship'].includes(q.get('tab')) ? q.get('tab') : 'stock'); }
 show().then(() => { document.body.dataset.ready = '1'; });

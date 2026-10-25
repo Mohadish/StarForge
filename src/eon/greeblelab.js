@@ -408,6 +408,21 @@ export function renderSolids(B, o = {}) {
       g.save(); poly(); g.fillStyle = '#2a3142'; g.fill(); g.restore();
       if (it.img) { const [sx, sy, sw, sh] = it.src; mapTri(it.img, S[0], S[1], S[3], [sx, sy], [sx + sw, sy], [sx, sy + sh], it.src); mapTri(it.img, S[2], S[3], S[1], [sx + sw, sy + sh], [sx, sy + sh], [sx + sw, sy], it.src); }
       g.save(); poly(); if (k > 0) { g.fillStyle = `rgba(0,0,0,${k.toFixed(3)})`; g.fill(); } if (!it.soft) { g.strokeStyle = 'rgba(0,0,0,.4)'; g.lineWidth = 0.8; g.stroke(); } g.restore();
+    } else if (it.k === 'roof') {                                                     // a roof face: the strip in rows up the slope (the painter's rings, tilted), the outer over the inner like tiles
+      const M = it.map, at = (u, w) => pr(M.q[0] + M.d[0] * u + M.m[0] * w, M.q[1] + M.d[1] * u + M.m[1] * w, M.z0 + M.s * w), O = at(0, 0), Su = sub(at(1, 0), O), Sv = sub(at(0, 1), O);
+      let u0 = Infinity, u1 = -Infinity, w1 = 0; for (const p of it.P) { const dx = p[0] - M.q[0], dy = p[1] - M.q[1], u = dx * M.d[0] + dy * M.d[1], w = dx * M.m[0] + dy * M.m[1]; u0 = Math.min(u0, u); u1 = Math.max(u1, u); w1 = Math.max(w1, w); }
+      g.save(); poly(); g.fillStyle = '#2a3142'; g.fill(); g.clip();
+      const img = it.S && it.S.img;
+      if (img) {
+        const W = img.width, H = img.height, hb = it.hb, per = hb * Math.hypot(1, M.s) * W / H, step = hb * 0.82, pat = g.createPattern(img, 'repeat-x');
+        for (let j = Math.ceil(w1 / step); j >= 0; j--) {
+          const off = ((j * 0.37 + (it.seed % 7) * 0.11) % 1) * per, w0 = j * step;
+          g.save(); g.setTransform(...curT(g, [Su[0] * per / W, Su[1] * per / W, Sv[0] * hb / H, Sv[1] * hb / H, O[0] + Su[0] * off + Sv[0] * w0, O[1] + Su[1] * off + Sv[1] * w0])); g.fillStyle = pat; g.fillRect((u0 - off) * W / per - 2, 0, (u1 - u0) * W / per + 4, H); g.restore();
+        }
+      }
+      g.restore();
+      const [na, nb] = rot(it.n[0], it.n[1]), k = Math.max(0, Math.min(0.7, 0.3 - 0.35 * (nb - na) / Math.SQRT2 - 0.25 * it.n[2] + (it.dim || 0)));
+      g.save(); poly(); if (k > 0) { g.fillStyle = `rgba(0,0,0,${k.toFixed(3)})`; g.fill(); } g.strokeStyle = 'rgba(0,0,0,.5)'; g.lineWidth = 1; g.stroke(); g.restore();
     } else if (it.k === 'disc') {                                                     // a drum's end: a step of steel, or the exhaust glowing
       g.save(); poly(); g.fillStyle = it.exhaust ? '#090c13' : '#353c4e'; g.fill(); g.strokeStyle = 'rgba(0,0,0,.55)'; g.lineWidth = 1; g.stroke();
       if (it.exhaust) { const [cx, cy] = pr(...it.c), rr = Math.max(2, ...S.map(q => Math.hypot(q[0] - cx, q[1] - cy))), c2 = black ? '255,255,255' : grgb, gr = g.createRadialGradient(cx, cy, 0, cx, cy, rr); gr.addColorStop(0, 'rgba(255,255,240,.95)'); gr.addColorStop(0.35, `rgba(${c2},.85)`); gr.addColorStop(1, `rgba(${c2},.12)`); g.clip(); g.fillStyle = gr; g.fillRect(cx - rr, cy - rr, 2 * rr, 2 * rr); }
@@ -854,6 +869,70 @@ function turretAt(kind, seed, styleStock, st, level, x, y, z, k, mirror) {
   return { k: 'greeble', solids: f.B, P: cornersOf(f.B) };
 }
 const SMALL_GREEBLES = ['computer', 'labor', 'works'];
+// THE STRAIGHT SKELETON (his idea, 2026-10-25: "any shape can be turned into a pyramid — the outline contracting inward until it all ends
+// in a single line"): the outline's edges move inward at one speed, its corners sliding along their bisectors; two corners that meet end
+// their edge (an edge event), a reflex corner that reaches an edge across splits the front in two (a split event). Every edge sweeps one
+// flat face. Faces: { e (the outline's edge), P [[x, y, t]] (t: how far in — the height to be) }; ok: the faces cover the outline exactly
+function skeletonRoof(P0) {
+  const n = P0.length, ccw = area2(P0) > 0, P = ccw ? P0.map(p => p.slice()) : P0.slice().reverse().map(p => p.slice());
+  const dir = P.map((p, i) => unit([P[(i + 1) % n][0] - p[0], P[(i + 1) % n][1] - p[1]])), nin = dir.map(d => [-d[1], d[0]]);
+  const vel = (a, b) => { const na = nin[a], nb = nin[b], k = Math.max(1e-3, 1 + na[0] * nb[0] + na[1] * nb[1]); return [(na[0] + nb[0]) / k, (na[1] + nb[1]) / k]; };
+  const pos = (v, t) => [v.p[0] + v.v[0] * (t - v.t0), v.p[1] + v.v[1] * (t - v.t0)];
+  const inst = P.map((p, i) => ({ e: i, L: [[p[0], p[1], 0]], R: [[P[(i + 1) % n][0], P[(i + 1) % n][1], 0]], alive: true }));
+  let lavs = [P.map((p, i) => ({ p: p.slice(), t0: 0, inI: (i + n - 1) % n, outI: i }))];
+  for (const v of lavs[0]) v.v = vel(inst[v.inI].e, inst[v.outI].e);
+  const close = L => { if (L.length === 2) { const [a, b] = L; inst[a.outI].L.push([...a.p, a.t0]); inst[a.outI].R.push([...b.p, b.t0]); inst[b.outI].L.push([...b.p, b.t0]); inst[b.outI].R.push([...a.p, a.t0]); inst[a.outI].alive = inst[b.outI].alive = false; } else for (const a of L) { inst[a.outI].L.push([...a.p, a.t0]); inst[a.outI].R.push([...a.p, a.t0]); inst[a.outI].alive = false; } };
+  let t = 0;
+  for (let iter = 0; iter < 6 * n + 60; iter++) {
+    let best = null;
+    lavs.forEach((L, li) => {
+      if (L.length < 3) return; const N = L.length;
+      for (let i = 0; i < N; i++) {                                                   // an edge collapsing (its two corners meet)
+        const u = L[i], w = L[(i + 1) % N], d = dir[inst[u.outI].e], pu = pos(u, t), pw = pos(w, t);
+        const d0 = (pw[0] - pu[0]) * d[0] + (pw[1] - pu[1]) * d[1], rate = (w.v[0] - u.v[0]) * d[0] + (w.v[1] - u.v[1]) * d[1];
+        if (rate < -1e-12) { const te = t - d0 / rate; if (te >= t - 1e-9 && (!best || te < best.t - 1e-12)) best = { t: Math.max(t, te), type: 'edge', li, i }; }
+      }
+      for (let i = 0; i < N; i++) {                                                   // a reflex corner reaching an edge across (a split)
+        const r = L[i], da = dir[inst[r.inI].e], db = dir[inst[r.outI].e]; if (da[0] * db[1] - da[1] * db[0] >= -1e-9) continue;
+        const pr = pos(r, t);
+        for (let j = 0; j < N; j++) {
+          const u = L[j], w = L[(j + 1) % N]; if (u === r || w === r) continue;
+          const k = inst[u.outI].e, nk = nin[k], q = P[k], vn = r.v[0] * nk[0] + r.v[1] * nk[1]; if (vn >= 1 - 1e-9) continue;
+          const te = ((pr[0] - q[0]) * nk[0] + (pr[1] - q[1]) * nk[1] - vn * t) / (1 - vn); if (te < t - 1e-9) continue;
+          const X = pos(r, te), a = pos(u, te), b = pos(w, te), dk = dir[k], len = (b[0] - a[0]) * dk[0] + (b[1] - a[1]) * dk[1], s0 = (X[0] - a[0]) * dk[0] + (X[1] - a[1]) * dk[1];
+          if (len <= 1e-9 || s0 < -1e-7 || s0 > len + 1e-7) continue;
+          if (!best || te < best.t - 1e-12) best = { t: Math.max(t, te), type: 'split', li, i, j };
+        }
+      }
+    });
+    if (!best) break;
+    t = best.t; for (const L of lavs) for (const v of L) { v.p = pos(v, t); v.t0 = t; }
+    const L = lavs[best.li], N = L.length;
+    if (best.type === 'edge') {
+      const u = L[best.i], w = L[(best.i + 1) % N], X = [(u.p[0] + w.p[0]) / 2, (u.p[1] + w.p[1]) / 2], k = u.outI;
+      inst[k].L.push([...X, t]); inst[k].R.push([...X, t]); inst[k].alive = false;
+      inst[u.inI].R.push([...X, t]); inst[w.outI].L.push([...X, t]);
+      const x = { p: X, t0: t, inI: u.inI, outI: w.outI }; x.v = vel(inst[x.inI].e, inst[x.outI].e);
+      const L2 = []; for (let i = 0; i < N; i++) { const v = L[(best.i + i) % N]; if (v === u) L2.push(x); else if (v !== w) L2.push(v); }
+      if (L2.length < 3) { close(L2); lavs.splice(best.li, 1); } else lavs[best.li] = L2;
+    } else {
+      const r = L[best.i], u = L[best.j], w = L[(best.j + 1) % N], k = u.outI, X = r.p.slice(), ke = inst[k].e;
+      inst[k].L.push([...u.p, t]); inst[k].R.push([...w.p, t]); inst[k].alive = false;
+      const k1 = inst.push({ e: ke, L: [[...X, t]], R: [[...w.p, t]], alive: true }) - 1, k2 = inst.push({ e: ke, L: [[...u.p, t]], R: [[...X, t]], alive: true }) - 1;
+      inst[r.inI].R.push([...X, t]); inst[r.outI].L.push([...X, t]);
+      u.outI = k2; w.inI = k1;
+      const x1 = { p: X, t0: t, inI: r.inI, outI: k1 }, x2 = { p: X.slice(), t0: t, inI: k2, outI: r.outI }; x1.v = vel(inst[x1.inI].e, inst[x1.outI].e); x2.v = vel(inst[x2.inI].e, inst[x2.outI].e);
+      const ri = best.i, wi = (best.j + 1) % N, ui = best.j, seq = (from, to) => { const o = []; for (let i = from; ; i = (i + 1) % N) { o.push(L[i]); if (i === to) break; } return o; };
+      const l1 = [x1, ...(wi === ri ? [] : seq(wi, (ri + N - 1) % N))], l2 = [x2, ...(ui === ri ? [] : seq((ri + 1) % N, ui))];
+      const keep = []; for (const l of [l1, l2]) { if (l.length < 3) close(l); else keep.push(l); }
+      lavs.splice(best.li, 1, ...keep);
+    }
+  }
+  for (const L of lavs) close(L);
+  const faces = inst.map(I => { const pts = [I.L[0], ...I.R, ...I.L.slice(1).reverse()].filter((p, i, A) => i === 0 || Math.hypot(p[0] - A[i - 1][0], p[1] - A[i - 1][1]) > 1e-6); return { e: I.e, P: pts }; }).filter(f => f.P.length >= 3 && Math.abs(area2(f.P)) > 1e-6);
+  const sum = faces.reduce((a, f) => a + Math.abs(area2(f.P)), 0), want = Math.abs(area2(P)), tmax = Math.max(...faces.flatMap(f => f.P.map(p => p[2])));
+  return { faces, dir, nin, P, ok: Math.abs(sum - want) < 0.03 * want && faces.every(f => f.P.every(p => p.every(Number.isFinite))), err: (sum - want) / want, tmax };
+}
 // an outline cut to a box (Sutherland–Hodgman) — the spine is the top deck cut to a band down the middle
 function clipBox(P, x0, x1, y0, y1) {
   let out = P;
@@ -884,7 +963,7 @@ function unionBox(P, x0, x1, y0, y1) {
   } while (!(onP && i === start) && ++guard < 2000);
   return ccw ? out : out.reverse();
 }
-export async function buildShip(hullId, styleStock, { styleId, volume = 700, loadout = 'two beams', seed = 1, level = 3, tone = null } = {}) {
+export async function buildShip(hullId, styleStock, { styleId, volume = 700, loadout = 'two beams', seed = 1, level = 3, tone = null, form = 'decks' } = {}) {
   const hull = hullOf(hullId, volume), st = stockSet(styleStock), R = rnd('ship:' + hullId + ':' + seed + ':' + styleStock.style), clamp = (x, a, b) => Math.max(a, Math.min(b, x)), pick = l => l && l.length ? l[Math.floor(R() * l.length)] : null;
   const guns = (LOADOUTS[loadout] || LOADOUTS['two beams']).map(([kind, n]) => ({ kind, n, size: 1 }));
   const top = await paintedTop(styleId || styleStock.style.split('+')[0], hull, guns, tone), strips = await stripsOf(styleStock), pickS = () => strips.length ? strips[Math.floor(R() * strips.length)] : null;
@@ -894,7 +973,7 @@ export async function buildShip(hullId, styleStock, { styleId, volume = 700, loa
   const bh = hull.bh, nt = volume < 500 ? 2 : volume < 1200 ? 3 : 4, sx = nt > 3 ? 0.1 : 0.13, sy = nt > 3 ? 0.22 : 0.3, HK = [1, 0.55, 0.45, 0.4];
   const h0 = clamp(0.16 * bh + 0.2, 0.3, 0.75), cx = (hull.box.minx + hull.box.maxx) / 2;
   // THE STERN BLOCK: a box across the stern as tall as the two lowest decks, joined into their outlines — the engines come out of its wall
-  const zE = h0 * (1 + HK[1]), r = clamp(Math.min(0.44 * zE, 0.13 * bh), 0.12, 0.9), gapE = 2.3 * r;
+  const hR = clamp(0.1 * bh + 0.3, 0.35, 0.8), zE = form === 'roof' ? hR : h0 * (1 + HK[1]), r = clamp(Math.min(0.44 * zE, 0.13 * bh), 0.12, 0.9), gapE = 2.3 * r;   // the roof's cookie under it, or the two lowest decks
   const sternAt = y => { let m = Infinity; for (let i = 0; i < P0.length; i++) { const [x1, y1] = P0[i], [x2, y2] = P0[(i + 1) % P0.length]; if ((y1 <= y && y < y2) || (y2 <= y && y < y1)) m = Math.min(m, x1 + (x2 - x1) * (y - y1) / (y2 - y1)); } return isFinite(m) ? m : hull.box.minx; };
   // the union checked by its area (outline + box − their overlap): a pocket shut inside it, or a wrong walk, fails — fewer engines then
   const unionOk = (P, x0, x1, y0, y1) => { const U = unionBox(P, x0, x1, y0, y1), want = Math.abs(area2(P)) + 2 * (x1 - x0) * (y1 - y0) - Math.abs(area2(clipBox(P, x0, x1, y0, y1))); return Math.abs(Math.abs(area2(U)) - want) < 0.02 * want ? U : null; };
@@ -905,6 +984,68 @@ export async function buildShip(hullId, styleStock, { styleId, volume = 700, loa
     if ((P0u = unionOk(P0, xb, xf, -wb, wb))) break;
   }
   if (!P0u) { ne = 1; wb = r * 1.25; xb = Math.min(...[-1, 0, 1].map(k => sternAt(k * r))) - 0.01; }   // no block fits this stern: one engine against it
+  // THE ROOF (his idea, 2026-10-25: "any shape can be turned into a pyramid … its flat faces carry the ribbon, and the 2D greebles at their
+  // own size reach out past the outline — the greeble, which tells the style, dominant again"): a low cookie, then the straight skeleton's
+  // roof — the strip in rows on every face, the style's fittings lying on the eaves a third past the outline, plates on the big faces, the
+  // style's own 2D turrets on the painter's hard points tilted with the roof, the engines out of the cookie's stern
+  if (form === 'roof') {
+    const base = P0u || P0, SK = skeletonRoof(base);
+    if (SK.ok) {
+      const items = [], sl = Math.min(0.42, (1.0 + 0.12 * bh) / Math.max(0.5, SK.tmax)), outN = normals(base), hb = clamp(0.08 * bh + 0.25, 0.3, 0.65);
+      const keyR = (tag, a, b) => rnd(tag + ':' + seed + ':' + ((a[0] + b[0]) / 2).toFixed(2) + ':' + Math.abs((a[1] + b[1]) / 2).toFixed(2));   // mirrored edges alike
+      ribbon(items, base, hR, base, 0, pickS(), outN);                                  // the cookie under the roof
+      const faces = SK.faces.map(f => { const a = SK.P[f.e], b = SK.P[(f.e + 1) % SK.P.length], m = SK.nin[f.e]; return { ...f, a, b, q: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], d: SK.dir[f.e], m, n3: unit([-sl * m[0], -sl * m[1], 1]), P3: f.P.map(([x, y, t]) => [x, y, hR + sl * t]) }; });
+      const onFace = (f, u, w, lift) => [f.q[0] + f.d[0] * u + f.m[0] * w + f.n3[0] * lift, f.q[1] + f.d[1] * u + f.m[1] * w + f.n3[1] * lift, hR + sl * w + f.n3[2] * lift];
+      for (const f of faces) { const Rr = keyR('face', f.a, f.b); items.push({ k: 'roof', P: f.P3, n: f.n3, map: { q: f.q, d: f.d, m: f.m, z0: hR, s: sl }, S: strips.length ? strips[Math.floor(Rr() * strips.length)] : null, hb, seed: Math.floor(Rr() * 1000) }); }
+      // the 2D GREEBLES on the eaves: the style's fittings on each face, a third of each past the outline
+      let ng = 0, np = 0;
+      for (const f of faces) {
+        if (f.P[0][2] > 1e-6 || f.P[1][2] > 1e-6 || !st.fitting.length) continue; const len = Math.hypot(f.b[0] - f.a[0], f.b[1] - f.a[1]); if (len < 0.9) continue;
+        const Rr = keyR('eave', f.a, f.b); if (Rr() < 0.15) continue; const c = clamp(Math.floor(len / 1.8), 1, 3);
+        for (let i = 0; i < c; i++) {
+          const img = st.fitting[Math.floor(Rr() * st.fitting.length)], Wc = Math.min(1.5, len / c * 0.85), Hc = Wc * img.height / img.width, u = (i - (c - 1) / 2) * len / c, w0 = -0.35 * Hc, w1 = 0.65 * Hc;
+          items.push({ k: 'quad', P: [onFace(f, u - Wc / 2, w0, 0.012), onFace(f, u + Wc / 2, w0, 0.012), onFace(f, u + Wc / 2, w1, 0.012), onFace(f, u - Wc / 2, w1, 0.012)], n: f.n3, img, src: [0, 0, img.width, img.height], bare: true }); ng++;
+        }
+      }
+      // PLATES on the big faces, up the slope
+      for (const f of faces) {
+        const plates = st.plate || []; if (!plates.length) break; const wMax = Math.max(...f.P.map(p => p[2])), len = Math.hypot(f.b[0] - f.a[0], f.b[1] - f.a[1]); if (wMax < 1.0 || f.P[0][2] > 1e-6) continue;
+        const Rr = keyR('plate', f.a, f.b); if (Rr() < 0.3) continue; const rr = Math.min(0.9, wMax * 0.32, len * 0.25), wc = wMax * 0.5, F2 = f.P.map(p => [p[0], p[1]]);
+        if ([[-1, -1], [1, -1], [1, 1], [-1, 1]].some(([a, b]) => { const p = onFace(f, a * rr, wc + b * rr, 0); return !inside(F2, p[0], p[1]); })) continue;
+        const img = plates[Math.floor(Rr() * plates.length)];
+        items.push({ k: 'quad', P: [onFace(f, -rr, wc - rr, 0.016), onFace(f, rr, wc - rr, 0.016), onFace(f, rr, wc + rr, 0.016), onFace(f, -rr, wc + rr, 0.016)], n: f.n3, img, src: [0, 0, img.width, img.height], bare: true }); np++;
+      }
+      // the style's own 2D TURRETS on the painter's hard points, lying on the roof (tilted with it), barrels forward
+      const tsty = STYLES[styleId || styleStock.style.split('+')[0]] || {}, TS = tsty.turrets, tsheet = TS ? await loadStyle({ sheet: TS.sheet }).catch(() => null) : null; let nT = 0;
+      for (const hp of top.hps || []) {
+        const f = faces.find(F => inside(F.P.map(p => [p[0], p[1]]), hp.x, hp.y)); if (!f) continue;
+        const ki = hp.kind === 'weapon_kinetic' ? 1 : hp.kind === 'weapon_missile' ? 2 : 0, cell = TS && TS.cells[ki];
+        const w = (hp.x - f.q[0]) * f.m[0] + (hp.y - f.q[1]) * f.m[1], u = (hp.x - f.q[0]) * f.d[0] + (hp.y - f.q[1]) * f.d[1], c0 = onFace(f, u, w, 0.02), n = f.n3;
+        const ex = unit([1 - n[0] * n[0], -n[0] * n[1], -n[0] * n[2]]), ey = unit(cross3(n, ex));   // the roof's own x and y
+        if (cell && tsheet) {
+          const [cx0, cy0, cw, ch, px, py, body] = cell, k = 2 * hp.r * 0.95 / body, P = [[-px, -py], [cw - px, -py], [cw - px, ch - py], [-px, ch - py]].map(([X, Y]) => [c0[0] + (ex[0] * X + ey[0] * Y) * k, c0[1] + (ex[1] * X + ey[1] * Y) * k, c0[2] + (ex[2] * X + ey[2] * Y) * k]);
+          items.push({ k: 'quad', P, n, img: tsheet, src: [cx0, cy0, cw, ch], bare: true }); nT++;
+        }
+      }
+      // CUTOUTS on the cookie's long flanks (under its top), the ENGINES out of its stern, running lights
+      for (let i = 0; i < base.length; i++) {
+        const A = base[i], B = base[(i + 1) % base.length], dx = B[0] - A[0], dy = B[1] - A[1], len = Math.hypot(dx, dy); if (len < 0.8 || Math.abs(dy) > Math.abs(dx) * 0.7) continue;
+        const Rr = keyR('cut', A, B), img = st.fitting.length ? st.fitting[Math.floor(Rr() * st.fitting.length)] : null; if (!img || Rr() < 0.4) continue;
+        const u2 = [dx / len, dy / len], n2 = outN[i], W2 = len * 0.8, H2 = hR * 1.3, c2 = [(A[0] + B[0]) / 2 + n2[0] * 0.06, (A[1] + B[1]) / 2 + n2[1] * 0.06, hR * 0.32], at2 = (a, b) => [c2[0] + u2[0] * a * W2 / 2, c2[1] + u2[1] * a * W2 / 2, c2[2] + b * H2 / 2];
+        items.push({ k: 'quad', P: [at2(-1, 1), at2(1, 1), at2(1, -1), at2(-1, -1)], n: [n2[0], n2[1], 0], img, src: [0, 0, img.width, img.height], bare: true });
+      }
+      const specs = new Map();
+      for (let i = 0; i < ne; i++) {
+        const y = (i - (ne - 1) / 2) * gapE, pair = Math.min(i, ne - 1 - i), mid = ne > 1 && ne % 2 === 1 && i === (ne - 1) / 2;
+        if (!specs.has(pair)) specs.set(pair, engineSpec(rnd('engine:' + seed + ':' + pair + ':' + styleStock.style), st, strips));
+        engine(items, specs.get(pair), xb, y, zE * 0.5, mid ? Math.min(0.47 * zE, r * 1.12) : r);
+      }
+      for (let i = 0; i < base.length; i++) { const a = base[i], q = base[(i + 1) % base.length]; if (Math.hypot(q[0] - a[0], q[1] - a[1]) < 1.2 || outN[i][0] < -0.5) continue; items.push({ k: 'glow', P: [[(a[0] + q[0]) / 2 + outN[i][0] * 0.03, (a[1] + q[1]) / 2 + outN[i][1] * 0.03, hR * 0.3]], r: 0.05 }); }
+      const B = [{ t: 'ship', items }];
+      B.recipe = `${Math.round(hull.area * 32)} volume · a roof of ${faces.length} faces · ${ng} eave greebles · ${np} plates · ${nT} turrets · ${ne} engine${ne === 1 ? '' : 's'}`;
+      return { B, hull };
+    }
+  }
   // THE DECKS: the outline (with the block), then smaller copies up the spine, each kept inside the one below; the second wears the block too
   const keepIn = (P, Q) => {
     const tgt = [cx, 0], ok = p => inside(Q, p[0], p[1]), out = []; if (!ok(tgt)) return P;
