@@ -79,7 +79,7 @@ const lookFor = (fam, seed) => { const L = LOOKS[fam]; return L ? L[(seed - 1) %
 function setTab(t) { tab = t; for (const [b, k] of [['tStock', 'stock'], ['tIso', 'iso'], ['tDev', 'dev'], ['tShow', 'show'], ['tShip', 'ship']]) $(b).classList.toggle('on', k === t); for (const el of document.querySelectorAll('[data-iso], [data-dev], [data-ship]')) el.hidden = !['iso', 'dev', 'ship'].some(k => t === k && el.hasAttribute('data-' + k)); }
 async function show() {
   $('out').innerHTML = '<div class="tiny">cutting…</div>';
-  const mixId = $('mix').value && $('mix').value !== $('style').value ? $('mix').value : null; for (const el of document.querySelectorAll('[data-mixed]')) el.hidden = !mixId;
+  const mixId = $('mix').value || null;   // the same style twice is a mix too: one style in two tones (his ask) for (const el of document.querySelectorAll('[data-mixed]')) el.hidden = !mixId;
   stock = mixId ? mixStock([await stockOf($('style').value), await stockOf(mixId)], [$('toneA').value, $('toneB').value]) : await stockOf($('style').value);   // MIXING (his idea): both styles' pieces at random, each in its own tone
   if (tab === 'stock') {
     const by = {}; for (const p of stock.pieces) (by[p.kind] = by[p.kind] || []).push(p);
@@ -176,7 +176,7 @@ async function drawShips() {
     d.insertAdjacentHTML('beforeend', `<b>${def.name || it.hull} · ${vol} volume</b><span>${ship ? ship.B.recipe : ''}</span><span><i class="lv" style="background:${col || '#000'};${col ? '' : 'box-shadow:0 0 0 2px #fff'}"></i>${it.cap} · level ${lv}</span>`);
     if (cv) d.onmouseenter = () => { let yaw = it.yaw; clearInterval(spin); spin = setInterval(() => { yaw += 0.05; const n = drawShip(ship, { yaw, level: lv, width: 560 }), g = cv.getContext('2d'); g.clearRect(0, 0, cv.width, cv.height); g.drawImage(n, (cv.width - n.width) / 2, (cv.height - n.height) / 2); }, 50); d.onmouseleave = () => clearInterval(spin); };
   }
-  $('note').textContent = 'Low decks of the outline, each wrapped in the style\'s long strip with the painted ship on top; cutouts along the flanks; 3D turrets on the painter\'s hard points; a few small greebles; engines against the stern, the outer ones in alike pairs. Hover one to turn it.';
+  $('note').textContent = 'Low decks of the outline (two, three or four by size), each in the style\'s long strip with the painted ship on top; a spine down the middle; plates — flat clusters of the style\'s pieces — on the ledges; cutouts along the flanks; turrets on the painter\'s hard points; engines out of a stern block, the outer ones in alike pairs. Hover one to turn it.';
 }
 $('tShip').onclick = () => { setTab('ship'); show(); };
 $('hull').onchange = show; $('vol').onchange = show; $('loadout').onchange = show;

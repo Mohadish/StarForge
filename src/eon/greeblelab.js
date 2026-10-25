@@ -75,7 +75,7 @@ export function toned(cv, tone, a = 0.62) {
 // colour, a multi-tone"): both stocks as one, every piece keeping its own style's tone — no new art
 export function mixStock(stocks, tones = []) {
   const pieces = stocks.flatMap((st, i) => st.pieces.map(p => ({ ...p, _cv: undefined, tone: tones[i] || null })));
-  return { style: stocks.map(x => x.style).join('+'), name: stocks.map(x => x.name).join(' + '), pieces, mixed: stocks.length > 1 };
+  return { style: stocks.map(x => x.style).join('+'), name: stocks.map(x => x.name).join(' + '), pieces, mixed: stocks.length > 1, tones: stocks.map((_, i) => tones[i] || null) };
 }
 
 // ---------------------------------------------------------------- THE ISOMETRIC LAB
@@ -127,6 +127,22 @@ function makeTiles(set, R, n) {
   }
   return out;
 }
+// PLATES (his ask, 2026-10-25: "fittings like the tiles, but greebly in all directions — a complete outline, like the engines and the
+// mounts"): whole fittings, mounts and engines stamped over each other round a centre, at every quarter turn, each with its shadow — no
+// panel under them, so the cluster's own ragged outline is the piece's. Laid flat on a ship's decks: an extra layer
+function makePlates(set, R, n) {
+  const out = [], pool = [...set.fitting, ...set.mount, ...(set.engine !== set.fitting ? set.engine : [])], pick = l => l[Math.floor(R() * l.length)];
+  if (!pool.length) return out;
+  for (let i = 0; i < n; i++) {
+    const W = 320, cv = document.createElement('canvas'); cv.width = cv.height = W; const g = cv.getContext('2d'), k = 6 + Math.floor(R() * 4);
+    for (let j = 0; j < k; j++) {
+      const im = rotq(pick(pool), Math.floor(R() * 4)), long = (0.3 + R() * 0.3) * W, sc = long / Math.max(im.width, im.height), w = im.width * sc, h = im.height * sc, a = R() * Math.PI * 2, d = R() * W * 0.2;
+      g.save(); g.shadowColor = 'rgba(0,0,0,.75)'; g.shadowBlur = 6; g.shadowOffsetY = 3; g.drawImage(im, W / 2 + Math.cos(a) * d - w / 2, W / 2 + Math.sin(a) * d - h / 2, w, h); g.restore();
+    }
+    out.push(cv);
+  }
+  return out;
+}
 // the stock of a style as the solids want it: strip PANELS and BANDS (the textures), the whole FITTINGS (the cards), ENGINES (feet),
 // MOUNTS (discs) and the TILES
 function stockSet(styleStock) {
@@ -136,6 +152,7 @@ function stockSet(styleStock) {
   const set = { panel, band, fitting, engine: engine.length ? engine : fitting, mount: mount.length ? mount : fitting };
   set.engDown = by('engine').length ? by('engine').map(p => rotq(cvOf(p), (STYLES[p.style] || st).flipEngines ? 1 : 3)) : fitting;   // nozzles point left on most sheets: a quarter turn back puts them down — each by its own style (a mix has two)
   set.tile = makeTiles(set, rnd('tiles:' + styleStock.style), 8);
+  set.plate = makePlates(set, rnd('plates:' + styleStock.style), 10);
   Object.assign(set, { roof: fitting, wall: [...panel, ...set.tile], ring: set.mount, bit: set.tile });   // the buildings' names for them
   return (styleStock._set = set);
 }
@@ -402,6 +419,7 @@ export function renderSolids(B, o = {}) {
     } else if (it.k === 'cap') {                                                      // the top deck: the painted ship, as it lies (its outer rings are under the tiles)
       const z = it.P[0][2], Q0 = pr(0, 0, z), ex = sub(pr(1, 0, z), Q0), ey = sub(pr(0, 1, z), Q0), T = it.top;
       g.save(); poly(); g.fillStyle = '#2a3142'; g.fill(); g.clip();
+      if (it.tex) { g.save(); g.setTransform(...curT(g, [ex[0], ex[1], ey[0], ey[1], Q0[0], Q0[1]])); const k = 1.2 / it.tex.width, b = bboxOf(it.P); g.scale(k, k); g.fillStyle = g.createPattern(it.tex, 'repeat'); g.fillRect(b.minx / k, b.miny / k, (b.maxx - b.minx) / k, (b.maxy - b.miny) / k); g.restore(); }   // tiles, laid in the world (under the painting, where it does not reach)
       if (T) { g.setTransform(...curT(g, [ex[0], ex[1], ey[0], ey[1], Q0[0], Q0[1]])); g.transform(1 / T.S, 0, 0, 1 / T.S, T.x0, T.y0); g.drawImage(T.img, 0, 0); }
       g.restore(); g.save(); poly(); g.strokeStyle = 'rgba(0,0,0,.55)'; g.lineWidth = 1.2; g.stroke(); g.restore(); if (it.rim) glowStroke(poly, 1.2);
     }
@@ -757,8 +775,8 @@ function apart(A, B) {
 const STRIPS = new Map();
 async function stripsOf(styleStock) {
   const out = [];
-  for (const id of styleStock.style.split('+')) {
-    const st = STYLES[id]; if (!st || !st.ribbon) continue; const tone = (styleStock.pieces.find(p => p.style === id) || {}).tone || null, key = id + '|' + (tone || '');
+  for (const [i, id] of styleStock.style.split('+').entries()) {
+    const st = STYLES[id]; if (!st || !st.ribbon) continue; const tone = (styleStock.tones ? styleStock.tones[i] : (styleStock.pieces.find(p => p.style === id) || {}).tone) || null, key = id + '|' + (tone || '');
     if (!STRIPS.has(key)) {
       const img = await loadStyle(st), list = [];
       for (const r of st.ribbons || [st.ribbon]) {
@@ -802,11 +820,12 @@ function disc(items, x, r, y, z, dir, o = {}) { const P = []; for (let i = 0; i 
 // an ENGINE's make (a pair shares one: the outer engines alike, the middle one its own)
 function engineSpec(R, st, strips) {
   const v = (a, b) => a + (b - a) * R(), pick = l => l && l.length ? l[Math.floor(R() * l.length)] : null;
-  return { out: v(0.35, 0.75), col: v(0.14, 0.26), colR: v(1.08, 1.22), bell: v(0.5, 0.95), b0: v(0.7, 0.85), b1: v(0.95, 1.12), house: (pick(strips) || {}).img || pick(st.band), collar: pick(st.band), nozzle: (pick(strips) || {}).img || pick(st.band) };
+  return { out: v(0.9, 1.5), col: v(0.14, 0.26), colR: v(1.08, 1.22), bell: v(0.6, 1.1), b0: v(0.7, 0.85), b1: v(0.95, 1.12), house: (pick(strips) || {}).img || pick(st.band), collar: pick(st.band), nozzle: (pick(strips) || {}).img || pick(st.band) };
 }
 function engine(items, sp, xs, y, z, r) {
   const x1 = xs - r * sp.out, x2 = x1 - r * sp.col, x3 = x2 - r * sp.bell, outer = [];
-  drum(outer, xs, x1, r, r, y, z, sp.house);                                          // out of the stern, against it
+  disc(outer, xs - 0.005, r * 1.28, y, z, -1);                                        // its socket in the stern wall
+  drum(outer, xs, x1, r, r, y, z, sp.house);                                          // out of the stern wall
   disc(outer, x1, r * sp.colR, y, z, 1); drum(outer, x1, x2, r * sp.colR, r * sp.colR, y, z, sp.collar, { dim: 0.12 }); disc(outer, x2, r * sp.colR, y, z, -1);   // the collar
   drum(outer, x2, x3, r * sp.b0, r * sp.b1, y, z, sp.nozzle, { dim: 0.18 });                                                // the bell, flared
   disc(outer, x3, r * sp.b1 * 0.97, y, z, -1, { exhaust: true });
@@ -820,7 +839,7 @@ function cornersOf(B) {
 }
 // a SMALL greeble: a device built at its own size, centred, set down at k — its corners inside rho, no taller than maxH
 function greebleAt(fam, seed, styleStock, st, level, x, y, z, rho, mirror, maxH = Infinity) {
-  const f = builder(rnd(fam + ':' + seed + ':' + styleStock.style), st); f.glow = levelColor(level); deviceRecipe(fam, f, null);
+  const f = builder(rnd(fam + ':' + seed + ':' + styleStock.style), st); f.glow = levelColor(level); deviceRecipe(fam, f, null); for (const q of f.B) delete q.smoke;   // no smoke on a ship (his call)
   const b = [Infinity, -Infinity, Infinity, -Infinity, Infinity, -Infinity]; for (const q of f.B) { const o = boxOf(q); for (let i = 0; i < 6; i += 2) { b[i] = Math.min(b[i], o[i]); b[i + 1] = Math.max(b[i + 1], o[i + 1]); } }
   const cx = (b[0] + b[1]) / 2, cy = (b[2] + b[3]) / 2, k = Math.min(1.0, rho / Math.max(0.3, Math.hypot(b[1] - b[0], b[3] - b[2]) / 2), maxH / Math.max(0.05, b[5] - b[4]));
   for (const q of f.B) { shift(q, -cx, -cy); if (q.t !== 'card') q.z -= b[4]; else q.c = [q.c[0], q.c[1], q.c[2] - b[4]]; if (mirror) mirrorY(q); xform(q, k, x, y, z); }
@@ -835,75 +854,134 @@ function turretAt(kind, seed, styleStock, st, level, x, y, z, k, mirror) {
   return { k: 'greeble', solids: f.B, P: cornersOf(f.B) };
 }
 const SMALL_GREEBLES = ['computer', 'labor', 'works'];
+// an outline cut to a box (Sutherland–Hodgman) — the spine is the top deck cut to a band down the middle
+function clipBox(P, x0, x1, y0, y1) {
+  let out = P;
+  for (const [ok, cross] of [[p => p[0] >= x0, (a, b) => [x0, a[1] + (b[1] - a[1]) * (x0 - a[0]) / (b[0] - a[0])]], [p => p[0] <= x1, (a, b) => [x1, a[1] + (b[1] - a[1]) * (x1 - a[0]) / (b[0] - a[0])]],
+    [p => p[1] >= y0, (a, b) => [a[0] + (b[0] - a[0]) * (y0 - a[1]) / (b[1] - a[1]), y0]], [p => p[1] <= y1, (a, b) => [a[0] + (b[0] - a[0]) * (y1 - a[1]) / (b[1] - a[1]), y1]]]) {
+    const inp = out; out = []; if (!inp.length) break;
+    for (let i = 0; i < inp.length; i++) { const a = inp[(i + inp.length - 1) % inp.length], b = inp[i], ia = ok(a), ib = ok(b); if (ib) { if (!ia) out.push(cross(a, b)); out.push(b); } else if (ia) out.push(cross(a, b)); }
+  }
+  return out;
+}
+// an outline and a box as ONE outline (their union): the outline's edges outside the box, the box's outside the outline, joined where
+// they cross — the stern block that houses the engines becomes part of the hull, so they come out of a wall and never float behind it
+function unionBox(P, x0, x1, y0, y1) {
+  const ccw = area2(P) > 0, Q = ccw ? P : P.slice().reverse(), B = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], inB = ([x, y]) => x > x0 && x < x1 && y > y0 && y < y1;
+  const segX = (a, b, c, d) => { const rx = b[0] - a[0], ry = b[1] - a[1], sx = d[0] - c[0], sy = d[1] - c[1], den = rx * sy - ry * sx; if (Math.abs(den) < 1e-12) return null; const t = ((c[0] - a[0]) * sy - (c[1] - a[1]) * sx) / den, u = ((c[0] - a[0]) * ry - (c[1] - a[1]) * rx) / den; return t > 1e-9 && t < 1 - 1e-9 && u > 1e-9 && u < 1 - 1e-9 ? { t, u } : null; };
+  const X = [], pE = Q.map(() => []), bE = B.map(() => []);
+  Q.forEach((a, i) => { const b = Q[(i + 1) % Q.length]; B.forEach((c, j) => { const h = segX(a, b, c, B[(j + 1) % 4]); if (h) { pE[i].push({ t: h.t, id: X.length }); bE[j].push({ t: h.u, id: X.length }); X.push({ p: [a[0] + (b[0] - a[0]) * h.t, a[1] + (b[1] - a[1]) * h.t] }); } }); });
+  if (!X.length) return Q.every(inB) ? (ccw ? B : B.slice().reverse()) : P;                  // the box within the outline (or apart): the outline as it was
+  const PL = [], BL = [];
+  Q.forEach((a, i) => { PL.push({ p: a, id: -1 }); for (const h of pE[i].sort((m, n) => m.t - n.t)) { X[h.id].pi = PL.length; PL.push({ p: X[h.id].p, id: h.id }); } });
+  B.forEach((c, j) => { BL.push({ p: c, id: -1 }); for (const h of bE[j].sort((m, n) => m.t - n.t)) { X[h.id].bi = BL.length; BL.push({ p: X[h.id].p, id: h.id }); } });
+  const start = PL.findIndex(n => n.id < 0 && !inB(n.p)); if (start < 0) return P;
+  const out = []; let onP = true, i = start, guard = 0;
+  do {
+    const L = onP ? PL : BL, n = L[i]; out.push(n.p);
+    if (n.id >= 0) { const nx = L[(i + 1) % L.length].p, mid = [(n.p[0] + nx[0]) / 2, (n.p[1] + nx[1]) / 2]; if (onP ? inB(mid) : inside(Q, mid[0], mid[1])) { onP = !onP; i = onP ? X[n.id].pi : X[n.id].bi; } }   // going in: follow the other one
+    i = (i + 1) % (onP ? PL : BL).length;
+  } while (!(onP && i === start) && ++guard < 2000);
+  return ccw ? out : out.reverse();
+}
 export async function buildShip(hullId, styleStock, { styleId, volume = 700, loadout = 'two beams', seed = 1, level = 3, tone = null } = {}) {
-  const hull = hullOf(hullId, volume), st = stockSet(styleStock), R = rnd('ship:' + hullId + ':' + seed + ':' + styleStock.style), clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+  const hull = hullOf(hullId, volume), st = stockSet(styleStock), R = rnd('ship:' + hullId + ':' + seed + ':' + styleStock.style), clamp = (x, a, b) => Math.max(a, Math.min(b, x)), pick = l => l && l.length ? l[Math.floor(R() * l.length)] : null;
   const guns = (LOADOUTS[loadout] || LOADOUTS['two beams']).map(([kind, n]) => ({ kind, n, size: 1 }));
   const top = await paintedTop(styleId || styleStock.style.split('+')[0], hull, guns, tone), strips = await stripsOf(styleStock), pickS = () => strips.length ? strips[Math.floor(R() * strips.length)] : null;
   const P0 = hull.poly.filter((p, i, A) => Math.hypot(p[0] - A[(i + 1) % A.length][0], p[1] - A[(i + 1) % A.length][1]) > 0.02), ccw = area2(P0) > 0, items = [];
-  const normals = P => P.map((p, i) => { const q = P[(i + 1) % P.length], e = unit([q[0] - p[0], q[1] - p[1]]); return ccw ? [e[1], -e[0]] : [-e[1], e[0]]; }), outN = normals(P0);
-  // THE TIERS: the outline, then smaller copies of it up the spine — low cookies, each its wall in the strip and the painted ship on top
-  const bh = hull.bh, h0 = clamp(0.16 * bh + 0.2, 0.3, 0.75), cx = (hull.box.minx + hull.box.maxx) / 2, steps = bh > 1.6 ? 2 : 1, tiers = []; let z = 0;
-  const keepIn = (P, Q) => {                                                             // P kept inside Q: a straying point pulled toward the spine
+  const normals = P => P.map((p, i) => { const q = P[(i + 1) % P.length], e = unit([q[0] - p[0], q[1] - p[1]]); return ccw ? [e[1], -e[0]] : [-e[1], e[0]]; });
+  // HOW MANY DECKS (his call): a small ship two, a medium three, a big one four — each a little lower than the one under it
+  const bh = hull.bh, nt = volume < 500 ? 2 : volume < 1200 ? 3 : 4, sx = nt > 3 ? 0.1 : 0.13, sy = nt > 3 ? 0.22 : 0.3, HK = [1, 0.55, 0.45, 0.4];
+  const h0 = clamp(0.16 * bh + 0.2, 0.3, 0.75), cx = (hull.box.minx + hull.box.maxx) / 2;
+  // THE STERN BLOCK: a box across the stern as tall as the two lowest decks, joined into their outlines — the engines come out of its wall
+  const zE = h0 * (1 + HK[1]), r = clamp(Math.min(0.44 * zE, 0.13 * bh), 0.12, 0.9), gapE = 2.3 * r;
+  const sternAt = y => { let m = Infinity; for (let i = 0; i < P0.length; i++) { const [x1, y1] = P0[i], [x2, y2] = P0[(i + 1) % P0.length]; if ((y1 <= y && y < y2) || (y2 <= y && y < y1)) m = Math.min(m, x1 + (x2 - x1) * (y - y1) / (y2 - y1)); } return isFinite(m) ? m : hull.box.minx; };
+  // the union checked by its area (outline + box − their overlap): a pocket shut inside it, or a wrong walk, fails — fewer engines then
+  const unionOk = (P, x0, x1, y0, y1) => { const U = unionBox(P, x0, x1, y0, y1), want = Math.abs(area2(P)) + 2 * (x1 - x0) * (y1 - y0) - Math.abs(area2(clipBox(P, x0, x1, y0, y1))); return Math.abs(Math.abs(area2(U)) - want) < 0.02 * want ? U : null; };
+  let ne = clamp(Math.round(bh / 1.5), 1, 5), wb = 0, xb = hull.box.minx, xf = xb, P0u = null;
+  for (; ne >= 1; ne--) {
+    wb = (ne - 1) / 2 * gapE + r * 1.25; if (wb > bh / 2 * 0.85 && ne > 1) continue; wb += 0.0137;   // off any corner of the outline
+    xb = Math.min(...Array.from({ length: 9 }, (_, i) => sternAt(-wb + 2 * wb * i / 8))) - 0.04; xf = xb + Math.max(1.0, 0.22 * hull.bw);
+    if ((P0u = unionOk(P0, xb, xf, -wb, wb))) break;
+  }
+  if (!P0u) { ne = 1; wb = r * 1.25; xb = Math.min(...[-1, 0, 1].map(k => sternAt(k * r))) - 0.01; }   // no block fits this stern: one engine against it
+  // THE DECKS: the outline (with the block), then smaller copies up the spine, each kept inside the one below; the second wears the block too
+  const keepIn = (P, Q) => {
     const tgt = [cx, 0], ok = p => inside(Q, p[0], p[1]), out = []; if (!ok(tgt)) return P;
     const pull = p => { if (ok(p)) return p; let lo = 0, hi = 1; for (let i = 0; i < 12; i++) { const m = (lo + hi) / 2; if (ok([p[0] + (tgt[0] - p[0]) * m, p[1] + (tgt[1] - p[1]) * m])) hi = m; else lo = m; } const m = Math.min(1, hi + 0.02); return [p[0] + (tgt[0] - p[0]) * m, p[1] + (tgt[1] - p[1]) * m]; };
     for (let i = 0; i < P.length; i++) { const a = P[i], b = P[(i + 1) % P.length], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 0.35)); for (let j = 0; j < n; j++) { const p = [a[0] + (b[0] - a[0]) * j / n, a[1] + (b[1] - a[1]) * j / n], q = pull(p); out.push({ q, moved: q !== p, corner: j === 0 }); } }
     return out.filter((o, i) => o.corner || o.moved || out[(i + 1) % out.length].moved || out[(i + out.length - 1) % out.length].moved).map(o => o.q);
   };
-  for (let k = 0; k <= steps; k++) {
-    const P = k ? keepIn(P0.map(([x, y]) => [cx + (x - cx) * (1 - 0.13 * k), y * (1 - 0.3 * k)]), tiers[k - 1].P) : P0, hh = k ? h0 * (k === 1 ? 0.55 : 0.45) : h0;
+  const tiers = []; let z = 0;
+  for (let k = 0; k < nt; k++) {
+    let P = k ? keepIn(P0.map(([x, y]) => [cx + (x - cx) * (1 - sx * k), y * (1 - sy * k)]), tiers[k - 1].P) : (P0u || P0);
+    if (k === 1 && P0u) P = unionOk(P, xb, xf, -wb * 0.9, wb * 0.9) || P;
+    const hh = h0 * HK[k];
     ribbon(items, P, z + hh, P, z, pickS(), normals(P));
-    items.push({ k: 'cap', P: P.map(([x, y]) => [x, y, z + hh]), n: [0, 0, 1], top, rim: k === steps });
+    items.push({ k: 'cap', P: P.map(([x, y]) => [x, y, z + hh]), n: [0, 0, 1], top, tex: pick(st.tile) });
     z += hh; tiers.push({ P, z1: z });
   }
-  // CUTOUTS along the long flanks: the style's fittings stood up just outside the lowest wall, their outline breaking the hull's (a pair
-  // across the spine alike: each edge decides by its mirrored place)
-  let ncut = 0;
-  for (let i = 0; i < P0.length; i++) {
-    const A = P0[i], B = P0[(i + 1) % P0.length], dx = B[0] - A[0], dy = B[1] - A[1], len = Math.hypot(dx, dy); if (len < 0.8 || Math.abs(dy) > Math.abs(dx) * 0.7) continue;
+  // THE SPINE (his ask: "the middle spine — not much taller than the decks, but there — what ties it together"): the top deck cut to a band
+  // down its middle, one low cookie more, in the strip, tiles on top, its edge in the level's colour
+  const decks = tiers.slice(), Tt = tiers[nt - 1], sb = bboxOf(Tt.P), len = sb.maxx - sb.minx, eT = edgeAt(Tt.P, (sb.minx + sb.maxx) / 2), hwT = eT ? (eT.max - eT.min) / 2 : 0.5, ws = clamp(hwT * 0.3, 0.1, 0.55);
+  const SP = clipBox(Tt.P, sb.minx + len * 0.12, sb.maxx - len * 0.18, -ws, ws);
+  if (SP.length >= 3 && Math.abs(area2(SP)) > 0.05) { const hs = h0 * 0.4; ribbon(items, SP, Tt.z1 + hs, SP, Tt.z1, pickS(), normals(SP)); items.push({ k: 'cap', P: SP.map(([x, y]) => [x, y, Tt.z1 + hs]), n: [0, 0, 1], tex: pick(st.tile), rim: true }); decks.push({ P: SP, z1: Tt.z1 + hs, spine: true }); }
+  else items[items.length - 1].rim = true;
+  // CUTOUTS along the long flanks: the style's fittings stood up just outside the lowest wall (a pair across the spine alike)
+  let ncut = 0; const P0b = tiers[0].P, outN = normals(P0b);
+  for (let i = 0; i < P0b.length; i++) {
+    const A = P0b[i], B = P0b[(i + 1) % P0b.length], dx = B[0] - A[0], dy = B[1] - A[1], len = Math.hypot(dx, dy); if (len < 0.8 || Math.abs(dy) > Math.abs(dx) * 0.7) continue;
     const mx = (A[0] + B[0]) / 2, my = (A[1] + B[1]) / 2, Rr = rnd('cut:' + seed + ':' + mx.toFixed(2) + ':' + Math.abs(my).toFixed(2)), img = st.fitting.length ? st.fitting[Math.floor(Rr() * st.fitting.length)] : null; if (!img || Rr() < 0.3) continue;
-    const u = [dx / len, dy / len], n2 = outN[i], W = len * 0.85, H = h0 * 1.6, c = [mx + n2[0] * 0.06, my + n2[1] * 0.06, h0 * 0.5], at = (a, b) => [c[0] + u[0] * a * W / 2, c[1] + u[1] * a * W / 2, c[2] + b * H / 2];
+    const u = [dx / len, dy / len], n2 = outN[i], W = len * 0.85, H = h0 * 1.32, c = [mx + n2[0] * 0.06, my + n2[1] * 0.06, h0 * 0.31], at = (a, b) => [c[0] + u[0] * a * W / 2, c[1] + u[1] * a * W / 2, c[2] + b * H / 2];
     items.push({ k: 'quad', P: [at(-1, 1), at(1, 1), at(1, -1), at(-1, -1)], n: [n2[0], n2[1], 0], img, src: [0, 0, img.width, img.height], bare: true }); ncut++;
   }
-  // TURRETS on the painter's hard points (on its painted mounts), as big as the mount; on the highest deck under them, made smaller (or
-  // lifted onto the deck above) where they would reach into a higher one
-  const tierAt = (x, y) => { let t = 0; tiers.forEach((T, j) => { if (inside(T.P, x, y)) t = j; }); return t; };
-  let nt = 0;
+  // TURRETS on the painter's hard points, as big as its mounts, on the highest deck under them (the spine too); smaller — or lifted onto
+  // the deck above — where they would reach into a higher one
+  const deckAt = (x, y) => { let t = 0; decks.forEach((T, j) => { if (inside(T.P, x, y)) t = j; }); return t; };
+  let nT = 0; const placed = [];
   for (const hp of top.hps || []) {
-    const sd = hp.kind + ':' + hp.x.toFixed(2) + ':' + Math.abs(hp.y).toFixed(2), mirror = hp.y < -1e-3; let k = Math.max(0.2, hp.r / 0.9 * 1.15), ti = tierAt(hp.x, hp.y), it = null;
+    const sd = hp.kind + ':' + hp.x.toFixed(2) + ':' + Math.abs(hp.y).toFixed(2), mirror = hp.y < -1e-3; let k = Math.max(0.2, hp.r / 0.9 * 1.15), ti = deckAt(hp.x, hp.y), it = null;
     for (let tries = 0; tries < 5; tries++) {
-      it = turretAt(hp.kind, sd, styleStock, st, level, hp.x, hp.y, tiers[ti].z1, k, mirror);
+      it = turretAt(hp.kind, sd, styleStock, st, level, hp.x, hp.y, decks[ti].z1, k, mirror);
       const xs = it.P.map(p => p[0]), ys = it.P.map(p => p[1]), bb = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
-      const hit = tiers.findIndex((T, j) => j > ti && ([[bb[0], bb[2]], [bb[1], bb[2]], [bb[1], bb[3]], [bb[0], bb[3]]].some(([x, y]) => inside(T.P, x, y)) || T.P.some(([x, y]) => x > bb[0] && x < bb[1] && y > bb[2] && y < bb[3])));
+      const hit = decks.findIndex((T, j) => j > ti && ([[bb[0], bb[2]], [bb[1], bb[2]], [bb[1], bb[3]], [bb[0], bb[3]]].some(([x, y]) => inside(T.P, x, y)) || T.P.some(([x, y]) => x > bb[0] && x < bb[1] && y > bb[2] && y < bb[3])));
       if (hit < 0) break; if (tries < 3) k *= 0.8; else ti = hit;
     }
-    items.push(it); nt++;
+    items.push(it); nT++; placed.push({ x: hp.x, y: hp.y, r: hp.r * 1.4 });
   }
-  // a few SMALL greebles on the top deck, in pairs either side of the spine — low, never a big chunk
-  const T = tiers[steps], tb = bboxOf(T.P); let ns = 0;
-  for (const f of [0.28, 0.55]) {
-    const x = tb.minx + (tb.maxx - tb.minx) * f, e = edgeAt(T.P, x); if (!e || R() < 0.4) continue;
-    const hw = (e.max - e.min) / 2, y = hw * 0.5, rho = Math.min(0.32, hw * 0.35); if (rho < 0.15 || (top.hps || []).some(h => Math.hypot(h.x - x, Math.abs(h.y) - y) < rho + h.r + 0.3)) continue;
+  // PLATES — the extra flat layer: on each ledge a mirrored pair, reaching a little past the deck's edge (breaking it) but never onto the
+  // deck above; on the top deck either side of the spine. Each a hair above the last (so none fights another for the same height)
+  const plates = st.plate || [], clear = (x, y, rr) => !placed.some(q => Math.hypot(q.x - x, q.y - y) < rr + q.r || Math.hypot(q.x - x, q.y + y) < rr + q.r); let np = 0;
+  for (let k = 0; k < nt && plates.length; k++) {
+    const T = tiers[k], nx = k < nt - 1 ? tiers[k + 1] : null, tb = bboxOf(T.P), inner = nx ? nx.P : SP.length >= 3 ? SP : null;
+    for (const f of [0.18, 0.4, 0.62, 0.84]) {
+      const x = tb.minx + (tb.maxx - tb.minx) * f, e1 = edgeAt(T.P, x); if (!e1) continue;
+      const e2 = inner ? edgeAt(inner, x) : null, yIn = e2 ? e2.max : 0, rr = Math.min(nx ? 0.9 : 1.1, (e1.max - yIn) * (nx ? 0.62 : 0.5)), y = nx ? (e1.max + yIn) / 2 + rr * 0.2 : yIn + rr * 1.1;
+      if (rr < 0.2 || R() < 0.3 || !clear(x, y, rr) || !inside(T.P, x, y)) continue;
+      if (inner && [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0]].some(([a, b]) => inside(inner, x + a * rr, y + b * rr) || inside(inner, x + a * rr, -(y + b * rr)))) continue;   // never onto the deck above
+      const img = rotq(plates[Math.floor(R() * plates.length)], Math.floor(R() * 4)), zp = T.z1 + 0.012 + 0.004 * np;
+      for (const sg of [1, -1]) items.push({ k: 'quad', P: [[x - rr, sg * (y + rr), zp], [x + rr, sg * (y + rr), zp], [x + rr, sg * (y - rr), zp], [x - rr, sg * (y - rr), zp]], n: [0, 0, 1], img, src: [0, 0, img.width, img.height], bare: true });
+      placed.push({ x, y, r: rr }); np += 2;
+    }
+  }
+  // a few SMALL greebles on the top deck either side of the spine — low, no smoke
+  let ns = 0;
+  for (const f of [0.3, 0.6]) {
+    const x = sb.minx + len * f, e = edgeAt(Tt.P, x); if (!e || R() < 0.5) continue;
+    const hw = (e.max - e.min) / 2, rho = Math.min(0.32, hw * 0.3), y = ws + rho * 1.3; if (rho < 0.15 || !clear(x, y, rho) || !inside(Tt.P, x, y + rho) || !inside(Tt.P, x, -(y + rho))) continue;
     const fam = SMALL_GREEBLES[Math.floor(R() * SMALL_GREEBLES.length)], gs = seed * 31 + ns;
-    if (inside(T.P, x, y) && inside(T.P, x, -y)) { items.push(greebleAt(fam, gs, styleStock, st, level, x, y, T.z1, rho, false, 0.4), greebleAt(fam, gs, styleStock, st, level, x, -y, T.z1, rho, true, 0.4)); ns += 2; }
+    items.push(greebleAt(fam, gs, styleStock, st, level, x, y, Tt.z1, rho, false, 0.4), greebleAt(fam, gs, styleStock, st, level, x, -y, Tt.z1, rho, true, 0.4)); ns += 2; placed.push({ x, y, r: rho });
   }
-  // THE ENGINES across the stern, against it (never into it), as tall as the two lowest decks: the outer ones in alike pairs, the middle
-  // one (an odd count) its own
-  const zE = tiers[Math.min(1, steps)].z1, e = edgeAt(P0, hull.box.minx + Math.min(0.3, hull.bw * 0.05)), half = e ? (e.max - e.min) / 2 : bh / 4, cy = e ? (e.max + e.min) / 2 : 0;
-  const ne = clamp(Math.round(2 * half / 1.3), 1, 5), gap = ne > 1 ? 1.4 * half / (ne - 1) : Infinity, r0 = clamp(Math.min(0.46 * zE, 0.45 * gap), 0.14, 0.9);
-  const sternAt = y => { let m = Infinity; for (let i = 0; i < P0.length; i++) { const [x1, y1] = P0[i], [x2, y2] = P0[(i + 1) % P0.length]; if ((y1 <= y && y < y2) || (y2 <= y && y < y1)) m = Math.min(m, x1 + (x2 - x1) * (y - y1) / (y2 - y1)); } return isFinite(m) ? m : hull.box.minx; };
-  const specs = new Map(), plan = [];
+  // THE ENGINES out of the stern block's wall, in its socket, the outer ones in alike pairs, the middle one (an odd count) its own
+  const specs = new Map();
   for (let i = 0; i < ne; i++) {
-    const y = ne === 1 ? cy : cy - 0.7 * half + i * gap, pair = Math.min(i, ne - 1 - i), mid = ne > 1 && ne % 2 === 1 && i === (ne - 1) / 2;
+    const y = (i - (ne - 1) / 2) * gapE, pair = Math.min(i, ne - 1 - i), mid = ne > 1 && ne % 2 === 1 && i === (ne - 1) / 2;
     if (!specs.has(pair)) specs.set(pair, engineSpec(rnd('engine:' + seed + ':' + pair + ':' + styleStock.style), st, strips));
-    const sp = specs.get(pair), r = mid ? Math.min(0.47 * zE, r0 * 1.15) : r0, xs = Math.min(...[-1, -0.5, 0, 0.5, 1].map(k => sternAt(y + k * r))) - 0.01, xb = xs - r * (sp.out + sp.col + sp.bell);   // the stern's farthest-back point across the engine's width
-    const hits = P0.some(([px, py]) => px > xb && px < xs - 0.02 && py > y - r * 1.25 && py < y + r * 1.25) || [[xb, y - r], [xb, y + r], [(xb + xs) / 2, y - r], [(xb + xs) / 2, y + r]].some(([px, py]) => inside(P0, px, py));
-    plan.push({ pair, sp, xs, y, r, hits });
+    engine(items, specs.get(pair), xb, y, zE * 0.5, mid ? Math.min(0.47 * zE, r * 1.12) : r);
   }
-  const bad = new Set(plan.filter(p => p.hits).map(p => p.pair)); let nE = 0;   // an engine that would meet the outline (a notched stern) is left off, its partner with it
-  for (const p of plan) if (!bad.has(p.pair)) { engine(items, p.sp, p.xs, p.y, zE * 0.5, p.r); nE++; }
-  for (let i = 0; i < P0.length; i++) { const a = P0[i], q = P0[(i + 1) % P0.length]; if (Math.hypot(q[0] - a[0], q[1] - a[1]) < 1.2 || outN[i][0] < -0.5) continue; items.push({ k: 'glow', P: [[(a[0] + q[0]) / 2 + outN[i][0] * 0.03, (a[1] + q[1]) / 2 + outN[i][1] * 0.03, h0 * 0.3]], r: 0.05 }); }   // running lights on the lowest wall
+  for (let i = 0; i < P0b.length; i++) { const a = P0b[i], q = P0b[(i + 1) % P0b.length]; if (Math.hypot(q[0] - a[0], q[1] - a[1]) < 1.2 || outN[i][0] < -0.5) continue; items.push({ k: 'glow', P: [[(a[0] + q[0]) / 2 + outN[i][0] * 0.03, (a[1] + q[1]) / 2 + outN[i][1] * 0.03, h0 * 0.3]], r: 0.05 }); }   // running lights on the lowest wall
   const B = [{ t: 'ship', items }];
-  B.recipe = `${Math.round(hull.area * 32)} volume · ${steps + 1} decks · ${nt} turrets · ${ncut} cutouts · ${ns} small greebles · ${nE} engine${nE === 1 ? '' : 's'}`;
+  B.recipe = `${Math.round(hull.area * 32)} volume · ${nt} decks + spine · ${nT} turrets · ${np} plates · ${ncut} cutouts · ${ns} small greebles · ${ne} engine${ne === 1 ? '' : 's'}`;
   return { B, hull };
 }
 export function drawShip(ship, { yaw = 0, level = 3, width = 520 } = {}) {
