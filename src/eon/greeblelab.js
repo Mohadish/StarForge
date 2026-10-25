@@ -320,16 +320,18 @@ export function renderSolids(B, o = {}) {
   // goes after it; one that straddles asks the other's plane; only when both straddle does the depth decide — so nothing jumps as it turns
   function drawShipFaces(s) {
     const v = [c + s0, c - s0, 1.05], E = 1e-4, list = [], pre = [];
-    for (const it of s.items) {
-      if (it.n && dot3(it.n, v) <= 1e-3) continue;                                    // facing away
+    for (let it of s.items) {
+      if (it.n && dot3(it.n, v) <= 1e-3) { if (!it.bare) continue; it = { ...it, n: it.n.map(q => -q) }; }   // facing away (a ragged top in the air shows its back)
       if (it.behind) { if (dot3(it.behind.n, v) <= 1e-3) pre.push(it); continue; }     // an exhaust's glow: first of all when its nozzle faces away (the nozzle glows itself)
       const S = it.P.map(p => pr(p[0], p[1], p[2])), gr = it.k === 'glow' ? it.r * U * 2.2 : 0; let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
       for (const q of S) { x0 = Math.min(x0, q[0] - gr); x1 = Math.max(x1, q[0] + gr); y0 = Math.min(y0, q[1] - gr); y1 = Math.max(y1, q[1] + gr); }
       const m = it.P.reduce((a, p) => [a[0] + p[0], a[1] + p[1], a[2] + p[2]], [0, 0, 0]).map(q => q / it.P.length);
-      list.push({ it, S, sb: [x0, x1, y0, y1], d: dot3(m, v), out: [], deg: 0 });
+      let za = Infinity, zb = -Infinity; for (const p of it.P) { za = Math.min(za, p[2]); zb = Math.max(zb, p[2]); }
+      list.push({ it, S, sb: [x0, x1, y0, y1], d: dot3(m, v), z0: za, z1: zb, out: [], deg: 0 });
     }
     const test = (F, pts) => { let f = 0, b = 0; for (const p of pts) { const q = dot3(F.it.n, sub3(p, F.it.P[0])); if (q > E) f++; else if (q < -E) b++; } return b ? (f ? 0 : -1) : f ? 1 : 2; };   // 1 all in front, -1 all behind, 0 both, 2 on the plane
     const first = (A, B) => {
+      if (A.z1 <= B.z0 + E) return true; if (B.z1 <= A.z0 + E) return false;          // one wholly above the other: the upper goes after
       if (A.it.n) { const t = test(A, B.it.P); if (t === 1) return true; if (t === -1) return false; if (t === 2) return A.d <= B.d; }
       if (B.it.n) { const t = test(B, A.it.P); if (t === 1) return false; if (t === -1) return true; }
       return A.d <= B.d;
@@ -352,7 +354,7 @@ export function renderSolids(B, o = {}) {
       let pick = null; for (const x of left) if (x.deg === 0 && (!pick || x.d < pick.d)) pick = x;
       if (!pick) for (const x of left) if (!pick || x.deg < pick.deg || (x.deg === pick.deg && x.d < pick.d)) pick = x;   // a cycle: the least held, the farthest
       left.delete(pick); for (const q of pick.out) q.deg--;
-      try { if (pick.it.k === 'group') drawGroup(pick.it); else shipFace(pick.it, pick.S); } catch (e) { console.warn('greeble lab: a ship face was left out', pick.it.k, e.message); }
+      try { if (pick.it.k === 'group') drawGroup(pick.it); else if (pick.it.k === 'greeble') { for (const q of drawOrder(pick.it.solids, pr, c, s0)) drawSolid(q); } else shipFace(pick.it, pick.S); } catch (e) { console.warn('greeble lab: a ship face was left out', pick.it.k, e.message); }
     }
   }
   // a picture's triangle onto the screen's (the texture's points t → the screen's s), clipped a hair wide so the seams close
@@ -368,6 +370,7 @@ export function renderSolids(B, o = {}) {
     const poly = () => { g.beginPath(); S.forEach((q, i) => i ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1])); g.closePath(); };
     if (it.k === 'quad') {                                                            // a tile of a ribbon, a slice of a drum: lit from the screen's left and from above
       const [na, nb] = rot(it.n[0], it.n[1]), k = Math.max(0, Math.min(0.75, 0.3 - 0.2 * (nb - na) / Math.SQRT2 - 0.22 * it.n[2] + (it.dim || 0)));
+      if (it.bare) { const [sx, sy, sw, sh] = it.src, im = shaded(it.img, k); mapTri(im, S[0], S[1], S[3], [sx, sy], [sx + sw, sy], [sx, sy + sh], it.src); mapTri(im, S[2], S[3], S[1], [sx + sw, sy + sh], [sx, sy + sh], [sx + sw, sy], it.src); return; }   // the strip's ragged top: its own outline, nothing behind it
       g.save(); poly(); g.fillStyle = '#2a3142'; g.fill(); g.restore();
       if (it.img) { const [sx, sy, sw, sh] = it.src; mapTri(it.img, S[0], S[1], S[3], [sx, sy], [sx + sw, sy], [sx, sy + sh], it.src); mapTri(it.img, S[2], S[3], S[1], [sx + sw, sy + sh], [sx, sy + sh], [sx + sw, sy], it.src); }
       g.save(); poly(); if (k > 0) { g.fillStyle = `rgba(0,0,0,${k.toFixed(3)})`; g.fill(); } if (!it.soft) { g.strokeStyle = 'rgba(0,0,0,.4)'; g.lineWidth = 0.8; g.stroke(); } g.restore();
@@ -383,7 +386,7 @@ export function renderSolids(B, o = {}) {
       const z = it.P[0][2], Q0 = pr(0, 0, z), ex = sub(pr(1, 0, z), Q0), ey = sub(pr(0, 1, z), Q0), T = it.top;
       g.save(); poly(); g.fillStyle = '#2a3142'; g.fill(); g.clip();
       if (T) { g.setTransform(...curT(g, [ex[0], ex[1], ey[0], ey[1], Q0[0], Q0[1]])); g.transform(1 / T.S, 0, 0, 1 / T.S, T.x0, T.y0); g.drawImage(T.img, 0, 0); }
-      g.restore(); g.save(); poly(); g.strokeStyle = 'rgba(0,0,0,.55)'; g.lineWidth = 1.2; g.stroke(); g.restore(); glowStroke(poly, 1.2);
+      g.restore(); g.save(); poly(); g.strokeStyle = 'rgba(0,0,0,.55)'; g.lineWidth = 1.2; g.stroke(); g.restore(); if (it.rim) glowStroke(poly, 1.2);
     }
   }
   if (!o.wash || !(o.washA > 0)) return cv;
@@ -405,6 +408,8 @@ export const ARCHETYPES = {
 // THE BUILDINGS out of the same parts as the devices (his call, 2026-10-25): plinths with greeble flanges, cages, columns with fins and
 // plates, engines standing on corners, towers with set-backs, tiles on the roofs — laid out over a bigger footprint
 function shift(s, dx, dy) { if (s.t === 'card') s.c = [s.c[0] + dx, s.c[1] + dy, s.c[2]]; else if (s.t === 'prism') s.poly = s.poly.map(([x, y]) => [x + dx, y + dy]); else { s.x += dx; s.y += dy; } }
+// a solid mirrored across the spine (y → −y): the second of a pair of greebles
+function mirrorY(s) { if (s.t === 'card') { s.c = [s.c[0], -s.c[1], s.c[2]]; s.u = [s.u[0], -s.u[1], s.u[2]]; s.v = [s.v[0], -s.v[1], s.v[2]]; } else if (s.t === 'box') s.y = -(s.y + s.d); else if (s.t === 'prism') s.poly = s.poly.map(([x, y]) => [x, -y]); else s.y = -s.y; }
 // a solid scaled by k about the origin, then moved (a part built at its own size, set down small somewhere else)
 function xform(s, k, dx, dy, dz) {
   if (s.t === 'card') { s.c = [s.c[0] * k + dx, s.c[1] * k + dy, s.c[2] * k + dz]; s.u = s.u.map(q => q * k); s.v = s.v.map(q => q * k); return; }
@@ -741,18 +746,42 @@ function insetPoly(P, d) {
   }
   return P.map((_, i) => at(i));
 }
-// a RIBBON round the outline: from ring T (z1) down to ring Bo (z0), the strip along it (o.sh: the share of the strip's height it shows),
-// cut where the strip repeats — so it runs on round the whole ship at its own proportions
-function ribbon(items, T, z1, Bo, z0, img, outN, o = {}) {
-  if (!img) return; const n = T.length, L = (p, q, k) => [p[0] + (q[0] - p[0]) * k, p[1] + (q[1] - p[1]) * k];
+// THE STRIPS (his call: "use the strips, the long strips that you have"): each style's plating ribbon off its sheet, whole, made to run
+// on without a seam (its last stretch faded over its first), in its tone when two styles are mixed; `edge` = the share of its ragged top
+const STRIPS = new Map();
+async function stripsOf(styleStock) {
+  const out = [];
+  for (const id of styleStock.style.split('+')) {
+    const st = STYLES[id]; if (!st || !st.ribbon) continue; const tone = (styleStock.pieces.find(p => p.style === id) || {}).tone || null, key = id + '|' + (tone || '');
+    if (!STRIPS.has(key)) {
+      const img = await loadStyle(st), list = [];
+      for (const r of st.ribbons || [st.ribbon]) {
+        const F = Math.round(r.w * 0.12), cv = document.createElement('canvas'); cv.width = r.w - F; cv.height = r.h; const g = cv.getContext('2d');
+        g.drawImage(img, r.x, r.y, r.w - F, r.h, 0, 0, r.w - F, r.h);
+        const t = document.createElement('canvas'); t.width = F; t.height = r.h; const q = t.getContext('2d'); q.drawImage(img, r.x + r.w - F, r.y, F, r.h, 0, 0, F, r.h);
+        const gr = q.createLinearGradient(0, 0, F, 0); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); q.globalCompositeOperation = 'destination-in'; q.fillStyle = gr; q.fillRect(0, 0, F, r.h);
+        g.drawImage(t, 0, 0);                                                              // the tail over the head, fading: the end runs into the start
+        list.push({ img: tone ? toned(cv, tone) : cv, edge: st.edge || 0 });
+      }
+      STRIPS.set(key, list);
+    }
+    out.push(...STRIPS.get(key));
+  }
+  return out;
+}
+// a RIBBON round a ring: from ring T (z1) down to ring Bo (z0), the strip's solid body along it at its own proportions (cut where the
+// strip repeats); `over`: on a wall, its ragged top stands up past the face's top edge (a castle's crenels, a carapace's ridge)
+function ribbon(items, T, z1, Bo, z0, S, outN, o = {}) {
+  if (!S) return; const img = S.img, n = T.length, L = (p, q, k) => [p[0] + (q[0] - p[0]) * k, p[1] + (q[1] - p[1]) * k], top = Math.round((S.edge || 0) * img.height), sh = img.height - top;
   let hd = 0; for (let i = 0; i < n; i++) hd += Math.hypot(T[i][0] - Bo[i][0], T[i][1] - Bo[i][1]);
-  const sh = (o.sh || 1) * img.height, per = Math.max(0.05, Math.hypot(hd / n, z1 - z0) * img.width / sh); let u = 0;
+  const slant = Math.hypot(hd / n, z1 - z0), per = Math.max(0.05, slant * img.width / sh), over = o.over && top > 2 ? slant * top / sh : 0; let u = o.u0 || 0;
   for (let i = 0; i < n; i++) {
     const j = (i + 1) % n, len = Math.hypot(T[j][0] - T[i][0], T[j][1] - T[i][1]) || 1e-6; let t = 0;
     while (t < 1 - 1e-6) {
-      const fr = u / per - Math.floor(u / per), step = Math.max(1e-4, Math.min(1 - t, (1 - fr) * per / len)), t1 = Math.min(1, t + step);
-      const Q = [[...L(T[i], T[j], t), z1], [...L(T[i], T[j], t1), z1], [...L(Bo[i], Bo[j], t1), z0], [...L(Bo[i], Bo[j], t), z0]];
-      items.push({ k: 'quad', P: Q, n: quadN(Q, [outN[i][0], outN[i][1], 0.3]), img, src: [fr * img.width, 0, Math.max(1, (t1 - t) * len / per * img.width), sh], dim: o.dim || 0 });
+      const fr = u / per - Math.floor(u / per), step = Math.max(1e-4, Math.min(1 - t, (1 - fr) * per / len)), t1 = Math.min(1, t + step), sw = Math.max(1, (t1 - t) * len / per * img.width);
+      const Q = [[...L(T[i], T[j], t), z1], [...L(T[i], T[j], t1), z1], [...L(Bo[i], Bo[j], t1), z0], [...L(Bo[i], Bo[j], t), z0]], nq = quadN(Q, [outN[i][0], outN[i][1], 0.3]);
+      items.push({ k: 'quad', P: Q, n: nq, img, src: [fr * img.width, top, sw, sh], dim: o.dim || 0 });
+      if (over) items.push({ k: 'quad', P: [[...L(T[i], T[j], t), z1 + over], [...L(T[i], T[j], t1), z1 + over], Q[1], Q[0]], n: nq, img, src: [fr * img.width, 0, sw, top], dim: o.dim || 0, bare: true });
       u += (t1 - t) * len; t = t1;
     }
   }
@@ -765,9 +794,9 @@ function drum(items, x0, x1, r0, r1, y, z, img, o = {}) {
 }
 function disc(items, x, r, y, z, dir, o = {}) { const P = []; for (let i = 0; i < 16; i++) { const a = i / 16 * 2 * Math.PI; P.push([x, y + r * Math.cos(a), z + r * Math.sin(a)]); } items.push({ k: 'disc', P, n: [dir, 0, 0], c: [x, y, z], ...o }); }
 // an ENGINE's make (a pair shares one: the outer engines alike, the middle one its own)
-function engineSpec(R, st) {
+function engineSpec(R, st, strips) {
   const v = (a, b) => a + (b - a) * R(), pick = l => l && l.length ? l[Math.floor(R() * l.length)] : null;
-  return { out: v(0.35, 0.75), col: v(0.14, 0.26), colR: v(1.08, 1.22), bell: v(0.5, 0.95), b0: v(0.7, 0.85), b1: v(0.95, 1.12), house: pick(st.band), collar: pick(st.band), nozzle: pick(st.panel.length ? st.panel : st.band) };
+  return { out: v(0.35, 0.75), col: v(0.14, 0.26), colR: v(1.08, 1.22), bell: v(0.5, 0.95), b0: v(0.7, 0.85), b1: v(0.95, 1.12), house: (pick(strips) || {}).img || pick(st.band), collar: pick(st.band), nozzle: (pick(strips) || {}).img || pick(st.band) };
 }
 function engine(items, sp, xs, y, z, r) {
   const x1 = xs - r * sp.out, x2 = x1 - r * sp.col, x3 = x2 - r * sp.bell, inner = [], outer = [];
@@ -779,33 +808,74 @@ function engine(items, sp, xs, y, z, r) {
   for (const parts of [inner, outer]) items.push({ k: 'group', parts, P: parts.flatMap(p => p.P) });   // each half one piece in the hull's order: in and out of the stern
   items.push({ k: 'glow', P: [[x3 - r * 0.15, y, z]], r: r * sp.b1 * 0.75, behind: outer[outer.length - 1] });   // the glow behind the engine when its nozzle faces away
 }
-export async function buildShip(hullId, styleStock, { styleId, volume = 700, loadout = 'two beams', seed = 1, tone = null } = {}) {
-  const hull = hullOf(hullId, volume), st = stockSet(styleStock), R = rnd('ship:' + hullId + ':' + seed + ':' + styleStock.style), pick = l => l && l.length ? l[Math.floor(R() * l.length)] : null, clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+// the GREEBLES on the hull (his list: the works, mining rigs, labour, computers, beams, missile pods, guns — none of the drives, reactors,
+// shields or thrusters): a device built at its own size, centred, set down at k
+const SHIP_GREEBLES = ['works', 'mining', 'labor', 'computer', 'beam', 'missile', 'gun'];
+function greebleAt(fam, seed, styleStock, st, level, x, y, z, rho, mirror) {
+  const f = builder(rnd(fam + ':' + seed + ':' + styleStock.style), st); f.glow = levelColor(level); deviceRecipe(fam, f, null);
+  const b = [Infinity, -Infinity, Infinity, -Infinity, Infinity, -Infinity]; for (const q of f.B) { const o = boxOf(q); for (let i = 0; i < 6; i += 2) { b[i] = Math.min(b[i], o[i]); b[i + 1] = Math.max(b[i + 1], o[i + 1]); } }
+  const cx = (b[0] + b[1]) / 2, cy = (b[2] + b[3]) / 2, k = Math.min(1.0, rho / Math.max(0.3, Math.max(b[1] - b[0], b[3] - b[2]) / 2 * 1.1));
+  for (const q of f.B) { shift(q, -cx, -cy); if (q.t !== 'card') q.z -= b[4]; else q.c = [q.c[0], q.c[1], q.c[2] - b[4]]; if (mirror) mirrorY(q); xform(q, k, x, y, z); }
+  const o = [Infinity, -Infinity, Infinity, -Infinity, Infinity, -Infinity]; for (const q of f.B) { const w = boxOf(q); for (let i = 0; i < 6; i += 2) { o[i] = Math.min(o[i], w[i]); o[i + 1] = Math.max(o[i + 1], w[i + 1]); } }
+  const P = []; for (const X of [o[0], o[1]]) for (const Y of [o[2], o[3]]) for (const Z of [o[4], o[5]]) P.push([X, Y, Z]);
+  return { k: 'greeble', solids: f.B, P };
+}
+export async function buildShip(hullId, styleStock, { styleId, volume = 700, loadout = 'two beams', seed = 1, level = 3, tone = null } = {}) {
+  const hull = hullOf(hullId, volume), st = stockSet(styleStock), R = rnd('ship:' + hullId + ':' + seed + ':' + styleStock.style), v = (a, b) => a + (b - a) * R(), clamp = (x, a, b) => Math.max(a, Math.min(b, x));
   const guns = (LOADOUTS[loadout] || LOADOUTS['two beams']).map(([kind, n]) => ({ kind, n, size: 1 }));
-  const top = await paintedTop(styleId || styleStock.style.split('+')[0], hull, guns, tone);
+  const top = await paintedTop(styleId || styleStock.style.split('+')[0], hull, guns, tone), strips = await stripsOf(styleStock), pickS = () => strips.length ? strips[Math.floor(R() * strips.length)] : null;
   const P0 = hull.poly.filter((p, i, A) => Math.hypot(p[0] - A[(i + 1) % A.length][0], p[1] - A[(i + 1) % A.length][1]) > 0.02), ccw = area2(P0) > 0, outN = P0.map((p, i) => { const q = P0[(i + 1) % P0.length], e = unit([q[0] - p[0], q[1] - p[1]]); return ccw ? [e[1], -e[0]] : [-e[1], e[0]]; }), items = [];
-  // the skirt and the ribbons of tiles, each a step in and up, its lower edge over the one beneath
-  const bh = hull.bh, h0 = clamp(0.1 * bh + 0.22, 0.28, 0.6), nb = bh > 2.6 ? 3 : 2, w = clamp(0.065 * bh, 0.09, 0.3), rise = w * 1.25, ov = w * 0.22, drop = rise * 0.2, lip = Math.min(0.06, rise * 0.2);
-  ribbon(items, P0, h0, P0, 0, pick(st.panel.length ? st.panel : st.band), outN, { dim: 0.08 });
-  let zt = h0, ring = P0;
-  for (let k = 1; k <= nb; k++) {
-    const Bk = insetPoly(P0, (k - 1) * w - ov), Tk = insetPoly(P0, k * w), zb = zt - drop, img = pick(st.band);
-    ribbon(items, Tk, zt + rise, Bk, zb, img, outN); ribbon(items, Bk, zb, Bk, zb - lip, img, outN, { sh: 0.22, dim: 0.22 });   // the tile, and its thickness under its lower edge
-    zt += rise; ring = Tk;
+  // THE TIERS: each stands back from the one under it (a ledge), a COOKIE (a straight wall, the strip's ragged top up past it) or a SLOPE
+  // (a short foot, then leaning in) — the outer ones mostly sloped, the inner ones mostly stepped; every top the painted ship
+  const bh = hull.bh, nt = bh > 3.2 ? 4 : bh > 1.8 ? 3 : 2, h0 = clamp(0.12 * bh + 0.2, 0.3, 0.75), tiers = []; let z = 0, b = 0;
+  const plan = Array.from({ length: nt }, (_, k) => { const slope = R() < [0.9, 0.6, 0.35, 0.2][k]; return { slope, run: slope ? v(0.6, 1.1) : 0, ledge: k < nt - 1 ? (R() < 0.45 ? v(0.3, 0.55) : v(1.0, 1.6)) : 0 }; });
+  const per = bh / 2 * v(0.42, 0.55) / (plan.reduce((a, p) => a + p.run + p.ledge, 0) || 1);   // all the insets together: about half the half-width
+  for (let k = 0; k < nt; k++) {
+    const slope = plan[k].slope, H = k ? h0 * v(0.55, 0.95) : h0, run = plan[k].run * per, hv = slope ? H * v(0.15, 0.4) : H, S = pickS();
+    let Bk = insetPoly(P0, b), Tk = slope ? insetPoly(P0, b + run) : Bk;
+    if (k === nt - 1 && k >= 2 && R() < 0.6) {                                            // the innermost: sometimes a short island, the superstructure
+      const bb = bboxOf(Bk), cx = (bb.minx + bb.maxx) / 2 - (bb.maxx - bb.minx) * 0.12, sq = ([x, y]) => [cx + (x - cx) * 0.55, y], B2 = Bk.map(sq), T2 = Tk.map(sq);
+      if (B2.every(p => inside(tiers[k - 1].top, p[0], p[1]))) { Bk = B2; Tk = T2; }
+    }
+    ribbon(items, Bk, z + hv, Bk, z, S, outN, { over: !slope });
+    if (slope) ribbon(items, Tk, z + H, Bk, z + hv, S, outN);
+    items.push({ k: 'cap', P: Tk.map(([x, y]) => [x, y, z + H]), n: [0, 0, 1], top, rim: k === nt - 1 });
+    tiers.push({ foot: Bk, top: Tk, z0: z, z1: z + H, hv, slope }); z += H; b += run + plan[k].ledge * per;   // a ledge, narrow or wide (the wide ones hold the greebles)
   }
-  items.push({ k: 'cap', P: ring.map(([x, y]) => [x, y, zt]), n: [0, 0, 1], top });
-  // the engines across the stern, sunk in to half their height: the outer ones in alike pairs, the middle one (an odd count) its own
-  const e = edgeAt(P0, hull.box.minx + Math.min(0.3, hull.bw * 0.05)), half = e ? (e.max - e.min) / 2 : bh / 4, cy = e ? (e.max + e.min) / 2 : 0;
-  const ne = clamp(Math.round(2 * half / 1.3), 1, 5), gap = ne > 1 ? 1.4 * half / (ne - 1) : Infinity, r0 = clamp(Math.min(0.46 * zt, 0.45 * gap), 0.14, 0.9);
+  // THE GREEBLES: on every ledge where there is room, a mirrored pair either side of the spine (or one on it, fore and aft); on the top
+  // deck, along the spine. Each its own device (the pair alike), as big as its spot allows
+  const spots = [], fit = (out, inn, x, y, r, both) => { for (const k of [1, 0.8, 0.64]) if (fits(out, inn, x, y, r * k) && (!both || fits(out, inn, x, -y, r * k))) return r * k; return 0; }, fits = (out, inn, x, y, r) => { for (let a = 0; a < 8; a++) { const px = x + 0.8 * r * Math.cos(a * Math.PI / 4), py = y + 0.8 * r * Math.sin(a * Math.PI / 4); if (!inside(out, px, py) || (inn && inside(inn, px, py))) return false; } return true; };
+  for (let k = 0; k < nt; k++) {
+    const t = tiers[k], nx = tiers[k + 1], tb = bboxOf(t.top);
+    for (const f of [0.12, 0.3, 0.48, 0.66, 0.84]) {
+      const x = tb.minx + (tb.maxx - tb.minx) * f, e1 = edgeAt(t.top, x); if (!e1) continue;
+      if (!nx) { const hw = (e1.max - e1.min) / 2, r = Math.min(1.7, Math.max(0.5, hw * 1.15)); if (inside(t.top, x, 0)) spots.push({ x, y: 0, z: t.z1, r });   // the top deck: on the spine, overhanging it (above everything under it)
+        const rp = Math.min(1.2, hw * 0.6), yp = hw * 0.62; if (hw > 0.7 && inside(t.top, x, yp) && inside(t.top, x, -yp)) spots.push({ x, y: yp, z: t.z1, r: rp, pair: true }); continue; }   // and either side of it
+      const e2 = edgeAt(nx.foot, x), yIn = e2 ? e2.max : 0, y = (e1.max + yIn) / 2, r = Math.min(1.1, (e1.max - yIn) * 0.55);
+      const rl = r > 0.22 ? fit(t.top, nx.foot, x, y, r, true) : 0; if (rl > 0.22) spots.push({ x, y, z: t.z1, r: rl, pair: true });
+    }
+    if (nx) { const n1 = bboxOf(t.top), n2 = bboxOf(nx.foot), x = (n1.maxx + n2.maxx) / 2, r = Math.min(1.0, (n1.maxx - n2.maxx) * 0.55); if (r > 0.18 && fits(t.top, nx.foot, x, 0, r)) spots.push({ x, y: 0, z: t.z1, r }); }   // the nose's ledge
+  }
+  const taken = []; let ng = 0;
+  for (const sp of spots.sort((p, q) => q.r - p.r)) {
+    if (taken.some(o => Math.hypot(o.x - sp.x, o.y - Math.abs(sp.y)) < o.r + sp.r) || R() < 0.2 || ng >= 14) continue;
+    taken.push({ x: sp.x, y: Math.abs(sp.y), r: sp.r }); const fam = SHIP_GREEBLES[Math.floor(R() * SHIP_GREEBLES.length)], gs = seed * 31 + taken.length;
+    items.push(greebleAt(fam, gs, styleStock, st, level, sp.x, sp.y, sp.z, sp.r, false)); ng++;
+    if (sp.pair) { items.push(greebleAt(fam, gs, styleStock, st, level, sp.x, -sp.y, sp.z, sp.r, true)); ng++; }
+  }
+  // THE ENGINES across the stern, sunk in to half the lower tiers' height: the outer ones in alike pairs, the middle one (an odd count) its own
+  const zE = tiers[Math.min(1, nt - 1)].z1, e = edgeAt(P0, hull.box.minx + Math.min(0.3, hull.bw * 0.05)), half = e ? (e.max - e.min) / 2 : bh / 4, cy = e ? (e.max + e.min) / 2 : 0;
+  const ne = clamp(Math.round(2 * half / 1.3), 1, 5), gap = ne > 1 ? 1.4 * half / (ne - 1) : Infinity, r0 = clamp(Math.min(0.46 * zE, 0.45 * gap), 0.14, 0.9);
   const sternAt = y => { let m = Infinity; for (let i = 0; i < P0.length; i++) { const [x1, y1] = P0[i], [x2, y2] = P0[(i + 1) % P0.length]; if ((y1 <= y && y < y2) || (y2 <= y && y < y1)) m = Math.min(m, x1 + (x2 - x1) * (y - y1) / (y2 - y1)); } return isFinite(m) ? m : hull.box.minx; };
   const specs = new Map();
   for (let i = 0; i < ne; i++) {
     const y = ne === 1 ? cy : cy - 0.7 * half + i * gap, pair = Math.min(i, ne - 1 - i), mid = ne > 1 && ne % 2 === 1 && i === (ne - 1) / 2;
-    if (!specs.has(pair)) specs.set(pair, engineSpec(rnd('engine:' + seed + ':' + pair + ':' + styleStock.style), st));
-    engine(items, specs.get(pair), sternAt(y), y, zt * 0.5, mid ? Math.min(0.47 * zt, r0 * 1.15) : r0);
+    if (!specs.has(pair)) specs.set(pair, engineSpec(rnd('engine:' + seed + ':' + pair + ':' + styleStock.style), st, strips));
+    engine(items, specs.get(pair), sternAt(y), y, zE * 0.5, mid ? Math.min(0.47 * zE, r0 * 1.15) : r0);
   }
-  for (let i = 0; i < P0.length; i++) { const a = P0[i], b = P0[(i + 1) % P0.length]; if (Math.hypot(b[0] - a[0], b[1] - a[1]) < 1.2) continue; items.push({ k: 'glow', P: [[(a[0] + b[0]) / 2 + outN[i][0] * 0.03, (a[1] + b[1]) / 2 + outN[i][1] * 0.03, h0 * 0.5]], r: 0.05 }); }   // running lights on the skirt
-  const B = [{ t: 'ship', items }]; B.recipe = `${Math.round(hull.area * 32)} volume · ${nb} ribbons of tiles · ${ne} engine${ne > 1 ? 's' : ''}${ne > 2 && ne % 2 ? ' (the outer pairs alike, the middle its own)' : ne > 1 ? ' (in alike pairs)' : ''}`;
+  for (let i = 0; i < P0.length; i++) { const a = P0[i], q = P0[(i + 1) % P0.length]; if (Math.hypot(q[0] - a[0], q[1] - a[1]) < 1.2) continue; items.push({ k: 'glow', P: [[(a[0] + q[0]) / 2 + outN[i][0] * 0.03, (a[1] + q[1]) / 2 + outN[i][1] * 0.03, tiers[0].hv * 0.5]], r: 0.05 }); }   // running lights on the lowest wall
+  const ns = tiers.filter(t => t.slope).length, B = [{ t: 'ship', items }];
+  B.recipe = `${Math.round(hull.area * 32)} volume · ${nt} tiers (${ns} sloped, ${nt - ns} stepped) · ${ng} greebles · ${ne} engine${ne > 1 ? 's' : ''}`;
   return { B, hull };
 }
 export function drawShip(ship, { yaw = 0, level = 3, width = 520 } = {}) {
