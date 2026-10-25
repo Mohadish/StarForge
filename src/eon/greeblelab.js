@@ -163,6 +163,46 @@ function bounds(B) {
   }
   return { rho, zt };
 }
+// THE DRAW ORDER (his catch, 2026-10-25: boxes on boxes fought over which was in front, domes vanished as it turned): every solid in its
+// box (axis-aligned in the object's own frame). Of two that a plane of x, y or z keeps apart, the one on the camera's side of that plane
+// can never be hidden by the other — it goes after; two that truly overlap fall back on their centres' depth. Only the pairs that
+// overlap ON SCREEN are ordered, and a topological sort lays them out (a cycle, from the fallback, is broken by depth)
+function boxOf(s) {
+  if (s.t === 'box') return [s.x, s.x + s.w, s.y, s.y + s.d, s.z, s.z + s.h];
+  if (s.t === 'card') { let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z0 = Infinity, z1 = -Infinity; for (const a of [-1, 1]) for (const b of [-1, 1]) { const x = s.c[0] + a * s.u[0] + b * s.v[0], y = s.c[1] + a * s.u[1] + b * s.v[1], z = s.c[2] + a * s.u[2] + b * s.v[2]; x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); z0 = Math.min(z0, z); z1 = Math.max(z1, z); } return [x0, x1, y0, y1, z0, z1]; }
+  const r = Math.max(s.r || 0, s.r2 || 0);
+  if (s.t === 'cyl') return [s.x - r, s.x + r, s.y - r, s.y + r, s.z, s.z + s.h];
+  if (s.t === 'dome') return [s.x - r, s.x + r, s.y - r, s.y + r, s.z, s.z + r];
+  if (s.t === 'ring') return [s.x - r, s.x + r, s.y - r, s.y + r, s.z, s.z];
+  return [s.x - r, s.x + r, s.y - r, s.y + r, s.z - r, s.z + r];   // a core, a light
+}
+function drawOrder(B, pr, c, s0) {
+  const vx = c + s0, vy = c - s0, vz = 1.05, e = 1e-4;                                   // towards the camera, in the object's own frame
+  const it = B.map((s, i) => {
+    const b = boxOf(s); let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    for (const x of [b[0], b[1]]) for (const y of [b[2], b[3]]) for (const z of [b[4], b[5]]) { const [px, py] = pr(x, y, z); x0 = Math.min(x0, px); x1 = Math.max(x1, px); y0 = Math.min(y0, py); y1 = Math.max(y1, py); }
+    return { s, i, b, sb: [x0, x1, y0, y1], d: ((b[0] + b[1]) * vx + (b[2] + b[3]) * vy + (b[4] + b[5]) * vz) / 2, out: [], deg: 0, last: !!s.last };
+  });
+  const first = (A, Q) => {                                                              // true: A is drawn before Q
+    const a = A.b, b = Q.b;
+    if (Math.abs(vx) > 1e-6) { if (a[1] <= b[0] + e) return vx > 0; if (b[1] <= a[0] + e) return vx < 0; }
+    if (Math.abs(vy) > 1e-6) { if (a[3] <= b[2] + e) return vy > 0; if (b[3] <= a[2] + e) return vy < 0; }
+    if (a[5] <= b[4] + e) return true; if (b[5] <= a[4] + e) return false;
+    return A.d < Q.d || (A.d === Q.d && A.i < Q.i);
+  };
+  const live = it.filter(x => !x.last), late = it.filter(x => x.last).sort((a, b) => a.d - b.d);
+  for (let i = 0; i < live.length; i++) for (let j = i + 1; j < live.length; j++) {
+    const A = live[i], Q = live[j]; if (A.sb[1] < Q.sb[0] || Q.sb[1] < A.sb[0] || A.sb[3] < Q.sb[2] || Q.sb[3] < A.sb[2]) continue;   // apart on screen: no order needed
+    if (first(A, Q)) { A.out.push(Q); Q.deg++; } else { Q.out.push(A); A.deg++; }
+  }
+  const out = [], left = new Set(live);
+  while (left.size) {
+    let pick = null; for (const x of left) if (x.deg === 0 && (!pick || x.d < pick.d)) pick = x;
+    if (!pick) for (const x of left) if (!pick || x.deg < pick.deg || (x.deg === pick.deg && x.d < pick.d)) pick = x;   // a cycle: the least held, the farthest
+    left.delete(pick); out.push(pick.s); for (const q of pick.out) q.deg--;
+  }
+  return [...out, ...late.map(x => x.s)];
+}
 // THE RENDERER: solids → a canvas. o: { U px a unit, yaw (rad), glow (the level's colour, null = black with white outlines), glass,
 // wash + washA (a colour over the greys), light (lit windows' colour), seed }
 export function renderSolids(B, o = {}) {
@@ -178,8 +218,7 @@ export function renderSolids(B, o = {}) {
   // the shadow on the ground
   { const gr = g.createRadialGradient(ox, oy, 0, ox, oy, hw); gr.addColorStop(0, 'rgba(0,0,0,.5)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.save(); g.translate(ox, oy); g.scale(1, hh / hw); g.translate(-ox, -oy); g.fillStyle = gr; g.beginPath(); g.arc(ox, oy, hw, 0, 7); g.fill(); g.restore(); }
   // back to front: the footprint centre's depth (what stands ON a block shares its centre — after it, by height)
-  const depth = s => { const [a, b] = s.t === 'box' ? rot(s.x + s.w / 2, s.y + s.d / 2) : s.t === 'card' ? rot(s.c[0], s.c[1]) : rot(s.x, s.y); return a + b; }, band = s => Math.round(depth(s) * 2) / 2, zOf = s => s.t === 'card' ? s.c[2] - Math.abs(s.v[2]) - Math.abs(s.u[2]) : s.z;
-  const order = B.slice().sort((a, b) => (a.last ? 1 : 0) - (b.last ? 1 : 0) || (a.t === 'card' || b.t === 'card' ? depth(a) - depth(b) || zOf(a) - zOf(b) : band(a) - band(b) || a.z - b.z || depth(a) - depth(b)));   // a card goes by its own centre (a flange on the far side of a block before it, on the near side after)
+  const order = drawOrder(B, pr, c, s0);
   for (const s of order) { try { drawSolid(s); } catch (e) { console.warn('greeble lab: a part could not be drawn and was left out', s.t, e.message); } }   // one broken part never takes the whole piece down
   function drawSolid(s) {
     if (s.t === 'box') {
@@ -258,33 +297,48 @@ export const ARCHETYPES = {
   lab:       { name: 'Research lab', tint: '#5fa8ff', glow: '#7fd8ff' },
   homes:     { name: 'Homes', tint: '#f5a3c7', glow: '#ffe6a8' },
 };
+// THE BUILDINGS out of the same parts as the devices (his call, 2026-10-25): plinths with greeble flanges, cages, columns with fins and
+// plates, engines standing on corners, towers with set-backs, tiles on the roofs — laid out over a bigger footprint
+function shift(s, dx, dy) { if (s.t === 'card') s.c = [s.c[0] + dx, s.c[1] + dy, s.c[2]]; else { s.x += dx; s.y += dy; } }
 function buildingRecipe(kind, f) {
-  const { box, cyl, dome, core, v, R } = f;
+  const { box, cyl, dome, light, v, R } = f;
+  const at = (dx, dy, fn) => { const n0 = f.B.length, r = fn(); for (let i = n0; i < f.B.length; i++) shift(f.B[i], dx, dy); return r; };
+  const plinth = (w, d, h) => { box(-w / 2, -d / 2, 0, w, d, h, { roof: f.tile(), strip: true }); flanges(f, w, d, h * 0.6, w >= d ? 'x' : 'y', h * v(1.5, 2.2)); return { z: h, r: Math.min(w, d) / 2 }; };
   if (kind === 'generator') {
-    box(0, 0, 0, 4, 4, 0.5); const r = v(1.1, 1.5), h = v(1.2, 2.2); cyl(2, 2, 0.5, r, h); cyl(2, 2, 0.5 + h, r * 1.12, 0.22); core(2, 2, 0.5 + h + 0.22 + r * 0.55, r * 0.62);
-    for (const [x, y] of [[0.2, 0.2], [3.1, 0.2], [0.2, 3.1]]) if (R() < 0.85) box(x, y, 0.5, 0.7, 0.7, v(0.4, 0.9));
+    const P = plinth(v(3.8, 4.6), v(3.6, 4.4), v(0.35, 0.5));
+    const x = PARTS.body[f.pick(['cage', 'column', 'stack'])](f, { z: P.z, r: 1.5 }); PARTS.top.core(f, x);
+    const img = rotq(f.eng(), f.downQ); for (const [px, py] of [[-1.45, -1.45], [1.45, 1.45]]) f.cross(px, py, P.z + 0.6, 1.2, img, { byH: true, a: Math.PI / 4 });   // engines standing on two corners
+    for (const [px, py] of [[1.45, -1.45], [-1.45, 1.45]]) at(px, py, () => { const r = 0.35, h = v(0.7, 1.1); cyl(0, 0, P.z, r, h, { glowRings: [0.5] }); fins(f, P.z + h / 2, r, h * 0.9, 5, 'plates'); light(0, 0, P.z + h + 0.05, 0.08); });   // capacitors
   } else if (kind === 'shield') {
-    box(0.5, 0.5, 0, 3, 3, 0.45); const h = v(2.2, 3.2); cyl(2, 2, 0.45, 0.42, h); cyl(2, 2, 0.45 + h, v(1, 1.3), 0.16); core(2, 2, 0.45 + h + 0.5, 0.32);
-    for (const [x, y] of [[0.7, 0.7], [2.8, 0.7], [0.7, 2.8]]) box(x, y, 0.45, 0.5, 0.5, v(0.5, 0.9));
-    dome(2, 2, 0, 2.6, { last: true });
+    const P = plinth(v(3.2, 3.8), v(3.2, 3.8), 0.4), h = v(2.0, 2.8), r = 0.45; cyl(0, 0, P.z, r, h, { glowRings: [0.3, 0.7] }); fins(f, P.z + h * 0.45, r, h * 0.8, 4, 'radial');
+    PARTS.top.emitter(f, { z: P.z + h, r: 0.9 });
+    for (const [px, py] of [[-1.2, -1.2], [1.2, -1.2], [-1.2, 1.2]]) at(px, py, () => PARTS.top.antennae(f, { z: P.z, r: 0.3 }));
+    dome(0, 0, 0, v(2.4, 2.8), { last: true });
   } else if (kind === 'farm') {
-    for (let i = 0; i < 3; i++) box(i * 1.35, 0, 0, 1.25, 4, 0.18 + i * 0.12, { roof: 'field' });
-    dome(4.6, 1.1, 0, v(0.8, 1.1)); dome(4.7, 3.1, 0, v(0.6, 0.9)); cyl(5.4, 0.2, 0, 0.42, v(1.2, 1.8));
+    const bw = v(1.1, 1.3), L = v(3.4, 4.2); for (let i = 0; i < 3; i++) at((i - 1) * (bw + 0.28), 0, () => { const h = 0.18 + i * 0.1; box(-bw / 2, -L / 2, 0, bw, L, h, { roof: 'field' }); flanges(f, bw, L, h * 0.6, 'y', h * 2.2); });
+    at(2.7, -0.9, () => dome(0, 0, 0, v(0.8, 1.05))); at(2.7, 1.25, () => dome(0, 0, 0, v(0.6, 0.85)));
+    at(-2.7, 1.3, () => { const h = v(1.3, 1.9); cyl(0, 0, 0, 0.45, h); fins(f, h / 2, 0.45, h * 0.95, 6, 'plates'); light(0, 0, h + 0.05, 0.07); });   // the silo
   } else if (kind === 'works') {
-    const h1 = v(1, 1.8), h2 = v(0.6, 1.2); box(0, 0, 0, 2.6, 2.2, h1); box(2.8, 0.3, 0, 2, 1.8, h2); box(0.6, 2.5, 0, 3, 1.5, v(0.5, 0.9));
-    const n = 2 + Math.floor(R() * 2); for (let i = 0; i < n; i++) cyl(0.5 + i * 0.75, 0.5, h1, 0.22, v(0.9, 1.6), { smoke: true });
-    box(2.5, 1.0, h2 * 0.8, 0.5, 0.3, 0.25, { roof: null });
+    at(-1.1, 0, () => { const x = PARTS.body.H(f, { z: 0, r: 1.2 }, 1, 'x'); const n = 2 + Math.floor(R() * 2); for (let i = 0; i < n; i++) at(-0.6 + i * 0.6, 0, () => { const h = v(1.0, 1.6); cyl(0, 0, x.z, 0.2, h, { smoke: true }); fins(f, x.z + h * 0.4, 0.2, h * 0.5, 4, 'radial'); }); });
+    at(1.7, 0.6, () => PARTS.body.tower(f, { z: 0, r: 0.8 }));
+    box(0.05, -0.15, 0.6, 0.9, 0.3, 0.25, { roof: null, strip: true });   // a pipe bridge
   } else if (kind === 'lab') {
-    box(0, 0, 0, 3.4, 3.4, 0.7); dome(1.7, 1.7, 0.7, v(1.1, 1.45), { white: true });
-    cyl(3.0, 0.4, 0.7, 0.14, v(1.6, 2.4), { cap: null }); cyl(3.0, 0.4, 0.7 + 2, 0.55, 0.08);
-    if (R() < 0.7) box(-1.2, 1.0, 0, 1.0, 1.4, 0.5);
-  } else { const n = 2 + Math.floor(R() * 2); for (let i = 0; i < n; i++) { const x = i * 1.6, h = v(1.6, 3.2); box(x, 0, 0, 1.4, 1.4, h, { windows: true }); box(x + 0.2, 0.2, h, 1.0, 1.0, v(0.4, 0.9), { windows: true }); } }
+    const P = plinth(v(3.2, 3.8), v(3.2, 3.8), 0.5); dome(0, 0, P.z, v(1.1, 1.4), { white: true });
+    at(1.3, -1.2, () => PARTS.top.dish(f, { z: P.z, r: 0.6 })); at(-1.3, 1.1, () => PARTS.top.antennae(f, { z: P.z, r: 0.35 }));
+  } else {                                                                                // homes: towers with set-backs, flanges, lit windows, spires
+    const n = 2 + Math.floor(R() * 2);
+    for (let i = 0; i < n; i++) at((i - (n - 1) / 2) * 1.9, (i % 2) * 0.6, () => {
+      let z = 0, w = v(1.2, 1.5), d = w * v(0.8, 1.0); const k = 2 + Math.floor(R() * 2);
+      for (let j = 0; j < k; j++) { const h = v(0.8, 1.4); box(-w / 2, -d / 2, z, w, d, h, { windows: true, roof: f.tile() }); flanges(f, w, d, z + h / 2, j % 2 ? 'y' : 'x', h * 1.2); z += h; w *= 0.78; d *= 0.78; }
+      if (R() < 0.7) PARTS.top.spire(f, { z, r: w / 2 });
+    });
+  }
 }
 // the solids about their footprint's centre (so they turn in place)
 function centre(B) {
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-  for (const s of B) { const r = s.t === 'box' ? 0 : (s.r || 0); const a = s.t === 'box' ? [s.x, s.y, s.x + s.w, s.y + s.d] : [s.x - r, s.y - r, s.x + r, s.y + r]; x0 = Math.min(x0, a[0]); y0 = Math.min(y0, a[1]); x1 = Math.max(x1, a[2]); y1 = Math.max(y1, a[3]); }
-  const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2; for (const s of B) { s.x -= cx; s.y -= cy; } return B;
+  for (const s of B) { const b = boxOf(s); x0 = Math.min(x0, b[0]); x1 = Math.max(x1, b[1]); y0 = Math.min(y0, b[2]); y1 = Math.max(y1, b[3]); }
+  const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2; for (const s of B) shift(s, -cx, -cy); return B;
 }
 export function drawBuilding(kind, styleStock, { seed = 1, U = 34, tint = true, yaw = 0 } = {}) {
   const A = ARCHETYPES[kind] || ARCHETYPES.generator, f = builder(rnd(kind + ':' + seed + ':' + styleStock.style), stockSet(styleStock));

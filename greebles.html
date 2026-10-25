@@ -83,9 +83,15 @@ async function show() {
   } else if (tab === 'iso') drawIso(); else if (tab === 'show') await drawShow(); else await drawDev();
 }
 function drawIso() {
-  const kinds = $('kind').value === 'all' ? Object.keys(ARCHETYPES) : [$('kind').value], seed = +$('seed').value || 1, list = $('kind').value === 'all' ? kinds.map(k => [k, seed]) : [0, 1, 2, 3, 4, 5].map(i => [kinds[0], seed + i]);
+  const kinds = $('kind').value === 'all' ? Object.keys(ARCHETYPES) : [$('kind').value], seed = +$('seed').value || 1, angles = new URLSearchParams(location.search).get('sheet') === 'angles' && $('kind').value !== 'all';
+  const list = angles ? [0, 1, 2, 3, 4, 5, 6, 7].map(i => [kinds[0], seed, i * Math.PI / 4]) : $('kind').value === 'all' ? kinds.map(k => [k, seed, 0]) : [0, 1, 2, 3, 4, 5].map(i => [kinds[0], seed + i, 0]);
   $('out').innerHTML = '<div class="iso"></div>'; const host = $('out').firstChild;
-  for (const [k, s] of list) { const d = document.createElement('div'); d.className = 'cell'; try { d.append(drawBuilding(k, stock, { seed: s, tint: $('tint').checked })); } catch (e) { d.textContent = e.message; console.error(e); } const b = document.createElement('b'); b.textContent = ARCHETYPES[k].name; const sp = document.createElement('span'); sp.textContent = `${STYLES[stock.style].name} · seed ${s}`; d.append(b, sp); host.append(d); }
+  for (const [k, s, yaw0] of list) {
+    const d = document.createElement('div'); d.className = 'cell'; let cv = null;
+    try { cv = drawBuilding(k, stock, { seed: s, tint: $('tint').checked, yaw: yaw0 }); d.append(cv); } catch (e) { d.textContent = e.message; console.error(e); }
+    const b = document.createElement('b'); b.textContent = ARCHETYPES[k].name; const sp = document.createElement('span'); sp.textContent = `${STYLES[stock.style].name} · seed ${s}${angles ? ` · turned ${Math.round(yaw0 * 180 / Math.PI)}°` : ''}`; d.append(b, sp); host.append(d);
+    if (cv) d.onmouseenter = () => { let yaw = yaw0; clearInterval(spin); spin = setInterval(() => { yaw += 0.06; const n = drawBuilding(k, stock, { seed: s, tint: $('tint').checked, yaw }), g = cv.getContext('2d'); g.clearRect(0, 0, cv.width, cv.height); g.drawImage(n, (cv.width - n.width) / 2, (cv.height - n.height) / 2); }, 50); d.onmouseleave = () => clearInterval(spin); };
+  }
   $('note').textContent = 'Walls: the plating strip\'s panels · roofs: the top-down pieces · cylinders: a band wrapped round, a mount ring on top · glass and cores drawn.';
 }
 // THE DEVICES: every technology at one level, one technology at every level, or (?sheet=angles) one device from eight sides
