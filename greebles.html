@@ -160,8 +160,8 @@ async function drawShow() {
   }
   $('note').textContent = 'Weapon types by what they do — the long reach, the heavy hitters, the rapid fire — each in a different style and level.';
 }
-// THE 3D SHIPS (his call, 2026-10-25: "presentation first — build the lab prototype"): the outline extruded and terraced, the 2D painter's
-// art on its decks, the style's strip round the walls, greeble flanges, a superstructure, the 3D guns on the hard points, engines astern
+// THE 3D SHIPS (his call, 2026-10-25: "presentation first — build the lab prototype"; his notes: roof-tile ribbons, nothing on top,
+// engines sunk into the stern in alike pairs)
 async function drawShips() {
   const hull = $('hull').value, vol = +$('vol').value || 700, lv = $('level').value === 'all' ? 4 : +$('level').value, seed = +$('seed').value || 1, angles = new URLSearchParams(location.search).get('sheet') === 'angles' && hull !== 'all';
   const hulls = hull === 'all' ? SHIP_HULLS().map(h => h.id) : [hull], lo = $('loadout').value;
@@ -176,7 +176,7 @@ async function drawShips() {
     d.insertAdjacentHTML('beforeend', `<b>${def.name || it.hull} · ${vol} volume</b><span>${ship ? ship.B.recipe : ''}</span><span><i class="lv" style="background:${col || '#000'};${col ? '' : 'box-shadow:0 0 0 2px #fff'}"></i>${it.cap} · level ${lv}</span>`);
     if (cv) d.onmouseenter = () => { let yaw = it.yaw; clearInterval(spin); spin = setInterval(() => { yaw += 0.05; const n = drawShip(ship, { yaw, level: lv, width: 560 }), g = cv.getContext('2d'); g.clearRect(0, 0, cv.width, cv.height); g.drawImage(n, (cv.width - n.width) / 2, (cv.height - n.height) / 2); }, 50); d.onmouseleave = () => clearInterval(spin); };
   }
-  $('note').textContent = 'The outline extruded into decks, the 2D painter\'s art on top, the strip round the walls, a superstructure of the devices\' parts, the 3D guns on the hard points. Hover one to turn it.';
+  $('note').textContent = 'The outline in ribbons of the style\'s strip, tilted down like roof tiles, each over the one beneath; the 2D painter\'s art on the top deck (the guns as its mounts); engines sunk into the stern, the outer ones in alike pairs. Hover one to turn it.';
 }
 $('tShip').onclick = () => { setTab('ship'); show(); };
 $('hull').onchange = show; $('vol').onchange = show; $('loadout').onchange = show;
