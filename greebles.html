@@ -160,8 +160,8 @@ async function drawShow() {
   }
   $('note').textContent = 'Weapon types by what they do — the long reach, the heavy hitters, the rapid fire — each in a different style and level.';
 }
-// THE 3D SHIPS (his call, 2026-10-25: "presentation first — build the lab prototype"; his notes: tiers sloped and stepped, the long
-// strips, greebles from the devices, engines sunk into the stern in alike pairs)
+// THE 3D SHIPS (his call, 2026-10-25: "presentation first — build the lab prototype"; his verdict after three rounds: the first look —
+// low decks, cutouts, turrets — with the drum engines and nothing big on top)
 async function drawShips() {
   const hull = $('hull').value, vol = +$('vol').value || 700, lv = $('level').value === 'all' ? 4 : +$('level').value, seed = +$('seed').value || 1, angles = new URLSearchParams(location.search).get('sheet') === 'angles' && hull !== 'all';
   const hulls = hull === 'all' ? SHIP_HULLS().map(h => h.id) : [hull], lo = $('loadout').value;
@@ -176,7 +176,7 @@ async function drawShips() {
     d.insertAdjacentHTML('beforeend', `<b>${def.name || it.hull} · ${vol} volume</b><span>${ship ? ship.B.recipe : ''}</span><span><i class="lv" style="background:${col || '#000'};${col ? '' : 'box-shadow:0 0 0 2px #fff'}"></i>${it.cap} · level ${lv}</span>`);
     if (cv) d.onmouseenter = () => { let yaw = it.yaw; clearInterval(spin); spin = setInterval(() => { yaw += 0.05; const n = drawShip(ship, { yaw, level: lv, width: 560 }), g = cv.getContext('2d'); g.clearRect(0, 0, cv.width, cv.height); g.drawImage(n, (cv.width - n.width) / 2, (cv.height - n.height) / 2); }, 50); d.onmouseleave = () => clearInterval(spin); };
   }
-  $('note').textContent = 'Tiers of the outline — the outer ones sloped, the inner ones stepped, a ledge between — wrapped in the style\'s long strip, its ragged top standing up past the walls; the painted ship on every deck; greebles (works, mining rigs, computers, guns, pods) on the ledges in mirrored pairs; engines sunk into the stern. Hover one to turn it.';
+  $('note').textContent = 'Low decks of the outline, each wrapped in the style\'s long strip with the painted ship on top; cutouts along the flanks; 3D turrets on the painter\'s hard points; a few small greebles; engines against the stern, the outer ones in alike pairs. Hover one to turn it.';
 }
 $('tShip').onclick = () => { setTab('ship'); show(); };
 $('hull').onchange = show; $('vol').onchange = show; $('loadout').onchange = show;
