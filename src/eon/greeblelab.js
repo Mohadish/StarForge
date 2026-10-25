@@ -328,9 +328,9 @@ function buildingRecipe(kind, f) {
     for (const [px, py] of [[-1.2, -1.2], [1.2, -1.2], [-1.2, 1.2]]) at(px, py, () => PARTS.top.antennae(f, { z: P.z, r: 0.3 }));
     dome(0, 0, 0, v(2.4, 2.8), { last: true });
   } else if (kind === 'farm') {
-    const bw = v(1.1, 1.3), L = v(3.4, 4.2); for (let i = 0; i < 3; i++) at((i - 1) * (bw + 0.28), 0, () => { const h = 0.18 + i * 0.1; box(-bw / 2, -L / 2, 0, bw, L, h, { roof: 'field' }); flanges(f, bw, L, h * 0.6, 'y', h * 2.2); });
-    at(2.7, -0.9, () => dome(0, 0, 0, v(0.8, 1.05))); at(2.7, 1.25, () => dome(0, 0, 0, v(0.6, 0.85)));
-    at(-2.7, 1.3, () => { const h = v(1.3, 1.9); cyl(0, 0, 0, 0.45, h); fins(f, h / 2, 0.45, h * 0.95, 6, 'plates'); light(0, 0, h + 0.05, 0.07); });   // the silo
+    const bw = v(0.95, 1.1), L = v(3.0, 3.6); for (let i = 0; i < 3; i++) at((i - 1) * (bw + 0.32), 0, () => { const h = 0.18 + i * 0.1; box(-bw / 2, -L / 2, 0, bw, L, h, { roof: 'field' }); flanges(f, bw, L, h * 0.6, 'y', h * 2.2); });
+    at(3.45, -1.05, () => dome(0, 0, 0, v(0.75, 0.95))); at(3.35, 1.25, () => dome(0, 0, 0, v(0.55, 0.75)));   // the glasshouses, clear of the fields (they popped in and out where they touched)
+    at(-3.0, 1.3, () => { const h = v(1.3, 1.9); cyl(0, 0, 0, 0.45, h); fins(f, h / 2, 0.45, h * 0.95, 6, 'plates'); light(0, 0, h + 0.05, 0.07); });   // the silo
   } else if (kind === 'works') {
     at(-1.1, 0, () => { const x = PARTS.body.H(f, { z: 0, r: 1.2 }, 1, 'x'); const n = 2 + Math.floor(R() * 2); for (let i = 0; i < n; i++) at(-0.6 + i * 0.6, 0, () => { const h = v(1.0, 1.6); cyl(0, 0, x.z, 0.2, h, { smoke: true }); fins(f, x.z + h * 0.4, 0.2, h * 0.5, 4, 'radial'); }); });
     at(1.7, 0.6, () => PARTS.body.tower(f, { z: 0, r: 0.8 }));
@@ -513,26 +513,27 @@ function weaponRecipe(fam, f, L) {
   if (L.trait === 'auto') f.card([tip - 0.3, 0, bz], [0, 1, 0], [0, 0, 1], [cs * 0.9, cs * 0.9], ring);   // the rotary's front ring
   f.B.recipe = `mount + ${['block', 'drum', 'H'][kind]} + ${n > 1 ? n + ' barrels' : 'a barrel'}${L.trait ? ' · ' + L.trait : ''}`;
 }
-// ARMOUR (his design, 2026-10-25: "an arc — say 30 degrees — extruded, given a shell; the outer rim is what you see; multiple layers,
-// offset; the outer one tiley, the middle ones the greebles with intricate details"): curved plates, each a strip of cards round an
-// arc (one picture sliced along it), a rim on top; the layers stepped back, each a little wider, taller and turned — so they peek out
-function shell(f, R, a0, a1, z0, h, img, rimImg, rim = 0.08) {
-  if (!img) return; const n = Math.max(5, Math.round((a1 - a0) / 0.06)), cx = -R;   // the arc's centre behind the plate: the plate sits about the origin
+// ARMOUR (his design, 2026-10-25, second pass: "curvy like a waterfall, angled… no round base… way thicker… the layers offset inside"):
+// a plate that bends over like a waterfall's lip — a quarter-pipe profile (the curve runs down, not round) extruded across its width; its
+// THICKNESS shows at both ends and at the top and bottom lips. The layers under it are set back INSIDE (a smaller radius, a gap behind
+// the one above) and reach further at the top, the bottom and the sides, so every rim shows and none lies on another. The outer plate in
+// tiles, the inner ones the greebles; the segments overlap a hair (no seams)
+function plate(f, R, t, a0, a1, W, xc, zc, img, edge) {
+  if (!img || !edge) return; const n = Math.max(6, Math.round((a1 - a0) / 0.09)), P = (r, a) => [xc + r * Math.sin(a), zc + r * Math.cos(a)], k = 1.05;
   for (let i = 0; i < n; i++) {
-    const t0 = a0 + (a1 - a0) * i / n, t1 = a0 + (a1 - a0) * (i + 1) / n, p0 = [cx + R * Math.cos(t0), R * Math.sin(t0)], p1 = [cx + R * Math.cos(t1), R * Math.sin(t1)];
-    f.B.push({ t: 'card', c: [(p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2, z0 + h / 2], u: [(p1[0] - p0[0]) / 2, (p1[1] - p0[1]) / 2, 0], v: [0, 0, h / 2], img, src: [img.width * i / n, 0, img.width / n, img.height] });
-    if (rimImg) { const tm = (t0 + t1) / 2, rc = R - rim / 2, c = [cx + rc * Math.cos(tm), rc * Math.sin(tm), z0 + h]; f.B.push({ t: 'card', c, u: [(p1[0] - p0[0]) / 2, (p1[1] - p0[1]) / 2, 0], v: [Math.cos(tm) * rim / 2, Math.sin(tm) * rim / 2, 0], img: rimImg, src: [rimImg.width * i / n, 0, rimImg.width / n, rimImg.height * 0.3] }); }   // the rim: the plate's thickness, seen from above
+    const b0 = a0 + (a1 - a0) * i / n, b1 = a0 + (a1 - a0) * (i + 1) / n, o0 = P(R, b0), o1 = P(R, b1), q0 = P(R - t, b0), q1 = P(R - t, b1);
+    f.B.push({ t: 'card', c: [(o0[0] + o1[0]) / 2, 0, (o0[1] + o1[1]) / 2], u: [0, W / 2, 0], v: [(o0[0] - o1[0]) / 2 * k, 0, (o0[1] - o1[1]) / 2 * k], img, src: [0, img.height * i / n, img.width, img.height / n] });   // the face, its picture running down the curve
+    for (const side of [-1, 1]) f.B.push({ t: 'card', c: [(o0[0] + o1[0] + q0[0] + q1[0]) / 4, side * W / 2, (o0[1] + o1[1] + q0[1] + q1[1]) / 4], u: [(o1[0] - o0[0]) / 2 * k, 0, (o1[1] - o0[1]) / 2 * k], v: [(o0[0] - q0[0]) / 2, 0, (o0[1] - q0[1]) / 2], img: edge, src: [edge.width * i / n, 0, edge.width / n, edge.height * 0.35], dim: 0.12 });   // its thickness at the two ends
   }
+  for (const a of [a0, a1]) { const o = P(R, a), q = P(R - t, a); f.B.push({ t: 'card', c: [(o[0] + q[0]) / 2, 0, (o[1] + q[1]) / 2], u: [0, W / 2, 0], v: [(o[0] - q[0]) / 2, 0, (o[1] - q[1]) / 2], img: edge, src: [0, 0, edge.width, edge.height * 0.35] }); }   // the lips
 }
 function armorRecipe(f) {
-  const { light, v, R } = f, n = 3 + (R() < 0.45 ? 1 : 0), Rr = v(2.4, 3.0), span = v(0.62, 0.82), h0 = v(1.0, 1.3), rimImg = f.band();
-  for (let i = n - 1; i >= 0; i--) {                                                     // the innermost first (they sit behind)
-    const r = Rr - i * 0.24, off = (i % 2 ? 1 : -1) * v(0.02, 0.07) * Math.min(1, i), sp = span * (1 + 0.14 * i), h = h0 * (1 + 0.08 * i), z0 = 0.1 - 0.03 * i;
-    shell(f, r, -sp / 2 + off, sp / 2 + off, z0, h, i === 0 ? f.tile() : f.fit(), rimImg);   // the outer plate in tiles; the inner ones the greebles, their outline the detail
-  }
-  for (const a of [-span * 0.4, span * 0.4]) for (const z of [0.25, h0 - 0.1]) light(-Rr + Rr * Math.cos(a) + 0.04, Rr * Math.sin(a), z, 0.05);   // the bolts, in the level's colour
-  f.cyl(-0.55, 0, 0, 0.45, 0.1, { cap: null });                                          // a foot under it
-  f.B.recipe = `${n} curved plates`;
+  const { light, v, R } = f, n = 3 + (R() < 0.45 ? 1 : 0), R0 = v(1.5, 1.9), t = v(0.2, 0.28), gap = v(0.12, 0.18), W0 = v(1.8, 2.3), a0 = v(0.02, 0.18), a1 = v(1.3, 1.5), edge = f.band();   // bent over hard: from lying back to falling straight down
+  const L = Array.from({ length: n }, (_, k) => ({ R: R0 - k * (t + gap), a0: a0 - k * 0.16, a1: a1 + k * 0.14, W: W0 + k * 0.34 }));
+  const xc = -R0 * 0.55; let low = Infinity; for (const l of L) for (const a of [l.a0, l.a1]) low = Math.min(low, l.R * Math.cos(a), (l.R - t) * Math.cos(a)); const zc = 0.06 - low;   // standing on the ground, on its lowest lip
+  for (let k = n - 1; k >= 0; k--) plate(f, L[k].R, t, L[k].a0, L[k].a1, L[k].W, xc, zc, k === 0 ? f.tile() : f.fit(), edge);
+  for (const a of [a0 + 0.2, a1 - 0.2]) for (const y of [-W0 * 0.38, W0 * 0.38]) light(xc + (R0 + 0.02) * Math.sin(a), y, zc + (R0 + 0.02) * Math.cos(a), 0.05);   // the bolts, in the level's colour
+  f.B.recipe = `${n} plates, bent like a waterfall`;
 }
 // A DRONE CRAFT (his ask: "create the drone itself out of the greebles"): a slab body in the strip's texture with greeble flanges and a
 // greeble on its back, cross-bars out to ring rotors glowing underneath — a STANDARD one, a HEAVY gunship (bigger, a gun slung under),
@@ -590,7 +591,7 @@ export function drawDevice(fam, styleStock, { seed = 1, level = 3, yaw = 0, U = 
   if (!U) U = Math.min(64, width / (2 * bounds(f.B).rho * Math.SQRT2 * C30));   // every device as wide as the frame (a long gun is not a speck)
   const glow = levelColor(level), farm = DEVICES[fam] && DEVICES[fam].farm;
   if (DEVICES[fam] && DEVICES[fam].weapon) yaw -= 0.6;
-  if (fam === 'armor') yaw += 0.42;   // armour faces you from three quarters: its convex face, its layers stepping back   // a weapon from three quarters: its side, the greebles round the barrels
+  if (fam === 'armor') yaw -= 0.5;   // armour from the side at three quarters: the bend of its profile and the layers stepping back under it   // a weapon from three quarters: its side, the greebles round the barrels
   const cv = renderSolids(f.B, { U, yaw, glow, light: glow || '#ffffff', glass: farm ? '#b6f08a' : glow || '#e6f0ff', wash: glow && !farm ? glow : null, washA: 0.12, seed });
   cv.recipe = f.B.recipe || ''; return cv;   // which parts it was built of (the grammar)
 }
