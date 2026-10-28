@@ -10,6 +10,7 @@ import { readLocal, loadLibrary, saveLibrary, libraryCode as codeOf } from './li
 import { renderStrip, createDialog, createMenu, saveFlow } from './hullui.js';
 import { mountNav } from './nav.js';
 import { createDesigner } from './designer.js';
+import { stockOf, buildShip, drawShip } from './greeblelab.js';
 mountNav('paint');
 
 const $ = id => document.getElementById(id), esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -174,6 +175,7 @@ function repaint(overlayOnly = false) {
   } else cv.getContext('2d').putImageData(last._snap, 0, 0);
   if (!ed.editing) { drawTurrets(cv.getContext('2d')); drawField(cv.getContext('2d')); }
   ed.draw(cv.getContext('2d'));
+  if (!overlayOnly) schedule3D();
 }
 // the SHIELDS' FIELD (his ask, 2026-10-13: "I need to see a bubble"): one bubble round the ship, as big as the design's cover —
 // it grows from the middle as shields go in and wraps the whole ship at full cover. The cover comes from the ship's size in
@@ -193,6 +195,33 @@ function drawField(g) {
   g.fillStyle = '#cf89ff'; g.fillText(text, x, ty);
 }
 
+// ---------------- THE 3D SHIP (his ask, 2026-10-27: "a 3D painter, technically — to see how that works") ----------------
+// greeblelab.js builds it from what is painted above — the outline (a drawn one too), the size, the style, the design's guns, the seed —
+// a moment after the last change (never during a drag); drag the picture to turn it. The roof (a pyramid of the outline) or the decks
+const STOCKS = new Map(), stockFor = async id => STOCKS.get(id) || (STOCKS.set(id, await stockOf(id)), STOCKS.get(id));
+let ship3d = null, yaw3d = 0.35, t3d = null, n3d = 0;
+function schedule3D() { if (!$('v3d').checked) return; clearTimeout(t3d); t3d = setTimeout(build3D, ed.dragging ? 700 : 250); }
+async function build3D() {
+  const n = ++n3d, P = poly(); if (!P || P.length < 3) return;
+  try {
+    const sh = await buildShip(sel, await stockFor(style.id), { styleId: style.id, poly: P, volume: vol(), guns: guns(), seed: +$('seed').value, form: $('form3d').value });
+    if (n !== n3d) return;                                                          // a newer change is on its way
+    ship3d = sh; draw3D(); $('info3d').textContent = sh.B.recipe;
+  } catch (e) { $('info3d').textContent = 'the 3D ship could not be built: ' + e.message; console.error(e); }
+}
+function draw3D() {
+  const cv = $('out3d'); if (!ship3d || !$('v3d').checked) return; const W = cv.clientWidth || 960; if (cv.width !== W) { cv.width = W; cv.height = Math.round(W * 9 / 16); }
+  const im = drawShip(ship3d, { yaw: yaw3d, glow: $('lightColor').value, width: cv.width * 0.92 }), k = Math.min(1, cv.width / im.width, cv.height / im.height), g = cv.getContext('2d');
+  g.clearRect(0, 0, cv.width, cv.height); g.drawImage(im, (cv.width - im.width * k) / 2, (cv.height - im.height * k) / 2, im.width * k, im.height * k);
+}
+{ let drag = null, raf = 0; const turn = () => { raf = 0; draw3D(); };
+  $('out3d').addEventListener('pointerdown', e => { drag = e.clientX; $('out3d').setPointerCapture(e.pointerId); });
+  $('out3d').addEventListener('pointermove', e => { if (drag == null) return; yaw3d += (e.clientX - drag) * 0.012; drag = e.clientX; if (!raf) raf = requestAnimationFrame(turn); });
+  for (const ev of ['pointerup', 'pointercancel']) $('out3d').addEventListener(ev, () => { drag = null; });
+  setInterval(() => { if ($('spin3d').checked && $('v3d').checked && drag == null && ship3d) { yaw3d += 0.05; draw3D(); } }, 60); }
+$('v3d').onchange = () => { $('v3dBox').classList.toggle('on', $('v3d').checked); if ($('v3d').checked) { ship3d = null; schedule3D(); } };
+$('form3d').onchange = () => schedule3D();
+$('lightColor').addEventListener('input', () => draw3D());
 // ---------------- wiring ----------------
 $('style').innerHTML = Object.values(STYLES).filter(s => s.ribbon).map(s => `<option value="${s.id}">${esc(s.name)}${s.deco ? '' : ' · no greebles yet'}</option>`).join('');
 $('style').value = style.id;   // the select shows the style actually painted (it showed the first option while greeble was painted, 2026-10-10)

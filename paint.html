@@ -31,6 +31,12 @@ button.x { padding: 3px 8px; font-size: 12px }
 #editBar:not(.editing) { border-color: var(--line); background: transparent }
 #editBar label { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em }
 #editBar input, #editBar select { background: #04070f; color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: 13px var(--font) }
+#v3dBox { margin-top: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px }
+#v3dBox .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center }
+#v3dBox label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted) }
+#v3dBox select { background: #04070f; color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; font: 13px var(--font) }
+#out3d { display: block; width: 100%; aspect-ratio: 16 / 9; margin-top: 8px; border-radius: 10px; border: 1px solid var(--line); background: radial-gradient(ellipse at 50% 60%, #10192c, #04070f 70%); touch-action: none; cursor: grab }
+#v3dBox:not(.on) #out3d, #v3dBox:not(.on) .on3d { display: none }
 #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(20px); background: #121a2c; border: 1px solid var(--good); color: var(--fg); padding: 8px 14px; border-radius: 10px; font-size: 13px; opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none }
 #toast.on { opacity: 1; transform: translateX(-50%) }
 .sizes button { padding: 4px 9px; font-size: 12px }
@@ -82,6 +88,14 @@ details.fine summary { cursor: pointer; color: var(--muted) }
     <span style="flex:1"></span>
     <button id="edDone" class="x edonly">Done</button>
     <span class="tiny edonly" style="flex-basis:100%">Drag a point. Double-tap on the line to add a point there, elsewhere to add one at the end, on a point to remove it. Draw above the spine; the other half mirrors; cross the spine to cut a hole. Save asks: overwrite the one you started from, or keep it as a new silhouette with a name of its own. <span id="libNote"></span></span>
+  </div>
+  <!-- THE 3D SHIP (his ask, 2026-10-27: "a 3D painter, technically — to see how it works"): built from what is painted above -->
+  <div id="v3dBox" class="on">
+    <div class="row"><b class="tiny" style="color:var(--fg)">◈ In 3D (prototype)</b><label><input id="v3d" type="checkbox" checked> show</label>
+      <label class="on3d">Form <select id="form3d"><option value="roof">roof — a pyramid of the outline</option><option value="decks">decks — layers of the outline</option></select></label>
+      <label class="on3d"><input id="spin3d" type="checkbox"> turn by itself</label><span class="tiny on3d">drag it to turn it · it follows the outline, the size, the style, the guns and the seed</span></div>
+    <canvas id="out3d" width="960" height="540"></canvas>
+    <div id="info3d" class="tiny on3d" style="margin-top:4px"></div>
   </div>
   <div id="info" class="tiny" style="margin-top:6px">loading the sheet…</div>
   <!-- THE SHIP DESIGNER (his ask, 2026-10-12): the 4X design's modules, dropped on the ship, sized, and the outcome live -->

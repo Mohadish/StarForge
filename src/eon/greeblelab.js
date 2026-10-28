@@ -9,7 +9,7 @@
 //   core; shaded per face and washed in a colour. A building is a few blocks laid by a seeded recipe (generator, shield, farm, works,
 //   lab, homes). A first try — to see whether the style survives the turn to isometric.
 import { STYLES, loadStyle } from './styles.js';
-import { hullOf, hullsFor, inside, bboxOf, edgeAt } from './hull.js';
+import { hullOf, hullsFor, inside, bboxOf, edgeAt, areaOf } from './hull.js';
 import { paintHull, recipeFor } from './paint.js';
 import { levelColor, icon as ticon, ICON_COLOR } from './techicons.js';
 
@@ -756,12 +756,12 @@ export function drawDevice(fam, styleStock, { seed = 1, level = 3, yaw = 0, U = 
 // along the axis, a collar, a flared bell, the exhaust in the level's colour, the outer ones in alike pairs
 const PAINTED = new Map();
 async function paintedTop(styleId, hull, guns, tone) {
-  const key = [styleId, hull.id, hull.area.toFixed(2), guns.map(g => g.kind + g.n).join(';'), tone || ''].join('|'); if (PAINTED.has(key)) return PAINTED.get(key);
+  const key = [styleId, hull.poly.map(p => p[0].toFixed(2) + ',' + p[1].toFixed(2)).join(';'), guns.map(g => g.kind + g.n + 'x' + (g.size || 1)).join(';'), tone || ''].join('|'); if (PAINTED.has(key)) return PAINTED.get(key);   // by the outline itself (one being drawn has no name)
   const st = STYLES[styleId], img = await loadStyle(st), deco = st.deco ? await Promise.all(st.deco.sheets.map(sh => loadStyle({ sheet: sh }).catch(() => null))) : null;
   const S = 64, m = 0.5, W = Math.ceil((hull.bw + 2 * m) * S), H = Math.ceil((hull.bh + 2 * m) * S), cv = document.createElement('canvas'); cv.width = W; cv.height = H;
   const r = paintHull(cv, hull.poly, img, st, { ...recipeFor(hull.area * 32), px: S, center: [0, 0], guns, engines: false, wash: 0, lights: 0 }, deco);   // the guns placed by the painter's own rule, on its mounts
   const top = { img: tone ? toned(cv, tone, 0.45) : cv, S, x0: -W / 2 / S, y0: -H / 2 / S, hps: r.hardpoints.map(h => ({ kind: h.kind, x: (h.x - W / 2) / S, y: (h.y - H / 2) / S, r: h.r / S })) };   // the mounts back in squares
-  PAINTED.set(key, top); return top;
+  PAINTED.set(key, top); if (PAINTED.size > 24) PAINTED.delete(PAINTED.keys().next().value); return top;   // the last few kept
 }
 export const SHIP_HULLS = () => [...hullsFor('starship'), ...hullsFor('platform')];
 export const LOADOUTS = { 'two beams': [['weapon_energy', 2]], 'guns and a pod': [['weapon_kinetic', 2], ['weapon_missile', 1]], 'a battery of beams': [['weapon_energy', 4]], 'missile boat': [['weapon_missile', 3]], 'mixed broadside': [['weapon_energy', 2], ['weapon_kinetic', 2], ['weapon_missile', 1]] };
@@ -963,9 +963,10 @@ function unionBox(P, x0, x1, y0, y1) {
   } while (!(onP && i === start) && ++guard < 2000);
   return ccw ? out : out.reverse();
 }
-export async function buildShip(hullId, styleStock, { styleId, volume = 700, loadout = 'two beams', seed = 1, level = 3, tone = null, form = 'decks' } = {}) {
-  const hull = hullOf(hullId, volume), st = stockSet(styleStock), R = rnd('ship:' + hullId + ':' + seed + ':' + styleStock.style), clamp = (x, a, b) => Math.max(a, Math.min(b, x)), pick = l => l && l.length ? l[Math.floor(R() * l.length)] : null;
-  const guns = (LOADOUTS[loadout] || LOADOUTS['two beams']).map(([kind, n]) => ({ kind, n, size: 1 }));
+export async function buildShip(hullId, styleStock, { styleId, volume = 700, loadout = 'two beams', seed = 1, level = 3, tone = null, form = 'decks', poly = null, guns: gunsIn = null } = {}) {
+  // the hull: an outline as given (the Painter's, in hull squares, about its centre) or a named one
+  const hull = poly ? (b => ({ id: hullId + '~', klass: 'starship', poly, area: areaOf(poly), box: b, bw: b.maxx - b.minx, bh: b.maxy - b.miny }))(bboxOf(poly)) : hullOf(hullId, volume), st = stockSet(styleStock), R = rnd('ship:' + hullId + ':' + seed + ':' + styleStock.style), clamp = (x, a, b) => Math.max(a, Math.min(b, x)), pick = l => l && l.length ? l[Math.floor(R() * l.length)] : null;
+  const guns = gunsIn ? gunsIn.filter(g => g.n > 0 && TURRET_FAM[g.kind]).map(g => ({ kind: g.kind, n: g.n, size: g.size || 1 })) : (LOADOUTS[loadout] || LOADOUTS['two beams']).map(([kind, n]) => ({ kind, n, size: 1 }));   // a design's own guns (its hangars are not turrets)
   const top = await paintedTop(styleId || styleStock.style.split('+')[0], hull, guns, tone), strips = await stripsOf(styleStock), pickS = () => strips.length ? strips[Math.floor(R() * strips.length)] : null;
   const P0 = hull.poly.filter((p, i, A) => Math.hypot(p[0] - A[(i + 1) % A.length][0], p[1] - A[(i + 1) % A.length][1]) > 0.02), ccw = area2(P0) > 0, items = [];
   const normals = P => P.map((p, i) => { const q = P[(i + 1) % P.length], e = unit([q[0] - p[0], q[1] - p[1]]); return ccw ? [e[1], -e[0]] : [-e[1], e[0]]; });
@@ -1125,8 +1126,8 @@ export async function buildShip(hullId, styleStock, { styleId, volume = 700, loa
   B.recipe = `${Math.round(hull.area * 32)} volume · ${nt} decks + spine · ${nT} turrets · ${np} plates · ${ncut} cutouts · ${ns} small greebles · ${ne} engine${ne === 1 ? '' : 's'}`;
   return { B, hull };
 }
-export function drawShip(ship, { yaw = 0, level = 3, width = 520 } = {}) {
-  const U = Math.min(80, width / (2 * bounds(ship.B).rho * Math.SQRT2 * C30)), glow = levelColor(level);
+export function drawShip(ship, { yaw = 0, level = 3, width = 520, glow: glowIn } = {}) {
+  const U = Math.min(80, width / (2 * bounds(ship.B).rho * Math.SQRT2 * C30)), glow = glowIn !== undefined ? glowIn : levelColor(level);   // a colour of the page's own (the Painter's lights), or the level's
   return renderSolids(ship.B, { U, yaw, glow, light: glow || '#ffffff', glass: glow || '#e6f0ff', seed: 1 });
 }
 // the technology's ICON over the hardware (his example: the ice icon over the frost-hardy farm) — top right, on a dark coin
