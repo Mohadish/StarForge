@@ -204,7 +204,9 @@ function schedule3D() { if (!$('v3d').checked) return; clearTimeout(t3d); t3d = 
 async function build3D() {
   const n = ++n3d, P = poly(); if (!P || P.length < 3) return;
   try {
-    const sh = await buildShip(sel, await stockFor(style.id), { styleId: style.id, poly: P, volume: vol(), guns: guns(), seed: +$('seed').value, form: $('form3d').value });
+    const V = last && last.view, layout = V ? { greebles: ($('greebles').checked ? last.greebleSpots || [] : []).filter(g => g.cell && decoImg && decoImg[g.cell[4]]).map(g => ({ x: (g.x - V.ox) / V.S, y: (g.y - V.oy) / V.S, w: g.w / V.S, h: g.h / V.S, img: decoImg[g.cell[4]], src: g.cell.slice(0, 4), flip: g.flip })),
+      hardpoints: (last.hardpoints || []).map(h => ({ kind: h.kind, x: (h.x - V.ox) / V.S, y: (h.y - V.oy) / V.S, r: h.r / V.S })), turretK: last._turret } : null;   // the 2D layout as painted above, in hull squares
+    const sh = await buildShip(sel, await stockFor(style.id), { styleId: style.id, poly: P, volume: vol(), guns: guns(), seed: +$('seed').value, form: $('form3d').value, layout });
     if (n !== n3d) return;                                                          // a newer change is on its way
     ship3d = sh; draw3D(); $('info3d').textContent = sh.B.recipe;
   } catch (e) { $('info3d').textContent = 'the 3D ship could not be built: ' + e.message; console.error(e); }

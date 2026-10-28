@@ -413,7 +413,7 @@ export function paintHull(cv, poly, img, style, opt = {}, decoImg = null) {
         else { spots.push(p); placed.push(p); }
       }
       for (const s of spots) { const sp = pool[s.i], h = s.sz * (sp[5] || 1) /* cell[5]: a small fitting stays small */, w = h * sp[2] / sp[3]; g.save(); g.translate(s.x, s.y); g.scale(1, s.flip ? -1 : 1); g.drawImage(dOf(sp[4]), sp[0], sp[1], sp[2], sp[3], -w / 2, -h / 2, w, h); g.restore(); }
-      if (first) { greebles = spots.length; greebleSpots = spots.map(s => ({ x: s.x, y: s.y, sz: s.sz })); }
+      if (first) { greebles = spots.length; greebleSpots = spots.map(s => { const sp = pool[s.i], h = s.sz * (sp[5] || 1); return { x: s.x, y: s.y, sz: s.sz, w: h * sp[2] / sp[3], h, cell: sp, flip: !!s.flip }; }); }   // the piece and its drawn size too (the 3D ship stands it up)
     }
     // the turret MOUNTS, one under every hard point (the turret itself is the page's, drawn on top) — drawn DARKER than
     // the plating (his ask, 2026-10-10): a dark silhouette under the gun, so the gun reads even where it matches the skin

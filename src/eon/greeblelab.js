@@ -10,7 +10,7 @@
 //   lab, homes). A first try — to see whether the style survives the turn to isometric.
 import { STYLES, loadStyle } from './styles.js';
 import { hullOf, hullsFor, inside, bboxOf, edgeAt, areaOf } from './hull.js';
-import { paintHull, recipeFor } from './paint.js';
+import { paintHull, recipeFor, RECIPE } from './paint.js';
 import { levelColor, icon as ticon, ICON_COLOR } from './techicons.js';
 
 const loadImg = url => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('no image ' + url)); i.src = url; });
@@ -388,7 +388,7 @@ export function renderSolids(B, o = {}) {
       let pick = null; for (const x of left) if (x.deg === 0 && (!pick || x.d < pick.d)) pick = x;
       if (!pick) for (const x of left) if (!pick || x.deg < pick.deg || (x.deg === pick.deg && x.d < pick.d)) pick = x;   // a cycle: the least held, the farthest
       left.delete(pick); for (const q of pick.out) q.deg--;
-      try { if (pick.it.k === 'group') drawGroup(pick.it); else if (pick.it.k === 'greeble') { for (const q of drawOrder(pick.it.solids, pr, c, s0)) drawSolid(q); } else shipFace(pick.it, pick.S); } catch (e) { console.warn('greeble lab: a ship face was left out', pick.it.k, e.message); }
+      try { if (pick.it.k === 'pad') { const it = pick.it, mid = P => P.reduce((a, p) => [a[0] + p[0], a[1] + p[1], a[2] + p[2]], [0, 0, 0]); for (const w of it.walls.filter(w => dot3(w.n, v) > 1e-3).sort((a, b) => dot3(mid(a.P), v) - dot3(mid(b.P), v))) shipFace(w, w.P.map(pt => pr(...pt))); shipFace(it.top, it.top.P.map(pt => pr(...pt))); for (const c of it.cards) shipFace(c, c.P.map(pt => pr(...pt))); } else if (pick.it.k === 'group') drawGroup(pick.it); else if (pick.it.k === 'greeble') { for (const q of drawOrder(pick.it.solids, pr, c, s0)) drawSolid(q); } else shipFace(pick.it, pick.S); } catch (e) { console.warn('greeble lab: a ship face was left out', pick.it.k, e.message); }
     }
   }
   // a picture's triangle onto the screen's (the texture's points t → the screen's s), clipped a hair wide so the seams close
@@ -760,7 +760,8 @@ async function paintedTop(styleId, hull, guns, tone) {
   const st = STYLES[styleId], img = await loadStyle(st), deco = st.deco ? await Promise.all(st.deco.sheets.map(sh => loadStyle({ sheet: sh }).catch(() => null))) : null;
   const S = 64, m = 0.5, W = Math.ceil((hull.bw + 2 * m) * S), H = Math.ceil((hull.bh + 2 * m) * S), cv = document.createElement('canvas'); cv.width = W; cv.height = H;
   const r = paintHull(cv, hull.poly, img, st, { ...recipeFor(hull.area * 32), px: S, center: [0, 0], guns, engines: false, wash: 0, lights: 0 }, deco);   // the guns placed by the painter's own rule, on its mounts
-  const top = { img: tone ? toned(cv, tone, 0.45) : cv, S, x0: -W / 2 / S, y0: -H / 2 / S, hps: r.hardpoints.map(h => ({ kind: h.kind, x: (h.x - W / 2) / S, y: (h.y - H / 2) / S, r: h.r / S })) };   // the mounts back in squares
+  const top = { img: tone ? toned(cv, tone, 0.45) : cv, S, x0: -W / 2 / S, y0: -H / 2 / S, hps: r.hardpoints.map(h => ({ kind: h.kind, x: (h.x - W / 2) / S, y: (h.y - H / 2) / S, r: h.r / S })),   // the mounts back in squares
+    greebles: (r.greebleSpots || []).filter(g => g.cell && deco && deco[g.cell[4]]).map(g => ({ x: (g.x - W / 2) / S, y: (g.y - H / 2) / S, w: g.w / S, h: g.h / S, img: deco[g.cell[4]], src: g.cell.slice(0, 4), flip: g.flip })) };   // and its greebles: where, how big, which art
   PAINTED.set(key, top); if (PAINTED.size > 24) PAINTED.delete(PAINTED.keys().next().value); return top;   // the last few kept
 }
 export const SHIP_HULLS = () => [...hullsFor('starship'), ...hullsFor('platform')];
@@ -963,7 +964,7 @@ function unionBox(P, x0, x1, y0, y1) {
   } while (!(onP && i === start) && ++guard < 2000);
   return ccw ? out : out.reverse();
 }
-export async function buildShip(hullId, styleStock, { styleId, volume = 700, loadout = 'two beams', seed = 1, level = 3, tone = null, form = 'decks', poly = null, guns: gunsIn = null } = {}) {
+export async function buildShip(hullId, styleStock, { styleId, volume = 700, loadout = 'two beams', seed = 1, level = 3, tone = null, form = 'decks', poly = null, guns: gunsIn = null, layout = null } = {}) {
   // the hull: an outline as given (the Painter's, in hull squares, about its centre) or a named one
   const hull = poly ? (b => ({ id: hullId + '~', klass: 'starship', poly, area: areaOf(poly), box: b, bw: b.maxx - b.minx, bh: b.maxy - b.miny }))(bboxOf(poly)) : hullOf(hullId, volume), st = stockSet(styleStock), R = rnd('ship:' + hullId + ':' + seed + ':' + styleStock.style), clamp = (x, a, b) => Math.max(a, Math.min(b, x)), pick = l => l && l.length ? l[Math.floor(R() * l.length)] : null;
   const guns = gunsIn ? gunsIn.filter(g => g.n > 0 && TURRET_FAM[g.kind]).map(g => ({ kind: g.kind, n: g.n, size: g.size || 1 })) : (LOADOUTS[loadout] || LOADOUTS['two beams']).map(([kind, n]) => ({ kind, n, size: 1 }));   // a design's own guns (its hangars are not turrets)
@@ -998,35 +999,32 @@ export async function buildShip(hullId, styleStock, { styleId, volume = 700, loa
       const faces = SK.faces.map(f => { const a = SK.P[f.e], b = SK.P[(f.e + 1) % SK.P.length], m = SK.nin[f.e]; return { ...f, a, b, q: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], d: SK.dir[f.e], m, n3: unit([-sl * m[0], -sl * m[1], 1]), P3: f.P.map(([x, y, t]) => [x, y, hR + sl * t]) }; });
       const onFace = (f, u, w, lift) => [f.q[0] + f.d[0] * u + f.m[0] * w + f.n3[0] * lift, f.q[1] + f.d[1] * u + f.m[1] * w + f.n3[1] * lift, hR + sl * w + f.n3[2] * lift];
       for (const f of faces) { const Rr = keyR('face', f.a, f.b); items.push({ k: 'roof', P: f.P3, n: f.n3, map: { q: f.q, d: f.d, m: f.m, z0: hR, s: sl }, S: strips.length ? strips[Math.floor(Rr() * strips.length)] : null, hb, seed: Math.floor(Rr() * 1000) }); }
-      // the 2D GREEBLES on the eaves: the style's fittings on each face, a third of each past the outline
+      // THE 2D LAYOUT IN 3D (his ask, 2026-10-28: "take the position of the greebles we see in 2D and plop them onto the 3D object"): where
+      // the painter put a greeble, a pedestal rises out of the roof to a LEVEL top and the greeble's own art lies on it; every hard point is a
+      // pad, extruded from the roof to a level top, the mount on it and the style's turret flat on that at its 2D size. The layout is the
+      // Painter's own (handed in) or the painted top's here
+      const L2 = layout || { greebles: top.greebles || [], hardpoints: top.hps || [], turretK: RECIPE.turret };
+      const faceAt = (x, y) => faces.find(F => inside(F.P2 || (F.P2 = F.P.map(p => [p[0], p[1]])), x, y));
+      const hAt = (x, y) => { const f = faceAt(x, y); return f ? hR + sl * Math.max(0, (x - f.q[0]) * f.m[0] + (y - f.q[1]) * f.m[1]) : hR; };   // the roof's height there (the eave's, past the outline)
+      const pad = (ring, zTop, wallImg, topTex, cards) => {                                // walls from the roof up to a level top, the top, the cards on it
+        const n = ring.length, walls = [], bot = ring.map(([x, y]) => [x, y, hAt(x, y)]), topP = ring.map(([x, y]) => [x, y, zTop]), cx2 = ring.reduce((a, p) => a + p[0], 0) / n, cy2 = ring.reduce((a, p) => a + p[1], 0) / n;
+        for (let i = 0; i < n; i++) { const j = (i + 1) % n, Q = [topP[i], topP[j], bot[j], bot[i]], mx = (ring[i][0] + ring[j][0]) / 2 - cx2, my = (ring[i][1] + ring[j][1]) / 2 - cy2; if (Q[0][2] - Q[3][2] < 1e-3 && Q[1][2] - Q[2][2] < 1e-3) continue; walls.push({ k: 'quad', P: Q, n: quadN(Q, [mx, my, 0]), img: wallImg, src: wallImg ? [0, 0, wallImg.width, wallImg.height] : null, dim: 0.12, soft: true }); }
+        return { k: 'pad', walls, top: { k: 'cap', P: topP, n: [0, 0, 1], tex: topTex }, cards, P: [...bot, ...topP, ...cards.flatMap(c => c.P)] };
+      };
+      const flat = (x0, y0, x1, y1, z, img, src, flip) => ({ k: 'quad', P: flip ? [[x0, y1, z], [x1, y1, z], [x1, y0, z], [x0, y0, z]] : [[x0, y0, z], [x1, y0, z], [x1, y1, z], [x0, y1, z]], n: [0, 0, 1], img, src, bare: true });
       let ng = 0, np = 0;
-      for (const f of faces) {
-        if (f.P[0][2] > 1e-6 || f.P[1][2] > 1e-6 || !st.fitting.length) continue; const len = Math.hypot(f.b[0] - f.a[0], f.b[1] - f.a[1]); if (len < 0.9) continue;
-        const Rr = keyR('eave', f.a, f.b); if (Rr() < 0.15) continue; const c = clamp(Math.floor(len / 1.8), 1, 3);
-        for (let i = 0; i < c; i++) {
-          const img = st.fitting[Math.floor(Rr() * st.fitting.length)], Wc = Math.min(1.5, len / c * 0.85), Hc = Wc * img.height / img.width, u = (i - (c - 1) / 2) * len / c, w0 = -0.35 * Hc, w1 = 0.65 * Hc;
-          items.push({ k: 'quad', P: [onFace(f, u - Wc / 2, w0, 0.012), onFace(f, u + Wc / 2, w0, 0.012), onFace(f, u + Wc / 2, w1, 0.012), onFace(f, u - Wc / 2, w1, 0.012)], n: f.n3, img, src: [0, 0, img.width, img.height], bare: true }); ng++;
-        }
+      for (const G of L2.greebles) {
+        const hw = G.w / 2, hh = G.h / 2, zTop = Math.max(...[[0, 0], [-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => hAt(G.x + a * hw, G.y + b * hh))) + 0.04 + 0.15 * Math.min(G.w, G.h), cw = hw * 0.72, ch = hh * 0.72;
+        items.push(pad([[G.x - cw, G.y - ch], [G.x + cw, G.y - ch], [G.x + cw, G.y + ch], [G.x - cw, G.y + ch]], zTop, st.band.length ? st.band[ng % st.band.length] : null, st.tile.length ? st.tile[ng % st.tile.length] : null, [flat(G.x - hw, G.y - hh, G.x + hw, G.y + hh, zTop + 0.004, G.img, G.src, G.flip)])); ng++;
       }
-      // PLATES on the big faces, up the slope
-      for (const f of faces) {
-        const plates = st.plate || []; if (!plates.length) break; const wMax = Math.max(...f.P.map(p => p[2])), len = Math.hypot(f.b[0] - f.a[0], f.b[1] - f.a[1]); if (wMax < 1.0 || f.P[0][2] > 1e-6) continue;
-        const Rr = keyR('plate', f.a, f.b); if (Rr() < 0.3) continue; const rr = Math.min(0.9, wMax * 0.32, len * 0.25), wc = wMax * 0.5, F2 = f.P.map(p => [p[0], p[1]]);
-        if ([[-1, -1], [1, -1], [1, 1], [-1, 1]].some(([a, b]) => { const p = onFace(f, a * rr, wc + b * rr, 0); return !inside(F2, p[0], p[1]); })) continue;
-        const img = plates[Math.floor(Rr() * plates.length)];
-        items.push({ k: 'quad', P: [onFace(f, -rr, wc - rr, 0.016), onFace(f, rr, wc - rr, 0.016), onFace(f, rr, wc + rr, 0.016), onFace(f, -rr, wc + rr, 0.016)], n: f.n3, img, src: [0, 0, img.width, img.height], bare: true }); np++;
-      }
-      // the style's own 2D TURRETS on the painter's hard points, lying on the roof (tilted with it), barrels forward
-      const tsty = STYLES[styleId || styleStock.style.split('+')[0]] || {}, TS = tsty.turrets, tsheet = TS ? await loadStyle({ sheet: TS.sheet }).catch(() => null) : null; let nT = 0;
-      for (const hp of top.hps || []) {
-        const f = faces.find(F => inside(F.P.map(p => [p[0], p[1]]), hp.x, hp.y)); if (!f) continue;
-        const ki = hp.kind === 'weapon_kinetic' ? 1 : hp.kind === 'weapon_missile' ? 2 : 0, cell = TS && TS.cells[ki];
-        const w = (hp.x - f.q[0]) * f.m[0] + (hp.y - f.q[1]) * f.m[1], u = (hp.x - f.q[0]) * f.d[0] + (hp.y - f.q[1]) * f.d[1], c0 = onFace(f, u, w, 0.02), n = f.n3;
-        const ex = unit([1 - n[0] * n[0], -n[0] * n[1], -n[0] * n[2]]), ey = unit(cross3(n, ex));   // the roof's own x and y
-        if (cell && tsheet) {
-          const [cx0, cy0, cw, ch, px, py, body] = cell, k = 2 * hp.r * 0.95 / body, P = [[-px, -py], [cw - px, -py], [cw - px, ch - py], [-px, ch - py]].map(([X, Y]) => [c0[0] + (ex[0] * X + ey[0] * Y) * k, c0[1] + (ex[1] * X + ey[1] * Y) * k, c0[2] + (ex[2] * X + ey[2] * Y) * k]);
-          items.push({ k: 'quad', P, n, img: tsheet, src: [cx0, cy0, cw, ch], bare: true }); nT++;
-        }
+      const tsty = STYLES[styleId || styleStock.style.split('+')[0]] || {}, TS = tsty.turrets, tsheet = TS ? await loadStyle({ sheet: TS.sheet }).catch(() => null) : null, mountImg = st.mount.length ? st.mount[0] : null; let nT = 0;
+      for (const hp of L2.hardpoints) {
+        if (!TURRET_FAM[hp.kind]) continue; const rP = hp.r, ring = Array.from({ length: 8 }, (_, i) => [hp.x + rP * Math.cos((i + 0.5) * Math.PI / 4), hp.y + rP * Math.sin((i + 0.5) * Math.PI / 4)]);
+        const zTop = Math.max(hAt(hp.x, hp.y), ...ring.map(([x, y]) => hAt(x, y))) + Math.max(0.05, rP * 0.3), cards = [];
+        if (mountImg) cards.push(flat(hp.x - rP, hp.y - rP, hp.x + rP, hp.y + rP, zTop + 0.004, mountImg, [0, 0, mountImg.width, mountImg.height], hp.y < 0));
+        const cell = TS && TS.cells[hp.kind === 'weapon_kinetic' ? 1 : hp.kind === 'weapon_missile' ? 2 : 0];
+        if (cell && tsheet) { const [cx0, cy0, cw2, ch2, px, py, body] = cell, k = 2 * rP * (L2.turretK || RECIPE.turret) / body; cards.push({ k: 'quad', P: [[-px, -py], [cw2 - px, -py], [cw2 - px, ch2 - py], [-px, ch2 - py]].map(([X, Y]) => [hp.x + X * k, hp.y + Y * k, zTop + 0.008]), n: [0, 0, 1], img: tsheet, src: [cx0, cy0, cw2, ch2], bare: true }); nT++; }   // flat, as in 2D, barrels forward
+        items.push(pad(ring, zTop, st.band.length ? st.band[0] : null, st.tile.length ? st.tile[0] : null, cards));
       }
       // CUTOUTS on the cookie's long flanks (under its top), the ENGINES out of its stern, running lights
       for (let i = 0; i < base.length; i++) {
@@ -1043,7 +1041,7 @@ export async function buildShip(hullId, styleStock, { styleId, volume = 700, loa
       }
       for (let i = 0; i < base.length; i++) { const a = base[i], q = base[(i + 1) % base.length]; if (Math.hypot(q[0] - a[0], q[1] - a[1]) < 1.2 || outN[i][0] < -0.5) continue; items.push({ k: 'glow', P: [[(a[0] + q[0]) / 2 + outN[i][0] * 0.03, (a[1] + q[1]) / 2 + outN[i][1] * 0.03, hR * 0.3]], r: 0.05 }); }
       const B = [{ t: 'ship', items }];
-      B.recipe = `${Math.round(hull.area * 32)} volume · a roof of ${faces.length} faces · ${ng} eave greebles · ${np} plates · ${nT} turrets · ${ne} engine${ne === 1 ? '' : 's'}`;
+      B.recipe = `${Math.round(hull.area * 32)} volume · a roof of ${faces.length} faces · ${ng} greebles from the 2D · ${nT} turrets on pads · ${ne} engine${ne === 1 ? '' : 's'}`;
       return { B, hull };
     }
   }

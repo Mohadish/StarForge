@@ -89,11 +89,20 @@ details.fine summary { cursor: pointer; color: var(--muted) }
     <button id="edDone" class="x edonly">Done</button>
     <span class="tiny edonly" style="flex-basis:100%">Drag a point. Double-tap on the line to add a point there, elsewhere to add one at the end, on a point to remove it. Draw above the spine; the other half mirrors; cross the spine to cut a hole. Save asks: overwrite the one you started from, or keep it as a new silhouette with a name of its own. <span id="libNote"></span></span>
   </div>
+  <div class="ctl" style="margin-top:10px">   <!-- between the 2D and the 3D (his ask, 2026-10-28) -->
+    <label>Plating · master (%)<input id="mPlating" type="range" min="-40" max="40" step="1" value="0"><small id="mPlatingV" class="tiny"></small></label>
+    <label>Fittings · master (%)<input id="mFittings" type="range" min="-40" max="40" step="1" value="0"><small id="mFittingsV" class="tiny"></small></label>
+    <label>Greeble seed <b id="seedV"></b><input id="seed" type="range" min="0" max="999" step="1" value="0"><span style="display:flex;gap:4px;text-transform:none"><input id="seedN" type="number" min="0" max="999" value="0" style="width:70px"><button id="seedNext" class="x" title="the next seed">+1</button></span></label>
+    <label class="chk"><input id="greebles" type="checkbox" checked> greebles</label>
+    <label class="chk"><input id="glow" type="checkbox" checked> engine glow</label>
+    <button id="resetOff" class="x" title="masters and fine offsets back to zero">Reset</button>
+    <button id="png">Download PNG</button>
+  </div>
   <!-- THE 3D SHIP (his ask, 2026-10-27: "a 3D painter, technically — to see how it works"): built from what is painted above -->
   <div id="v3dBox" class="on">
     <div class="row"><b class="tiny" style="color:var(--fg)">◈ In 3D (prototype)</b><label><input id="v3d" type="checkbox" checked> show</label>
       <label class="on3d">Form <select id="form3d"><option value="roof">roof — a pyramid of the outline</option><option value="decks">decks — layers of the outline</option></select></label>
-      <label class="on3d"><input id="spin3d" type="checkbox"> turn by itself</label><span class="tiny on3d">drag it to turn it · it follows the outline, the size, the style, the guns and the seed</span></div>
+      <label class="on3d"><input id="spin3d" type="checkbox"> turn by itself</label><span class="tiny on3d">drag it to turn it · it follows the 2D above: the outline, the size, the style, the greebles where they are painted, the hard points and the seed</span></div>
     <canvas id="out3d" width="960" height="540"></canvas>
     <div id="info3d" class="tiny on3d" style="margin-top:4px"></div>
   </div>
@@ -111,15 +120,6 @@ details.fine summary { cursor: pointer; color: var(--muted) }
     <textarea id="dCode" rows="2" spellcheck="false" placeholder="paste a ship code (SHIP1:…) — it opens here"></textarea>
     <div id="dNote" class="tiny" style="margin-top:4px;min-height:16px"></div>
     <div id="dPick" class="dpick" hidden></div>
-  </div>
-  <div class="ctl" style="margin-top:10px">
-    <label>Plating · master (%)<input id="mPlating" type="range" min="-40" max="40" step="1" value="0"><small id="mPlatingV" class="tiny"></small></label>
-    <label>Fittings · master (%)<input id="mFittings" type="range" min="-40" max="40" step="1" value="0"><small id="mFittingsV" class="tiny"></small></label>
-    <label>Greeble seed <b id="seedV"></b><input id="seed" type="range" min="0" max="999" step="1" value="0"><span style="display:flex;gap:4px;text-transform:none"><input id="seedN" type="number" min="0" max="999" value="0" style="width:70px"><button id="seedNext" class="x" title="the next seed">+1</button></span></label>
-    <label class="chk"><input id="greebles" type="checkbox" checked> greebles</label>
-    <label class="chk"><input id="glow" type="checkbox" checked> engine glow</label>
-    <button id="resetOff" class="x" title="masters and fine offsets back to zero">Reset</button>
-    <button id="png">Download PNG</button>
   </div>
   <div class="ctl">
     <label>Wash · outline → core<span style="display:flex;gap:6px;align-items:center"><input id="washA" type="color" value="#7fb2e5"><input id="washB" type="color" value="#e5b07f"></span></label>
