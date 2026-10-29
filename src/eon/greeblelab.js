@@ -1046,7 +1046,7 @@ export async function buildShip(hullId, styleStock, { styleId, volume = 700, loa
         const hw = E2.w / 2, hh = E2.h / 2, sx2 = E2.flipX ? -1 : 1, sy2 = E2.flip ? -1 : 1, zTop = Math.max(...[[0, 0], [-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => hAt(E2.x + a * hw, E2.y + b * hh))) + 0.04 + 0.15 * Math.min(E2.w, E2.h), cw = hw * 0.8, ch = hh * 0.72;
         const art = { k: 'quad', P: [[E2.x - sx2 * hw, E2.y - sy2 * hh, zTop + 0.004], [E2.x + sx2 * hw, E2.y - sy2 * hh, zTop + 0.004], [E2.x + sx2 * hw, E2.y + sy2 * hh, zTop + 0.004], [E2.x - sx2 * hw, E2.y + sy2 * hh, zTop + 0.004]], n: [0, 0, 1], img: E2.img, src: E2.src, bare: true };
         items.push(pad([[E2.x - cw, E2.y - ch], [E2.x + cw, E2.y - ch], [E2.x + cw, E2.y + ch], [E2.x - cw, E2.y + ch]], zTop, st.band.length ? st.band[i % st.band.length] : null, st.tile.length ? st.tile[0] : null, [art])); nE++;
-        const N = (L2.nozzles || [])[i]; if (N) items.push({ k: 'glow', P: [[N.x, N.y, zTop + 0.02]], r: N.h * 0.45 });
+        const N = (L2.nozzles || [])[i]; if (N) items.push({ k: 'glow', P: [[Math.min(N.x, E2.x - cw) - 0.05, N.y, (hAt(E2.x, E2.y) + zTop) / 2]], r: N.h * 0.3 });   // at the nozzle, behind the block, half way up
       });
       else { const specs = new Map();
       for (let i = 0; i < ne; i++) {
