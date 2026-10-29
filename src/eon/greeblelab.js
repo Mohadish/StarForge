@@ -359,8 +359,11 @@ export function renderSolids(B, o = {}) {
       }
       return nx * v[0] + ny * v[1] > 0 ? -1 : 1;
     };
+    // a roof face under a piece lying on the roof: their ground plans overlap (a corner of one inside the other)
+    const underIt = (R, Q) => { const a = R.xy || (R.xy = R.P.map(p => [p[0], p[1]])), b = Q.xy; return b.some(p => inside(a, p[0], p[1])) || a.some(p => inside(b, p[0], p[1])); };
     const rel = (A, B) => {                                                            // -1: A first, 1: B first, 0: no matter
-      if (A.z1 <= B.z0 + E) return -1; if (B.z1 <= A.z0 + E) return 1;                // one wholly above the other: the upper goes after
+      if (A.z1 <= B.z0 + 0.02) return -1; if (B.z1 <= A.z0 + 0.02) return 1;          // one wholly above the other (a touch allowed): the upper goes after
+      if (A.it.k === 'roof' && B.it.onRoof && underIt(A.it, B.it)) return -1; if (B.it.k === 'roof' && A.it.onRoof && underIt(B.it, A.it)) return 1;   // a piece lying on the roof: the faces under it first
       const ta = A.it.n ? test(A, B.it.P, !B.it.n) : 0, tb = B.it.n ? test(B, A.it.P, !A.it.n) : 0;
       if (ta === 2 || tb === 2) return 0;                                              // in one plane: neither hides the other
       const va = ta === 1 ? -1 : ta === -1 ? 1 : 0, vb = tb === 1 ? 1 : tb === -1 ? -1 : 0;
@@ -1014,16 +1017,23 @@ export async function buildShip(hullId, styleStock, { styleId, volume = 700, loa
       // Painter's own (handed in) or the painted top's here
       const faceAt = (x, y) => faces.find(F => inside(F.P2 || (F.P2 = F.P.map(p => [p[0], p[1]])), x, y));
       const hAt = (x, y) => { const f = faceAt(x, y); return f ? hR + sl * Math.max(0, (x - f.q[0]) * f.m[0] + (y - f.q[1]) * f.m[1]) : hR; };   // the roof's height there (the eave's, past the outline)
-      const pad = (ring, zTop, wallImg, topTex, cards) => {                                // walls from the roof up to a level top, the top, the cards on it
-        const n = ring.length, walls = [], bot = ring.map(([x, y]) => [x, y, hAt(x, y)]), topP = ring.map(([x, y]) => [x, y, zTop]), cx2 = ring.reduce((a, p) => a + p[0], 0) / n, cy2 = ring.reduce((a, p) => a + p[1], 0) / n;
+      const pad = (ring, zTop, wallImg, topTex, cards, zBot = null) => {                   // walls from the roof (or zBot) up to a level top, the top, the cards on it
+        const n = ring.length, walls = [], bot = ring.map(([x, y]) => [x, y, zBot != null ? zBot : hAt(x, y)]), topP = ring.map(([x, y]) => [x, y, zTop]), cx2 = ring.reduce((a, p) => a + p[0], 0) / n, cy2 = ring.reduce((a, p) => a + p[1], 0) / n;
         for (let i = 0; i < n; i++) { const j = (i + 1) % n, Q = [topP[i], topP[j], bot[j], bot[i]], mx = (ring[i][0] + ring[j][0]) / 2 - cx2, my = (ring[i][1] + ring[j][1]) / 2 - cy2; if (Q[0][2] - Q[3][2] < 1e-3 && Q[1][2] - Q[2][2] < 1e-3) continue; walls.push({ k: 'quad', P: Q, n: quadN(Q, [mx, my, 0]), img: wallImg, src: wallImg ? [0, 0, wallImg.width, wallImg.height] : null, dim: 0.12, soft: true }); }
         return { k: 'pad', walls, top: { k: 'cap', P: topP, n: [0, 0, 1], tex: topTex }, cards, P: [...bot, ...topP, ...cards.flatMap(c => c.P)] };
       };
       const flat = (x0, y0, x1, y1, z, img, src, flip) => ({ k: 'quad', P: flip ? [[x0, y1, z], [x1, y1, z], [x1, y0, z], [x0, y0, z]] : [[x0, y0, z], [x1, y0, z], [x1, y1, z], [x0, y1, z]], n: [0, 0, 1], img, src, bare: true });
       let ng = 0, np = 0;
+      // a GREEBLE (his note: "lower, closer to the roof"): a thin slab lying on the roof face under it — its walls from the roof up, its top
+      // parallel to the face, the greeble's art on that — so it hugs the slope instead of standing level and high on the downhill side
       for (const G of L2.greebles) {
-        const hw = G.w / 2, hh = G.h / 2, zTop = Math.max(...[[0, 0], [-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => hAt(G.x + a * hw, G.y + b * hh))) + 0.04 + 0.15 * Math.min(G.w, G.h), cw = hw * 0.72, ch = hh * 0.72;
-        items.push(pad([[G.x - cw, G.y - ch], [G.x + cw, G.y - ch], [G.x + cw, G.y + ch], [G.x - cw, G.y + ch]], zTop, st.band.length ? st.band[ng % st.band.length] : null, st.tile.length ? st.tile[ng % st.tile.length] : null, [flat(G.x - hw, G.y - hh, G.x + hw, G.y + hh, zTop + 0.004, G.img, G.src, G.flip)])); ng++;
+        const f = faceAt(G.x, G.y) || [0.1, 0.2, 0.35, 0.5].map(k => faceAt(G.x * (1 - k), G.y * (1 - k))).find(Boolean); if (!f) continue;   // one past the outline (it breaks it, as in 2D): the nearest face's plane, hanging past the eave
+        const hw = G.w / 2, hh = G.h / 2, cw = hw * 0.72, ch = hh * 0.72, t = 0.04 + 0.05 * Math.min(G.w, G.h), zF = (x, y) => hR + sl * ((x - f.q[0]) * f.m[0] + (y - f.q[1]) * f.m[1]) + t;   // the face's plane, lifted by the slab's thickness
+        const ring = [[G.x - cw, G.y - ch], [G.x + cw, G.y - ch], [G.x + cw, G.y + ch], [G.x - cw, G.y + ch]], tops = ring.map(([x, y]) => [x, y, zF(x, y)]), walls = [];
+        for (let i = 0; i < 4; i++) { const j = (i + 1) % 4, Q = [tops[i], tops[j], [ring[j][0], ring[j][1], Math.min(hAt(...ring[j]), tops[j][2] - 0.01)], [ring[i][0], ring[i][1], Math.min(hAt(...ring[i]), tops[i][2] - 0.01)]]; walls.push({ k: 'quad', P: Q, n: quadN(Q, [(ring[i][0] + ring[j][0]) / 2 - G.x, (ring[i][1] + ring[j][1]) / 2 - G.y, 0]), img: st.band.length ? st.band[ng % st.band.length] : null, src: st.band.length ? [0, 0, st.band[ng % st.band.length].width, st.band[ng % st.band.length].height] : null, dim: 0.12, soft: true }); }
+        const lift = (x, y) => [x, y, zF(x, y) + 0.004], art = G.flip ? [lift(G.x - hw, G.y + hh), lift(G.x + hw, G.y + hh), lift(G.x + hw, G.y - hh), lift(G.x - hw, G.y - hh)] : [lift(G.x - hw, G.y - hh), lift(G.x + hw, G.y - hh), lift(G.x + hw, G.y + hh), lift(G.x - hw, G.y + hh)];
+        const tile = st.tile.length ? st.tile[ng % st.tile.length] : null;
+        items.push({ k: 'pad', walls, top: { k: 'quad', P: tops, n: f.n3, img: tile, src: tile ? [0, 0, tile.width, tile.height] : null }, cards: [{ k: 'quad', P: art, n: f.n3, img: G.img, src: G.src, bare: true }], P: [...walls.flatMap(w => w.P), ...art], onRoof: true, xy: art.map(p => [p[0], p[1]]) }); ng++;
       }
       const tsty = STYLES[styleId || styleStock.style.split('+')[0]] || {}, TS = tsty.turrets, tsheet = TS ? await loadStyle({ sheet: TS.sheet }).catch(() => null) : null, mountImg = st.mount.length ? st.mount[0] : null; let nT = 0;
       for (const hp of L2.hardpoints) {
@@ -1032,7 +1042,7 @@ export async function buildShip(hullId, styleStock, { styleId, volume = 700, loa
         if (mountImg) cards.push(flat(hp.x - rP, hp.y - rP, hp.x + rP, hp.y + rP, zTop + 0.004, mountImg, [0, 0, mountImg.width, mountImg.height], hp.y < 0));
         const cell = TS && TS.cells[hp.kind === 'weapon_kinetic' ? 1 : hp.kind === 'weapon_missile' ? 2 : 0];
         if (cell && tsheet) { const [cx0, cy0, cw2, ch2, px, py, body] = cell, k = 2 * rP * (L2.turretK || RECIPE.turret) / body; cards.push({ k: 'quad', P: [[-px, -py], [cw2 - px, -py], [cw2 - px, ch2 - py], [-px, ch2 - py]].map(([X, Y]) => [hp.x + X * k, hp.y + Y * k, zTop + 0.008]), n: [0, 0, 1], img: tsheet, src: [cx0, cy0, cw2, ch2], bare: true }); nT++; }   // flat, as in 2D, barrels forward
-        items.push(pad(ring, zTop, st.band.length ? st.band[0] : null, st.tile.length ? st.tile[0] : null, cards));
+        items.push({ ...pad(ring, zTop, st.band.length ? st.band[0] : null, st.tile.length ? st.tile[0] : null, cards), onRoof: true, xy: ring });
       }
       // CUTOUTS on the cookie's long flanks (under its top), the ENGINES out of its stern, running lights
       for (let i = 0; i < base.length; i++) {
@@ -1042,19 +1052,23 @@ export async function buildShip(hullId, styleStock, { styleId, volume = 700, loa
         items.push({ k: 'quad', P: [at2(-1, 1), at2(1, 1), at2(1, -1), at2(-1, -1)], n: [n2[0], n2[1], 0], img, src: [0, 0, img.width, img.height], bare: true });
       }
       let nE = 0;
-      if (blue) L2.engines.forEach((E2, i) => {                                         // THE 2D's ENGINES, where it puts them: a block each, its art on top, its glow at the nozzle
-        const hw = E2.w / 2, hh = E2.h / 2, sx2 = E2.flipX ? -1 : 1, sy2 = E2.flip ? -1 : 1, zTop = Math.max(...[[0, 0], [-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => hAt(E2.x + a * hw, E2.y + b * hh))) + 0.04 + 0.15 * Math.min(E2.w, E2.h), cw = hw * 0.8, ch = hh * 0.72;
-        const art = { k: 'quad', P: [[E2.x - sx2 * hw, E2.y - sy2 * hh, zTop + 0.004], [E2.x + sx2 * hw, E2.y - sy2 * hh, zTop + 0.004], [E2.x + sx2 * hw, E2.y + sy2 * hh, zTop + 0.004], [E2.x - sx2 * hw, E2.y + sy2 * hh, zTop + 0.004]], n: [0, 0, 1], img: E2.img, src: E2.src, bare: true };
-        items.push(pad([[E2.x - cw, E2.y - ch], [E2.x + cw, E2.y - ch], [E2.x + cw, E2.y + ch], [E2.x - cw, E2.y + ch]], zTop, st.band.length ? st.band[i % st.band.length] : null, st.tile.length ? st.tile[0] : null, [art])); nE++;
-        const N = (L2.nozzles || [])[i]; if (N) items.push({ k: 'glow', P: [[Math.min(N.x, E2.x - cw) - 0.05, N.y, (hAt(E2.x, E2.y) + zTop) / 2]], r: N.h * 0.3 });   // at the nozzle, behind the block, half way up
-      });
+      if (blue) {                                                                       // THE ENGINES (his call, 2026-10-29: "in the back end, in the cookie, not elevated — one row, in the right arrangement")
+        const row = [];                                                                 // the 2D's engines by their place across the hull and their size; overlapping ones (other rows) merged, the bigger kept
+        for (const E2 of [...L2.engines].sort((a, b) => b.h - a.h)) if (!row.some(o => Math.abs(o.y - E2.y) < (o.h + E2.h) / 2 * 0.92)) row.push(E2);
+        row.forEach((E2, i) => {                                                        // each a block out of the cookie's stern, as high as the cookie, the 2D art on its top, its glow at the nozzle
+          const hh = E2.h / 2, Lx = E2.w, xF = Math.min(...[-1, 0, 1].map(k => sternAt(E2.y + k * hh * 0.9))) - 0.005, xB = xF - Lx, xc = (xF + xB) / 2, sx2 = E2.flipX ? -1 : 1, sy2 = E2.flip ? -1 : 1, zT = hR * 0.98;
+          const art = { k: 'quad', P: [[xc - sx2 * Lx / 2, E2.y - sy2 * hh, zT + 0.004], [xc + sx2 * Lx / 2, E2.y - sy2 * hh, zT + 0.004], [xc + sx2 * Lx / 2, E2.y + sy2 * hh, zT + 0.004], [xc - sx2 * Lx / 2, E2.y + sy2 * hh, zT + 0.004]], n: [0, 0, 1], img: E2.img, src: E2.src, bare: true };
+          items.push(pad([[xB, E2.y - hh * 0.8], [xF, E2.y - hh * 0.8], [xF, E2.y + hh * 0.8], [xB, E2.y + hh * 0.8]], zT, st.band.length ? st.band[i % st.band.length] : null, st.tile.length ? st.tile[0] : null, [art], 0)); nE++;
+          items.push({ k: 'glow', P: [[xB - 0.06, E2.y, zT * 0.5]], r: Math.min(hh * 0.7, zT * 0.6), n: [-1, 0, 0] });   // the exhaust, seen from astern
+        });
+      }
       else { const specs = new Map();
       for (let i = 0; i < ne; i++) {
         const y = (i - (ne - 1) / 2) * gapE, pair = Math.min(i, ne - 1 - i), mid = ne > 1 && ne % 2 === 1 && i === (ne - 1) / 2;
         if (!specs.has(pair)) specs.set(pair, engineSpec(rnd('engine:' + seed + ':' + pair + ':' + styleStock.style), st, strips));
         engine(items, specs.get(pair), xb, y, zE * 0.5, mid ? Math.min(0.47 * zE, r * 1.12) : r); nE++;
       } }
-      for (let i = 0; i < base.length; i++) { const a = base[i], q = base[(i + 1) % base.length]; if (Math.hypot(q[0] - a[0], q[1] - a[1]) < 1.2 || outN[i][0] < -0.5) continue; items.push({ k: 'glow', P: [[(a[0] + q[0]) / 2 + outN[i][0] * 0.03, (a[1] + q[1]) / 2 + outN[i][1] * 0.03, hR * 0.3]], r: 0.05 }); }
+      for (let i = 0; i < base.length; i++) { const a = base[i], q = base[(i + 1) % base.length]; if (Math.hypot(q[0] - a[0], q[1] - a[1]) < 1.2 || outN[i][0] < -0.5) continue; items.push({ k: 'glow', P: [[(a[0] + q[0]) / 2 + outN[i][0] * 0.03, (a[1] + q[1]) / 2 + outN[i][1] * 0.03, hR * 0.3]], r: 0.05, n: [outN[i][0], outN[i][1], 0] }); }   // facing out of its wall
       const B = [{ t: 'ship', items }];
       B.recipe = `${Math.round(hull.area * 32)} volume · a roof of ${faces.length} faces${L2.hullArt ? ' in the 2D hull painting' : ''} · ${ng} greebles from the 2D · ${nT} turrets on pads · ${nE} engine${nE === 1 ? '' : 's'}${blue ? ' from the 2D' : ''}`;
       return { B, hull };
@@ -1134,7 +1148,7 @@ export async function buildShip(hullId, styleStock, { styleId, volume = 700, loa
     if (!specs.has(pair)) specs.set(pair, engineSpec(rnd('engine:' + seed + ':' + pair + ':' + styleStock.style), st, strips));
     engine(items, specs.get(pair), xb, y, zE * 0.5, mid ? Math.min(0.47 * zE, r * 1.12) : r);
   }
-  for (let i = 0; i < P0b.length; i++) { const a = P0b[i], q = P0b[(i + 1) % P0b.length]; if (Math.hypot(q[0] - a[0], q[1] - a[1]) < 1.2 || outN[i][0] < -0.5) continue; items.push({ k: 'glow', P: [[(a[0] + q[0]) / 2 + outN[i][0] * 0.03, (a[1] + q[1]) / 2 + outN[i][1] * 0.03, h0 * 0.3]], r: 0.05 }); }   // running lights on the lowest wall
+  for (let i = 0; i < P0b.length; i++) { const a = P0b[i], q = P0b[(i + 1) % P0b.length]; if (Math.hypot(q[0] - a[0], q[1] - a[1]) < 1.2 || outN[i][0] < -0.5) continue; items.push({ k: 'glow', P: [[(a[0] + q[0]) / 2 + outN[i][0] * 0.03, (a[1] + q[1]) / 2 + outN[i][1] * 0.03, h0 * 0.3]], r: 0.05, n: [outN[i][0], outN[i][1], 0] }); }   // running lights on the lowest wall
   const B = [{ t: 'ship', items }];
   B.recipe = `${Math.round(hull.area * 32)} volume · ${nt} decks + spine · ${nT} turrets · ${np} plates · ${ncut} cutouts · ${ns} small greebles · ${ne} engine${ne === 1 ? '' : 's'}`;
   return { B, hull };
