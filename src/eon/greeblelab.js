@@ -412,8 +412,11 @@ export function renderSolids(B, o = {}) {
       const M = it.map, at = (u, w) => pr(M.q[0] + M.d[0] * u + M.m[0] * w, M.q[1] + M.d[1] * u + M.m[1] * w, M.z0 + M.s * w), O = at(0, 0), Su = sub(at(1, 0), O), Sv = sub(at(0, 1), O);
       let u0 = Infinity, u1 = -Infinity, w1 = 0; for (const p of it.P) { const dx = p[0] - M.q[0], dy = p[1] - M.q[1], u = dx * M.d[0] + dy * M.d[1], w = dx * M.m[0] + dy * M.m[1]; u0 = Math.min(u0, u); u1 = Math.max(u1, u); w1 = Math.max(w1, w); }
       g.save(); poly(); g.fillStyle = '#2a3142'; g.fill(); g.clip();
-      const img = it.S && it.S.img;
-      if (img) {
+      const img = it.S && it.S.img, T3 = it.art;
+      if (T3) {                                                                      // the 2D hull painting, straight down on this face: pixel (i, j) → the face above that point
+        const W3 = (X, Y) => pr(X, Y, M.z0 + M.s * ((X - M.q[0]) * M.m[0] + (Y - M.q[1]) * M.m[1])), O3 = W3(T3.x0, T3.y0), A3 = sub(W3(T3.x0 + 1 / T3.S, T3.y0), O3), B3 = sub(W3(T3.x0, T3.y0 + 1 / T3.S), O3);
+        g.setTransform(...curT(g, [A3[0], A3[1], B3[0], B3[1], O3[0], O3[1]])); g.drawImage(T3.img, 0, 0);
+      } else if (img) {
         const W = img.width, H = img.height, hb = it.hb, per = hb * Math.hypot(1, M.s) * W / H, step = hb * 0.82, pat = g.createPattern(img, 'repeat-x');
         for (let j = Math.ceil(w1 / step); j >= 0; j--) {
           const off = ((j * 0.37 + (it.seed % 7) * 0.11) % 1) * per, w0 = j * step;
@@ -759,9 +762,14 @@ async function paintedTop(styleId, hull, guns, tone) {
   const key = [styleId, hull.poly.map(p => p[0].toFixed(2) + ',' + p[1].toFixed(2)).join(';'), guns.map(g => g.kind + g.n + 'x' + (g.size || 1)).join(';'), tone || ''].join('|'); if (PAINTED.has(key)) return PAINTED.get(key);   // by the outline itself (one being drawn has no name)
   const st = STYLES[styleId], img = await loadStyle(st), deco = st.deco ? await Promise.all(st.deco.sheets.map(sh => loadStyle({ sheet: sh }).catch(() => null))) : null;
   const S = 64, m = 0.5, W = Math.ceil((hull.bw + 2 * m) * S), H = Math.ceil((hull.bh + 2 * m) * S), cv = document.createElement('canvas'); cv.width = W; cv.height = H;
-  const r = paintHull(cv, hull.poly, img, st, { ...recipeFor(hull.area * 32), px: S, center: [0, 0], guns, engines: false, wash: 0, lights: 0 }, deco);   // the guns placed by the painter's own rule, on its mounts
+  paintHull(cv, hull.poly, img, st, { ...recipeFor(hull.area * 32), px: S, center: [0, 0], guns, engines: false, wash: 0, lights: 0 }, deco);   // the decks' art: the guns on their mounts, no engines
+  const blank = () => { const c = document.createElement('canvas'); c.width = W; c.height = H; return c; }, hullArt = blank();
+  const r = paintHull(blank(), hull.poly, img, st, { ...recipeFor(hull.area * 32), px: S, center: [0, 0], guns, wash: 0, lights: 0, glow: false }, deco);   // the layout, as the Painter paints it (engines and all)
+  paintHull(hullArt, hull.poly, img, st, { ...recipeFor(hull.area * 32), px: S, center: [0, 0], guns: [], engines: false, greebles: false, mounts: false, wash: 0, lights: 0, glow: false }, deco);   // the hull alone: the roof's texture
   const top = { img: tone ? toned(cv, tone, 0.45) : cv, S, x0: -W / 2 / S, y0: -H / 2 / S, hps: r.hardpoints.map(h => ({ kind: h.kind, x: (h.x - W / 2) / S, y: (h.y - H / 2) / S, r: h.r / S })),   // the mounts back in squares
-    greebles: (r.greebleSpots || []).filter(g => g.cell && deco && deco[g.cell[4]]).map(g => ({ x: (g.x - W / 2) / S, y: (g.y - H / 2) / S, w: g.w / S, h: g.h / S, img: deco[g.cell[4]], src: g.cell.slice(0, 4), flip: g.flip })) };   // and its greebles: where, how big, which art
+    greebles: (r.greebleSpots || []).filter(g => g.cell && deco && deco[g.cell[4]]).map(g => ({ x: (g.x - W / 2) / S, y: (g.y - H / 2) / S, w: g.w / S, h: g.h / S, img: deco[g.cell[4]], src: g.cell.slice(0, 4), flip: g.flip })),   // and its greebles: where, how big, which art
+    engines: (r.engineSpots || []).map(e => ({ x: (e.x - W / 2) / S, y: (e.y - H / 2) / S, w: e.w / S, h: e.h / S, img, src: e.src, flip: e.flip, flipX: e.flipX })), nozzles: (r.nozzles || []).map(n => ({ x: (n.x - W / 2) / S, y: (n.y - H / 2) / S, h: n.h / S })),
+    hullArt: { img: hullArt, S, x0: -W / 2 / S, y0: -H / 2 / S } };
   PAINTED.set(key, top); if (PAINTED.size > 24) PAINTED.delete(PAINTED.keys().next().value); return top;   // the last few kept
 }
 export const SHIP_HULLS = () => [...hullsFor('starship'), ...hullsFor('platform')];
@@ -991,19 +999,19 @@ export async function buildShip(hullId, styleStock, { styleId, volume = 700, loa
   // roof — the strip in rows on every face, the style's fittings lying on the eaves a third past the outline, plates on the big faces, the
   // style's own 2D turrets on the painter's hard points tilted with the roof, the engines out of the cookie's stern
   if (form === 'roof') {
-    const base = P0u || P0, SK = skeletonRoof(base);
+    const L2 = layout || { greebles: top.greebles || [], hardpoints: top.hps || [], turretK: RECIPE.turret, engines: top.engines || [], nozzles: top.nozzles || [], hullArt: top.hullArt };   // the 2D blueprint: the Painter's own, or the painted top's
+    const blue = !!(L2.engines && L2.engines.length), base = blue ? P0 : (P0u || P0), SK = skeletonRoof(base);   // the 2D's own engines: the outline as it is (the art fits it)
     if (SK.ok) {
       const items = [], sl = Math.min(0.42, (1.0 + 0.12 * bh) / Math.max(0.5, SK.tmax)), outN = normals(base), hb = clamp(0.08 * bh + 0.25, 0.3, 0.65);
       const keyR = (tag, a, b) => rnd(tag + ':' + seed + ':' + ((a[0] + b[0]) / 2).toFixed(2) + ':' + Math.abs((a[1] + b[1]) / 2).toFixed(2));   // mirrored edges alike
       ribbon(items, base, hR, base, 0, pickS(), outN);                                  // the cookie under the roof
       const faces = SK.faces.map(f => { const a = SK.P[f.e], b = SK.P[(f.e + 1) % SK.P.length], m = SK.nin[f.e]; return { ...f, a, b, q: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], d: SK.dir[f.e], m, n3: unit([-sl * m[0], -sl * m[1], 1]), P3: f.P.map(([x, y, t]) => [x, y, hR + sl * t]) }; });
       const onFace = (f, u, w, lift) => [f.q[0] + f.d[0] * u + f.m[0] * w + f.n3[0] * lift, f.q[1] + f.d[1] * u + f.m[1] * w + f.n3[1] * lift, hR + sl * w + f.n3[2] * lift];
-      for (const f of faces) { const Rr = keyR('face', f.a, f.b); items.push({ k: 'roof', P: f.P3, n: f.n3, map: { q: f.q, d: f.d, m: f.m, z0: hR, s: sl }, S: strips.length ? strips[Math.floor(Rr() * strips.length)] : null, hb, seed: Math.floor(Rr() * 1000) }); }
+      for (const f of faces) { const Rr = keyR('face', f.a, f.b); items.push({ k: 'roof', P: f.P3, n: f.n3, map: { q: f.q, d: f.d, m: f.m, z0: hR, s: sl }, S: strips.length ? strips[Math.floor(Rr() * strips.length)] : null, hb, seed: Math.floor(Rr() * 1000), art: L2.hullArt || null }); }   // the 2D hull painting laid straight down on it (the strip in rows where there is none)
       // THE 2D LAYOUT IN 3D (his ask, 2026-10-28: "take the position of the greebles we see in 2D and plop them onto the 3D object"): where
       // the painter put a greeble, a pedestal rises out of the roof to a LEVEL top and the greeble's own art lies on it; every hard point is a
       // pad, extruded from the roof to a level top, the mount on it and the style's turret flat on that at its 2D size. The layout is the
       // Painter's own (handed in) or the painted top's here
-      const L2 = layout || { greebles: top.greebles || [], hardpoints: top.hps || [], turretK: RECIPE.turret };
       const faceAt = (x, y) => faces.find(F => inside(F.P2 || (F.P2 = F.P.map(p => [p[0], p[1]])), x, y));
       const hAt = (x, y) => { const f = faceAt(x, y); return f ? hR + sl * Math.max(0, (x - f.q[0]) * f.m[0] + (y - f.q[1]) * f.m[1]) : hR; };   // the roof's height there (the eave's, past the outline)
       const pad = (ring, zTop, wallImg, topTex, cards) => {                                // walls from the roof up to a level top, the top, the cards on it
@@ -1033,15 +1041,22 @@ export async function buildShip(hullId, styleStock, { styleId, volume = 700, loa
         const u2 = [dx / len, dy / len], n2 = outN[i], W2 = len * 0.8, H2 = hR * 1.3, c2 = [(A[0] + B[0]) / 2 + n2[0] * 0.06, (A[1] + B[1]) / 2 + n2[1] * 0.06, hR * 0.32], at2 = (a, b) => [c2[0] + u2[0] * a * W2 / 2, c2[1] + u2[1] * a * W2 / 2, c2[2] + b * H2 / 2];
         items.push({ k: 'quad', P: [at2(-1, 1), at2(1, 1), at2(1, -1), at2(-1, -1)], n: [n2[0], n2[1], 0], img, src: [0, 0, img.width, img.height], bare: true });
       }
-      const specs = new Map();
+      let nE = 0;
+      if (blue) L2.engines.forEach((E2, i) => {                                         // THE 2D's ENGINES, where it puts them: a block each, its art on top, its glow at the nozzle
+        const hw = E2.w / 2, hh = E2.h / 2, sx2 = E2.flipX ? -1 : 1, sy2 = E2.flip ? -1 : 1, zTop = Math.max(...[[0, 0], [-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => hAt(E2.x + a * hw, E2.y + b * hh))) + 0.04 + 0.15 * Math.min(E2.w, E2.h), cw = hw * 0.8, ch = hh * 0.72;
+        const art = { k: 'quad', P: [[E2.x - sx2 * hw, E2.y - sy2 * hh, zTop + 0.004], [E2.x + sx2 * hw, E2.y - sy2 * hh, zTop + 0.004], [E2.x + sx2 * hw, E2.y + sy2 * hh, zTop + 0.004], [E2.x - sx2 * hw, E2.y + sy2 * hh, zTop + 0.004]], n: [0, 0, 1], img: E2.img, src: E2.src, bare: true };
+        items.push(pad([[E2.x - cw, E2.y - ch], [E2.x + cw, E2.y - ch], [E2.x + cw, E2.y + ch], [E2.x - cw, E2.y + ch]], zTop, st.band.length ? st.band[i % st.band.length] : null, st.tile.length ? st.tile[0] : null, [art])); nE++;
+        const N = (L2.nozzles || [])[i]; if (N) items.push({ k: 'glow', P: [[N.x, N.y, zTop + 0.02]], r: N.h * 0.45 });
+      });
+      else { const specs = new Map();
       for (let i = 0; i < ne; i++) {
         const y = (i - (ne - 1) / 2) * gapE, pair = Math.min(i, ne - 1 - i), mid = ne > 1 && ne % 2 === 1 && i === (ne - 1) / 2;
         if (!specs.has(pair)) specs.set(pair, engineSpec(rnd('engine:' + seed + ':' + pair + ':' + styleStock.style), st, strips));
-        engine(items, specs.get(pair), xb, y, zE * 0.5, mid ? Math.min(0.47 * zE, r * 1.12) : r);
-      }
+        engine(items, specs.get(pair), xb, y, zE * 0.5, mid ? Math.min(0.47 * zE, r * 1.12) : r); nE++;
+      } }
       for (let i = 0; i < base.length; i++) { const a = base[i], q = base[(i + 1) % base.length]; if (Math.hypot(q[0] - a[0], q[1] - a[1]) < 1.2 || outN[i][0] < -0.5) continue; items.push({ k: 'glow', P: [[(a[0] + q[0]) / 2 + outN[i][0] * 0.03, (a[1] + q[1]) / 2 + outN[i][1] * 0.03, hR * 0.3]], r: 0.05 }); }
       const B = [{ t: 'ship', items }];
-      B.recipe = `${Math.round(hull.area * 32)} volume · a roof of ${faces.length} faces · ${ng} greebles from the 2D · ${nT} turrets on pads · ${ne} engine${ne === 1 ? '' : 's'}`;
+      B.recipe = `${Math.round(hull.area * 32)} volume · a roof of ${faces.length} faces${L2.hullArt ? ' in the 2D hull painting' : ''} · ${ng} greebles from the 2D · ${nT} turrets on pads · ${nE} engine${nE === 1 ? '' : 's'}${blue ? ' from the 2D' : ''}`;
       return { B, hull };
     }
   }

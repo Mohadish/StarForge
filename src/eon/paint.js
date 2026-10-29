@@ -461,5 +461,6 @@ export function paintHull(cv, poly, img, style, opt = {}, decoImg = null) {
   }
   if (o.outline) { g0.strokeStyle = 'rgba(255,255,255,.45)'; g0.lineWidth = 1; g0.stroke(path); }
   return { rings: rings.length, widths: rings.map(r => Math.round(r.w / S * 100) / 100), core: Math.round(wCore / S * 100) / 100, spine: Math.round(wSpine / S * 100) / 100, engines, engineRows: rowsUsed, engineSq: Math.round(engineH / S * 100) / 100, greebles, px: S, view: { S, ox, oy }, ribbonPx: wEdge, squares: Math.round((b.maxx - b.minx) * 10) / 10 + '×' + Math.round((b.maxy - b.miny) * 10) / 10,
-    hardpoints: hps.map(h => ({ kind: h.kind, x: h.x, y: h.y, r: h.r, size: h.size })), mountSq: Math.round(engineH * 0.8 * o.mountSize / S * 100) / 100, greebleSpots };   // the hard points and greebles in canvas px: the page draws the turrets on the former
+    hardpoints: hps.map(h => ({ kind: h.kind, x: h.x, y: h.y, r: h.r, size: h.size })), mountSq: Math.round(engineH * 0.8 * o.mountSize / S * 100) / 100, greebleSpots,
+    engineSpots: E ? E.spots.map(s => ({ x: s.x, y: s.y, w: s.w, h: s.h, src: [s.sp.x, s.sp.y, s.sp.w, s.sp.h], flip: !!s.flip, flipX: !!style.flipEngines })) : [], nozzles: nozzles.map(([x, y, h]) => ({ x, y, h })) };   // the engines too (the 3D ship stands them where they are)   // the hard points and greebles in canvas px: the page draws the turrets on the former
 }

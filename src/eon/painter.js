@@ -153,7 +153,8 @@ function repaint(overlayOnly = false) {
     const engineSize = Math.max(0.3, (DEF.engine + engO / 50) * kF), greebleSize = Math.max(0.3, (DEF.greeble + grO / 50) * kF), mountSize = Math.max(0.3, (DEF.mount + mtO / 50) * kF);
     const t0 = performance.now(), L = lock, G = guns();
     const wash = +$('wash').value / 100, lights = +$('lights').value / 100;
-    last = paintHull(cv, poly(), img, style, { ribbon, centre, spineW, innerFat, engineSize, engineN: autoEngines(v), greebleSize, seed, wash, washA: $('washA').value, washB: $('washB').value, lights, lightColor: $('lightColor').value, guns: G, mountSize, glow: $('glow').checked, greebles: $('greebles').checked, innerOnTop: $('inner').checked, spine: $('spine').checked, engines: $('engines').checked, outline: $('outline').checked, base: $('base').value, voidColor: $('voids').checked ? '#ff00ff' : undefined, backing: $('backing').checked, underlay: $('underlay').checked, ...(L ? { px: L.S, center: [0, 0] } : {}) }, decoImg);
+    const opts = { ribbon, centre, spineW, innerFat, engineSize, engineN: autoEngines(v), greebleSize, seed, wash, washA: $('washA').value, washB: $('washB').value, lights, lightColor: $('lightColor').value, guns: G, mountSize, glow: $('glow').checked, greebles: $('greebles').checked, innerOnTop: $('inner').checked, spine: $('spine').checked, engines: $('engines').checked, outline: $('outline').checked, base: $('base').value, voidColor: $('voids').checked ? '#ff00ff' : undefined, backing: $('backing').checked, underlay: $('underlay').checked, ...(L ? { px: L.S, center: [0, 0] } : {}) };
+    last = paintHull(cv, poly(), img, style, opts, decoImg); last._opts = opts;   // the settings kept: the 3D ship's hull is painted with them
     last._snap = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height);   // the painted ship, kept so a hover only redraws the overlay
     last._turret = Math.max(0.3, (DEF.turret + ttO / 50) * kF);                   // the turret art's body, × the mount
     const sgn = n => (n > 0 ? '+' : '') + n;
@@ -201,11 +202,19 @@ function drawField(g) {
 const STOCKS = new Map(), stockFor = async id => STOCKS.get(id) || (STOCKS.set(id, await stockOf(id)), STOCKS.get(id));
 let ship3d = null, yaw3d = 0.35, t3d = null, n3d = 0;
 function schedule3D() { if (!$('v3d').checked) return; clearTimeout(t3d); t3d = setTimeout(build3D, ed.dragging ? 700 : 250); }
+// the hull alone (no greebles, engines or mounts), painted with the page's own settings at a fixed scale about the outline's centre
+function hullArtOf(P) {
+  if (!last || !last._opts) return null; const S3 = 48, W = Math.ceil((2 * Math.max(...P.map(p => Math.abs(p[0]))) + 1) * S3), H = Math.ceil((2 * Math.max(...P.map(p => Math.abs(p[1]))) + 1) * S3), c = document.createElement('canvas'); c.width = W; c.height = H;
+  paintHull(c, P, img, style, { ...last._opts, px: S3, center: [0, 0], greebles: false, engines: false, mounts: false, glow: false, outline: false, voidColor: undefined }, decoImg);
+  return { img: c, S: S3, x0: -W / 2 / S3, y0: -H / 2 / S3 };
+}
 async function build3D() {
   const n = ++n3d, P = poly(); if (!P || P.length < 3) return;
   try {
     const V = last && last.view, layout = V ? { greebles: ($('greebles').checked ? last.greebleSpots || [] : []).filter(g => g.cell && decoImg && decoImg[g.cell[4]]).map(g => ({ x: (g.x - V.ox) / V.S, y: (g.y - V.oy) / V.S, w: g.w / V.S, h: g.h / V.S, img: decoImg[g.cell[4]], src: g.cell.slice(0, 4), flip: g.flip })),
-      hardpoints: (last.hardpoints || []).map(h => ({ kind: h.kind, x: (h.x - V.ox) / V.S, y: (h.y - V.oy) / V.S, r: h.r / V.S })), turretK: last._turret } : null;   // the 2D layout as painted above, in hull squares
+      hardpoints: (last.hardpoints || []).map(h => ({ kind: h.kind, x: (h.x - V.ox) / V.S, y: (h.y - V.oy) / V.S, r: h.r / V.S })), turretK: last._turret,
+      engines: ($('engines').checked ? last.engineSpots || [] : []).map(e => ({ x: (e.x - V.ox) / V.S, y: (e.y - V.oy) / V.S, w: e.w / V.S, h: e.h / V.S, img, src: e.src, flip: e.flip, flipX: e.flipX })), nozzles: (last.nozzles || []).map(n => ({ x: (n.x - V.ox) / V.S, y: (n.y - V.oy) / V.S, h: n.h / V.S })),
+      hullArt: hullArtOf(P) } : null;   // the 2D layout as painted above, in hull squares — and the hull alone, its texture
     const sh = await buildShip(sel, await stockFor(style.id), { styleId: style.id, poly: P, volume: vol(), guns: guns(), seed: +$('seed').value, form: $('form3d').value, layout });
     if (n !== n3d) return;                                                          // a newer change is on its way
     ship3d = sh; draw3D(); $('info3d').textContent = sh.B.recipe;
