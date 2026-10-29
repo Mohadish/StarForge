@@ -29,6 +29,7 @@ button.on { background: rgba(95,227,208,.16); border-color: var(--accent) }
 .iso .cell b { font-size: 12px; color: var(--fg) } .iso .cell span { font-size: 11px; color: var(--muted) }
 .iso.show { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)) }
 .iso.ship { grid-template-columns: repeat(auto-fill, minmax(560px, 1fr)) }
+.iso.ship.sheet { grid-template-columns: repeat(var(--cols, 4), 1fr) } .iso.ship.sheet .cell { min-height: 0; padding: 4px }
 .iso .cell h3 { margin: 0; font-size: 14px; color: #ffd26a; letter-spacing: .02em }
 .lv { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: -1px; margin-right: 4px; border: 1px solid #fff4 }
 #note { margin-top: 8px }
@@ -164,17 +165,19 @@ async function drawShow() {
 // THE 3D SHIPS (his call, 2026-10-25: "presentation first — build the lab prototype"; his verdict after three rounds: the first look —
 // low decks, cutouts, turrets — with the drum engines and nothing big on top)
 async function drawShips() {
-  const hull = $('hull').value, vol = +$('vol').value || 700, lv = $('level').value === 'all' ? 4 : +$('level').value, seed = +$('seed').value || 1, angles = new URLSearchParams(location.search).get('sheet') === 'angles' && hull !== 'all';
+  const Q = new URLSearchParams(location.search), hull = $('hull').value, vol = +$('vol').value || 700, lv = $('level').value === 'all' ? 4 : +$('level').value, seed = +$('seed').value || 1, angles = Q.get('sheet') === 'angles' && hull !== 'all', bySt = Q.get('sheet') === 'styles' && hull !== 'all';
+  const sizes = (Q.get('sizes') || '300,800,1800,4000').split(',').map(Number).filter(v => v > 0), stys = (Q.get('styles') ? Q.get('styles').split(',') : ids).filter(id => STYLES[id]);   // the styles sheet: every style × every size
   const hulls = hull === 'all' ? SHIP_HULLS().map(h => h.id) : [hull], lo = $('loadout').value;
-  const list = angles ? [0, 1, 2, 3, 4, 5, 6, 7].map(i => ({ hull, lo, seed, yaw: i * Math.PI / 4, cap: `turned ${i * 45}°` }))
+  const list = bySt ? stys.flatMap(sid => sizes.map(v => ({ hull, lo, seed, yaw: 0.35, cap: STYLES[sid].name, sty: sid, vol: v })))
+    : angles ? [0, 1, 2, 3, 4, 5, 6, 7].map(i => ({ hull, lo, seed, yaw: i * Math.PI / 4, cap: `turned ${i * 45}°` }))
     : hull === 'all' ? hulls.map(h => ({ hull: h, lo, seed, yaw: 0, cap: lo })) : Object.keys(LOADOUTS).map((l, i) => ({ hull, lo: l, seed: seed + i, yaw: 0, cap: l }));
-  $('out').innerHTML = '<div class="iso ship"></div>'; const host = $('out').firstChild;
+  $('out').innerHTML = `<div class="iso ship${bySt ? ' sheet' : ''}" style="--cols:${sizes.length}"></div>`; const host = $('out').firstChild;
   const tone = stock.mixed ? $('toneA').value : null;
   for (const it of list) {
     const d = document.createElement('div'); d.className = 'cell'; host.append(d); let cv = null, ship = null;
-    try { ship = await buildShip(it.hull, stock, { styleId: $('style').value, volume: vol, loadout: it.lo, seed: it.seed, level: lv, tone, form: $('form').value }); cv = drawShip(ship, { yaw: it.yaw, level: lv, width: 560 }); d.append(cv); } catch (e) { d.textContent = e.message; console.error(e); }
+    try { ship = await buildShip(it.hull, it.sty ? await stockFor(it.sty) : stock, { styleId: it.sty || $('style').value, volume: it.vol || vol, loadout: it.lo, seed: it.seed, level: lv, tone: it.sty ? null : tone, form: $('form').value }); cv = drawShip(ship, { yaw: it.yaw, level: lv, width: 560 }); d.append(cv); } catch (e) { d.textContent = e.message; console.error(e); }
     const def = SHIP_HULLS().find(h => h.id === it.hull) || {}, col = levelColor(lv);
-    d.insertAdjacentHTML('beforeend', `<b>${def.name || it.hull} · ${vol} volume</b><span>${ship ? ship.B.recipe : ''}</span><span><i class="lv" style="background:${col || '#000'};${col ? '' : 'box-shadow:0 0 0 2px #fff'}"></i>${it.cap} · level ${lv}</span>`);
+    d.insertAdjacentHTML('beforeend', `<b>${it.sty ? it.cap + ' · ' + it.vol : (def.name || it.hull) + ' · ' + vol + ' volume'}</b><span>${ship && !it.sty ? ship.B.recipe : ''}</span><span><i class="lv" style="background:${col || '#000'};${col ? '' : 'box-shadow:0 0 0 2px #fff'}"></i>${it.cap} · level ${lv}</span>`);
     if (cv) d.onmouseenter = () => { let yaw = it.yaw; clearInterval(spin); spin = setInterval(() => { yaw += 0.05; const n = drawShip(ship, { yaw, level: lv, width: 560 }), g = cv.getContext('2d'); g.clearRect(0, 0, cv.width, cv.height); g.drawImage(n, (cv.width - n.width) / 2, (cv.height - n.height) / 2); }, 50); d.onmouseleave = () => clearInterval(spin); };
   }
   $('note').textContent = $('form').value === 'roof' ? 'The outline as a pyramid (its straight skeleton): a low wall, then a flat face for every edge, the 2D hull painting laid straight down on them (the blueprint); the 2D painter\'s greebles where it paints them, as thin slabs on the roof; its engines in one row out of the stern, at the low wall\'s height; the hard points as level pads with the style\'s turrets flat on them. Hover one to turn it.' : 'Low decks of the outline (two, three or four by size), each in the style\'s long strip with the painted ship on top; a spine down the middle; plates on the ledges; cutouts along the flanks; turrets on the painter\'s hard points; engines out of a stern block. Hover one to turn it.';
