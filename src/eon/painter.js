@@ -220,8 +220,9 @@ async function build3D() {
     ship3d = sh; draw3D(); $('info3d').textContent = sh.B.recipe;
   } catch (e) { $('info3d').textContent = 'the 3D ship could not be built: ' + e.message; console.error(e); }
 }
+// the canvas at the screen's own pixels (×2 at most): sharp on a phone too; nothing is picked on it, so no hit test cares
 function draw3D() {
-  const cv = $('out3d'); if (!ship3d || !$('v3d').checked) return; const W = cv.clientWidth || 960; if (cv.width !== W) { cv.width = W; cv.height = Math.round(W * 9 / 16); }
+  const cv = $('out3d'); if (!ship3d || !$('v3d').checked) return; const W = Math.round((cv.clientWidth || 960) * Math.min(2, devicePixelRatio || 1)); if (cv.width !== W) { cv.width = W; cv.height = Math.round(W * 9 / 16); }
   const im = drawShip(ship3d, { yaw: yaw3d, glow: $('lightColor').value, width: cv.width * 0.92 }), k = Math.min(1, cv.width / im.width, cv.height / im.height), g = cv.getContext('2d');
   g.clearRect(0, 0, cv.width, cv.height); g.drawImage(im, (cv.width - im.width * k) / 2, (cv.height - im.height * k) / 2, im.width * k, im.height * k);
 }

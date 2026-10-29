@@ -1,0 +1,194 @@
+<title>Forge Painter</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<!-- THE PAINTER ON HIS PHONE (2026-10-29): paint.html's very elements and ids (painter.js drives them unchanged), laid out
+     for a narrow screen — the 2D and the 3D first, the dials under them, everything long folded away. Published as a
+     claude.ai artifact with src/eon/*.js, src/data/properties.js and assets/parts/*.webp beside it, at the same paths. -->
+<style>
+/* layout: one column — the ship (2D, then 3D) on top, the dials stacked under it, the long parts folded. One deliberate dark look, the game's own blue-grey */
+:root {
+  --bg: #070a12; --panel: #0e1422; --panel2: #121a2c; --line: #1f2a44; --fg: #e8f0ff; --muted: #9eb3d8; --accent: #5fe3d0; --good: #7ef3b0; --bad: #ff7979; --warn: #ffd26a; --well: #04070f;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color-scheme: dark;
+}
+html { background: var(--bg) }
+body { background: var(--bg); color: var(--fg); font: 15px/1.45 var(--font); margin: 0 auto; max-width: 1100px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 0 48px; -webkit-text-size-adjust: 100% }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg) }
+.fnav { display: none !important }   /* the site's top bar: its other pages are not part of this one */
+.top { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding-block: 10px 8px; border-bottom: 1px solid var(--line); margin-bottom: 10px }
+h1 { font-size: 14px; letter-spacing: .12em; text-transform: uppercase; margin: 0; color: var(--accent); flex: 0 0 auto; text-wrap: balance }
+h2 { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px }
+.top select { flex: 1 1 120px; min-width: 0; max-width: 100% }
+.lead { color: var(--muted); font-size: 13px; margin: 0 0 8px }
+select, input[type=number], input[type=text], textarea { font-size: 16px }   /* 16 px: a phone does not zoom into the field */
+select, input[type=number], input[type=text] { background: var(--well); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; font-family: var(--font); min-height: 38px; box-sizing: border-box }
+button { background: var(--panel2); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; font: 600 14px var(--font); cursor: pointer; min-height: 38px; touch-action: manipulation }
+button.go { background: color-mix(in srgb, var(--good) 18%, transparent); border-color: var(--good) }
+button.x { padding: 6px 10px; font-size: 13px }
+button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+.tiny { font-size: 12px; color: var(--muted); line-height: 1.5 }
+.ctl { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: end; margin-block: 10px }
+.ctl > label:not(.chk) { display: grid; gap: 4px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; flex: 1 1 150px; min-width: 0 }
+.ctl input[type=range], #designer input[type=range] { width: 100%; accent-color: var(--accent); height: 28px; margin: 0 }
+.ctl > label small { text-transform: none; letter-spacing: 0 }
+.ctl .chk { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--fg); min-height: 38px }
+.ctl .chk input, #v3dBox input[type=checkbox], #designer input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--accent) }
+.ctl input[type=number] { width: 76px }
+.ctl input[type=color] { width: 48px; height: 36px; padding: 2px; background: var(--well); border: 1px solid var(--line); border-radius: 8px }
+.ctl .wk { display: flex; gap: 4px; text-transform: none; letter-spacing: 0 }
+.ctl .wk input[type=number] { width: 60px }
+.sizes { display: flex; gap: 6px; flex-wrap: wrap }
+.stage { position: relative }
+#out { display: block; width: 100%; max-width: 100%; aspect-ratio: 16 / 9; border-radius: 10px; border: 1px solid var(--line); background: var(--well); touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none }
+#editHint { position: absolute; left: 8px; bottom: 8px; font-size: 12px; color: var(--muted); background: color-mix(in srgb, var(--bg) 75%, transparent); padding: 3px 8px; border-radius: 6px; pointer-events: none }
+#editBar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; padding: 8px 10px; border: 1px solid var(--good); border-radius: 10px; background: color-mix(in srgb, var(--good) 6%, transparent) }
+#editBar[hidden], #editHint[hidden] { display: none }
+#editBar:not(.editing) .edonly { display: none }
+#editBar:not(.editing) { border-color: var(--line); background: transparent }
+#editBar label { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; flex-wrap: wrap }
+#editBar > b { padding: 6px 2px }
+#hullStrip { -webkit-touch-callout: none; user-select: none; -webkit-user-select: none }
+#v3dBox { margin-top: 12px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel) }
+#v3dBox .row { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center }
+#v3dBox label { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted) }
+#v3dBox select { flex: 1 1 auto; min-width: 0 }
+#out3d { display: block; width: 100%; max-width: 100%; aspect-ratio: 16 / 9; margin-top: 8px; border-radius: 10px; border: 1px solid var(--line); background: radial-gradient(ellipse at 50% 60%, #10192c, var(--well) 70%); touch-action: none; cursor: grab }
+#v3dBox:not(.on) #out3d, #v3dBox:not(.on) .on3d { display: none }
+#toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); max-width: calc(100vw - 32px); transform: translateX(-50%) translateY(20px); background: var(--panel2); border: 1px solid var(--good); color: var(--fg); padding: 8px 14px; border-radius: 10px; font-size: 14px; opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none }
+#toast.on { opacity: 1; transform: translateX(-50%) }
+details.fold { margin-top: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 0 12px }
+details.fold > summary { cursor: pointer; padding: 12px 0; font-weight: 600; list-style-position: inside }
+details.fold[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: 4px }
+details.fold > :last-child { padding-bottom: 12px }
+details.fine { margin-top: 6px; border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px }
+details.fine summary { cursor: pointer; color: var(--muted) }
+/* the ship designer */
+#designer { padding: 6px 0 12px }
+#designer.over { outline: 1px solid var(--good); background: color-mix(in srgb, var(--good) 6%, transparent) }
+#designer [data-chip] { touch-action: none }
+.dhead { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 8px }
+.dhead input[type=text] { font-weight: 600; flex: 1 1 160px; min-width: 0 }
+.dhead .chk { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted) }
+#designer textarea { width: 100%; box-sizing: border-box; margin-top: 6px; background: var(--well); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 6px; font-family: monospace; font-size: 14px }
+#designer .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center }
+#dCostN { width: 92px; background: var(--well); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 5px 7px }
+.dpick { position: fixed; z-index: 50; background: #0b1120; border: 1px solid var(--line); border-radius: 10px; padding: 6px; display: flex; flex-direction: column; gap: 4px; min-width: 260px; max-width: min(540px, 94vw); max-height: 70vh; overflow: auto; box-shadow: 0 10px 30px rgba(0,0,0,.55) }
+.dpick[hidden] { display: none }
+.dpick .frow { display: flex; gap: 6px; align-items: center; padding: 6px 4px; border-bottom: 1px dashed var(--line); font-size: 14px }
+.dpick .frow b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.dpick .frow small { color: var(--muted); white-space: nowrap }
+.help { max-width: 68ch }
+@media (min-width: 900px) { h1 { font-size: 18px } .top select { flex: 0 1 280px } }
+@media (prefers-reduced-motion: reduce) { #toast { transition: none } }
+</style>
+
+<header class="top">
+  <h1>Forge · Painter</h1>
+  <select id="style" aria-label="Style"></select>
+</header>
+<p class="lead">Pick a silhouette, double-tap the ship to edit its outline, drag the 3D to turn it.</p>
+
+<div class="tiny">Silhouettes · tap one · long-press one of yours to rename or delete it</div>
+<div id="hullStrip"></div>
+<div class="stage">
+  <canvas id="out" width="960" height="540"></canvas>
+  <div id="editHint">double-tap the ship to edit its outline</div>
+</div>
+<div id="editBar">
+  <b id="edWho" class="tiny" style="color:var(--fg)"></b>
+  <label class="edonly">Symmetry<select id="edSym"><option value="y">mirror across the spine</option><option value="x">mirror left / right</option><option value="">none</option></select></label>
+  <button id="edUndo" class="x edonly">Undo point</button><button id="edClear" class="x edonly">Clear</button>
+  <button id="edSave" class="x go">Save…</button><button id="edDelete" class="x" hidden>Delete</button>
+  <span style="flex:1"></span>
+  <button id="edDone" class="x edonly">Done</button>
+  <span class="tiny edonly" style="flex-basis:100%">Drag a point. Double-tap on the line to add a point there, elsewhere to add one at the end, on a point to remove it. Draw above the spine; the other half mirrors; cross the spine to cut a hole. <span id="libNote"></span></span>
+</div>
+
+<div class="ctl">
+  <label>Size (volume) <b id="volv"></b><input id="vol" type="range" min="100" max="20000" step="1" value="600"></label>
+  <span class="sizes"><button id="s400" class="x">≈ 400</button><button id="s1000" class="x">1000</button><button id="s3000" class="x">3000</button><button id="s6000" class="x">6000</button></span>
+  <button id="edEdit" class="x">✎ Edit the outline</button>
+  <button id="toLab" class="x" hidden>⚔ To the lab</button>
+  <button id="libCode" class="x" hidden>⧉ Library code</button>
+</div>
+
+<div id="v3dBox" class="on">
+  <div class="row"><b class="tiny" style="color:var(--fg)">◈ In 3D</b><label><input id="v3d" type="checkbox" checked> show</label>
+    <label class="on3d"><input id="spin3d" type="checkbox"> turn by itself</label>
+    <label class="on3d" style="flex:1 1 220px">Form <select id="form3d"><option value="roof">roof · a pyramid of the outline</option><option value="decks">decks · layers of the outline</option></select></label></div>
+  <canvas id="out3d" width="960" height="540"></canvas>
+  <div id="info3d" class="tiny on3d" style="margin-top:4px"></div>
+</div>
+
+<div class="ctl">
+  <label>Plating · master (%)<input id="mPlating" type="range" min="-40" max="40" step="1" value="0"><small id="mPlatingV" class="tiny"></small></label>
+  <label>Fittings · master (%)<input id="mFittings" type="range" min="-40" max="40" step="1" value="0"><small id="mFittingsV" class="tiny"></small></label>
+  <label>Greeble seed <b id="seedV"></b><input id="seed" type="range" min="0" max="999" step="1" value="0"><span style="display:flex;gap:6px;text-transform:none"><input id="seedN" type="number" min="0" max="999" value="0" aria-label="Greeble seed"><button id="seedNext" class="x">+1</button></span></label>
+</div>
+<div class="ctl">
+  <label class="chk"><input id="greebles" type="checkbox" checked> greebles</label>
+  <label class="chk"><input id="glow" type="checkbox" checked> engine glow</label>
+  <label class="chk"><input id="turrets" type="checkbox" checked> turrets</label>
+  <label class="chk"><input id="field" type="checkbox" checked> shield bubble</label>
+  <button id="resetOff" class="x">Reset the dials</button>
+  <button id="png" hidden>Download PNG</button>
+</div>
+<small id="gunsV" class="tiny"></small>
+<div id="info" class="tiny" style="margin-top:6px">loading the sheet…</div>
+
+<details class="fold">
+  <summary>Colours · wash and lights</summary>
+  <div class="ctl">
+    <label>Wash · outline → core<span style="display:flex;gap:6px;align-items:center"><input id="washA" type="color" value="#7fb2e5" aria-label="Wash at the outline"><input id="washB" type="color" value="#e5b07f" aria-label="Wash at the core"></span></label>
+    <label>Wash strength (%)<input id="wash" type="range" min="0" max="100" step="1" value="45"></label>
+    <label>Lights<input id="lightColor" type="color" value="#9fd8ff"></label>
+    <label>Lights strength (%)<input id="lights" type="range" min="0" max="100" step="1" value="50"></label>
+  </div>
+</details>
+
+<details class="fold">
+  <summary>The ship · modules and price</summary>
+  <div id="designer">
+    <div class="dhead"><input id="dName" type="text" value="My ship" aria-label="The ship's name" spellcheck="false"><label class="chk"><input id="dSize" type="checkbox" checked> painted at its own size</label><button id="dNew" class="x">New</button></div>
+    <div class="tiny" style="margin-bottom:6px">The reactor, the computer and the star drive size themselves; the shield always covers the ship.</div>
+    <div class="row"><span class="tiny">Price</span><input id="dCost" type="range" min="0" max="1000" step="1" value="400" style="flex:1;min-width:140px" aria-label="Price"><input id="dCostN" type="number" min="150" max="30000" step="10" aria-label="Price"><button id="dLock" class="x" title="locked: built to the price · unlocked: the price follows the chips">🔓</button><span id="dLockNote" class="tiny"></span></div>
+    <h2 style="margin:12px 0 4px">Chips</h2>
+    <div id="dPalette"></div>
+    <div id="dTray"></div>
+    <div id="dInfo"></div>
+    <div id="dSheet"></div>
+    <div class="row" style="margin-top:10px"><b class="tiny" style="color:var(--fg)">The ship as a code</b><button id="dCopy" class="x">⧉ Copy</button><button id="dSave" class="x go">☆ Save to my ships…</button><button id="dMine" class="x">▤ My ships</button></div>
+    <textarea id="dCode" rows="2" spellcheck="false" placeholder="paste a ship code (SHIP1:…) and it opens here"></textarea>
+    <div id="dNote" class="tiny" style="margin-top:4px;min-height:16px"></div>
+    <div id="dPick" class="dpick" hidden></div>
+  </div>
+</details>
+
+<details class="fold">
+  <summary>Fine settings</summary>
+  <div class="ctl">
+    <label>Outer ribbon width · offset (%)<input id="ribOff" type="range" min="-30" max="30" step="1" value="0"><small id="ribV" class="tiny"></small></label>
+    <label>Core ring width · offset (%)<input id="coreOff" type="range" min="-40" max="25" step="1" value="0"><small id="coreV" class="tiny"></small></label>
+    <label>Spine ribbon width · offset (%)<input id="spineOff" type="range" min="-40" max="40" step="1" value="0"><small id="spineV" class="tiny"></small></label>
+    <label>Inner ribbons fatter · offset (%)<input id="fatOff" type="range" min="-75" max="125" step="5" value="0"><small id="fatV" class="tiny"></small></label>
+    <label>Engine size · offset (%)<input id="engOff" type="range" min="-30" max="30" step="1" value="0"><small id="engV" class="tiny"></small></label>
+    <label>Greeble size · offset (%)<input id="greebleOff" type="range" min="-30" max="30" step="1" value="0"><small id="greebleV" class="tiny"></small></label>
+    <label>Hard point size · offset (%)<input id="mountOff" type="range" min="-30" max="30" step="1" value="0"><small id="mountV" class="tiny"></small></label>
+    <label>Turret art size · offset (%)<input id="turretOff" type="range" min="-40" max="40" step="1" value="0"><small id="turretV" class="tiny"></small></label>
+    <label>Under the plating<select id="base"><option value="ribbon">more plating, shifted</option><option value="none">nothing · holes cut through</option><option value="tone">the hull's own tone</option></select></label>
+    <label class="chk"><input id="voids" type="checkbox"> show voids</label>
+    <label class="chk"><input id="underlay" type="checkbox" checked> second coat of rings</label>
+    <label class="chk"><input id="backing" type="checkbox"> each ring on a solid backing</label>
+    <label class="chk"><input id="inner" type="checkbox" checked> inner rings on top</label>
+    <label class="chk"><input id="spine" type="checkbox" checked> spine ribbon</label>
+    <label class="chk"><input id="engines" type="checkbox" checked> engines</label>
+    <label class="chk"><input id="outline" type="checkbox"> show the outline</label>
+  </div>
+</details>
+
+<details class="fold">
+  <summary>How it works</summary>
+  <div class="tiny help">Everything follows the volume. Rings tile edge to edge; the outer one is thin and they swell toward the middle, so a corvette gets one or two rings and a capital ship six to eight. Engines are one per 280 of volume, banking up in rows when the stern is short; each nozzle glows. Greebles from the style's own set are scattered over the plating, some straddling the outline to break it. <b>Plating</b> moves the outer ribbon, the core, the spine and the fatness together; <b>Fittings</b> moves engines and greebles together; the fine settings add on top. <b>Greeble seed</b> reshuffles the scatter and nothing else. <b>Wash</b> lays two colours along the rings, the first at the outline and the second at the core. <b>Lights</b> repaints the plating's brightest specks in a colour and blooms them. <b>The 3D</b> is built from the 2D: the hull painting is its roof, and the greebles, the hard points and the engines sit where they are painted. <b>The ship</b>: drag chips into the tray (or onto the ship); the same chip again piles up. Tap ▾ on a stack for its details. The price follows the chips (🔓), or drag the price (🔒) and the ship is built to it. ☆ Save keeps a ship and Save… keeps a silhouette, both in this phone's browser only.</div>
+</details>
+
+<div id="toast"></div>
+<script type="module" src="src/eon/painter.js"></script>

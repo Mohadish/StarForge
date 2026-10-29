@@ -29,6 +29,7 @@ button.on { background: rgba(95,227,208,.16); border-color: var(--accent) }
 .iso .cell b { font-size: 12px; color: var(--fg) } .iso .cell span { font-size: 11px; color: var(--muted) }
 .iso.show { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)) }
 .iso.ship { grid-template-columns: repeat(auto-fill, minmax(560px, 1fr)) }
+body.clean > *:not(#out) { display: none !important } body.clean { padding: 6px }
 .iso.ship.sheet { grid-template-columns: repeat(var(--cols, 4), 1fr) } .iso.ship.sheet .cell { min-height: 0; padding: 4px }
 .iso .cell h3 { margin: 0; font-size: 14px; color: #ffd26a; letter-spacing: .02em }
 .lv { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: -1px; margin-right: 4px; border: 1px solid #fff4 }
@@ -171,7 +172,7 @@ async function drawShips() {
   const list = bySt ? stys.flatMap(sid => sizes.map(v => ({ hull, lo, seed, yaw: 0.35, cap: STYLES[sid].name, sty: sid, vol: v })))
     : angles ? [0, 1, 2, 3, 4, 5, 6, 7].map(i => ({ hull, lo, seed, yaw: i * Math.PI / 4, cap: `turned ${i * 45}°` }))
     : hull === 'all' ? hulls.map(h => ({ hull: h, lo, seed, yaw: 0, cap: lo })) : Object.keys(LOADOUTS).map((l, i) => ({ hull, lo: l, seed: seed + i, yaw: 0, cap: l }));
-  $('out').innerHTML = `<div class="iso ship${bySt ? ' sheet' : ''}" style="--cols:${sizes.length}"></div>`; const host = $('out').firstChild;
+  $('out').innerHTML = `<div class="iso ship${bySt ? ' sheet' : ''}" style="--cols:${+Q.get('cols') || sizes.length}"></div>`; const host = $('out').firstChild; document.body.classList.toggle('clean', Q.get('clean') === '1');   // ?clean=1: only the ships (a picture for a phone)
   const tone = stock.mixed ? $('toneA').value : null;
   for (const it of list) {
     const d = document.createElement('div'); d.className = 'cell'; host.append(d); let cv = null, ship = null;

@@ -13,7 +13,7 @@ export function createShapeEditor(cv, host) {
   // host: { frame(): { toPx([gx, gy]) → [px, py], fromPx([px, py]) → [gx, gy] }, changed(what): repaint ('start' | 'edit' | 'drag' | 'end') }
   const st = { id: null, name: '', klass: 'starship', sym: 'y', pts: [] };
   const axisY = GH / 2, axisX = GW / 2;
-  let editing = false, drag = -1, hover = -1, downAt = null, moved = false, lastTap = null;
+  let editing = false, drag = -1, hover = -1, downAt = null, moved = false, lastTap = null, fat = false;   // fat: a finger, not a mouse — bigger points to catch (his phone, 2026-10-29)
   const fullPts = () => {
     const p = st.pts;
     if (st.sym === 'y') return [...p, ...p.slice(1, -1).reverse().map(([x, y]) => [x, 2 * axisY - y])];
@@ -34,12 +34,12 @@ export function createShapeEditor(cv, host) {
   const onAxis = ([x, y]) => st.sym === 'y' ? [x, axisY] : st.sym === 'x' ? [axisX, y] : [x, y];
   const isEnd = i => st.sym && (i === 0 || i === st.pts.length - 1);
   const pxOf = e => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * cv.width / r.width, (e.clientY - r.top) * cv.height / r.height]; };
-  const handleAt = px => { const F = host.frame(); return st.pts.findIndex(p => { const q = F.toPx(p); return Math.hypot(q[0] - px[0], q[1] - px[1]) < 11; }); };
+  const handleAt = px => { const F = host.frame(); return st.pts.findIndex(p => { const q = F.toPx(p); return Math.hypot(q[0] - px[0], q[1] - px[1]) < (fat ? 24 : 11); }); };
   const segDist = ([px, py], [ax, ay], [bx, by]) => { const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy || 1e-9, t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2)); return Math.hypot(px - ax - dx * t, py - ay - dy * t); };
   // the drawn line nearest a spot on the canvas (or its mirror image): which leg, and whether it was the ghost
   const segmentAt = px => {
     const F = host.frame(), P = st.pts.map(p => F.toPx(p)), M = st.sym ? st.pts.map(p => F.toPx(mirrorPt(p))) : null;
-    let best = { i: -1, d: 10, ghost: false };
+    let best = { i: -1, d: fat ? 18 : 10, ghost: false };
     for (let i = 0; i + 1 < st.pts.length; i++) {
       const d = segDist(px, P[i], P[i + 1]); if (d < best.d) best = { i, d, ghost: false };
       if (M) { const dg = segDist(px, M[i], M[i + 1]); if (dg < best.d) best = { i, d: dg, ghost: true }; }
@@ -74,7 +74,7 @@ export function createShapeEditor(cv, host) {
     }
     if (st.sym) { const a = st.sym === 'y' ? [F.toPx([0, axisY]), F.toPx([GW, axisY])] : [F.toPx([axisX, 0]), F.toPx([axisX, GH])]; g.setLineDash([6, 6]); g.strokeStyle = 'rgba(126,243,176,.6)'; g.lineWidth = 1; g.beginPath(); g.moveTo(a[0][0], a[0][1]); g.lineTo(a[1][0], a[1][1]); g.stroke(); g.setLineDash([]); }
     if (st.sym && f.length > st.pts.length) { g.setLineDash([4, 4]); g.strokeStyle = 'rgba(126,243,176,.5)'; g.beginPath(); f.slice(st.pts.length - 1).forEach((p, i) => { const q = F.toPx(p); i ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1]); }); g.stroke(); g.setLineDash([]); }
-    st.pts.forEach((p, i) => { const q = F.toPx(p); g.beginPath(); g.arc(q[0], q[1], i === hover || i === drag ? 8 : 6, 0, 7); g.fillStyle = i === 0 ? '#ffd26a' : '#fff'; g.fill(); g.strokeStyle = '#000'; g.lineWidth = 1.5; g.stroke(); });
+    st.pts.forEach((p, i) => { const q = F.toPx(p); g.beginPath(); g.arc(q[0], q[1], (fat ? 3 : 0) + (i === hover || i === drag ? 8 : 6), 0, 7); g.fillStyle = i === 0 ? '#ffd26a' : '#fff'; g.fill(); g.strokeStyle = '#000'; g.lineWidth = 1.5; g.stroke(); });
     g.restore();
   }
   // a double TAP — mouse or finger, two quick touches in one place: outside edit mode it opens the outline;
@@ -89,7 +89,7 @@ export function createShapeEditor(cv, host) {
   };
   cv.addEventListener('pointerdown', e => {
     if (e.button !== 0) return;
-    downAt = [e.clientX, e.clientY]; moved = false;
+    downAt = [e.clientX, e.clientY]; moved = false; fat = e.pointerType !== 'mouse';
     if (!editing) return;
     const i = handleAt(pxOf(e)); if (i >= 0) { drag = i; cv.setPointerCapture(e.pointerId); host.changed('dragstart'); }
   });
@@ -103,7 +103,7 @@ export function createShapeEditor(cv, host) {
   const up = e => {
     if (downAt && !moved && e.type === 'pointerup') {
       const now = performance.now();
-      if (lastTap && now - lastTap.t < 450 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 14) { lastTap = null; doubleTap(pxOf(e)); }   // 450 ms: a repaint between the taps must not break the pair
+      if (lastTap && now - lastTap.t < 450 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < (fat ? 30 : 14)) { lastTap = null; doubleTap(pxOf(e)); }   // 450 ms: a repaint between the taps must not break the pair
       else lastTap = { t: now, x: e.clientX, y: e.clientY };
     }
     downAt = null;
