@@ -528,7 +528,9 @@ function hangarFor(count, sz = 1, role = null) {
 }
 // A ship from CHIPS, the builder's tray: weapon stacks ({ kind, h, role }) — one chip is two guns, a
 // drone chip is four drones, stacking (h) is emphasis — and trait stacks (armour, shield, fast, fab).
-export function designFromChips(S, stacks, budget, rng = rng32(1), caps = allCapsules(S)) {
+// gunsPerChip: 2 in the lab and the Fleet Generator; the Painter reads a chip as ONE gun, as the game does (his note, 2026-10-29:
+// "4 capital guns" painted 8 — two and two is what he asked for, and 3 = one on the midline)
+export function designFromChips(S, stacks, budget, rng = rng32(1), caps = allCapsules(S), gunsPerChip = 2) {
   const pick = arr => arr[Math.floor(rng() * arr.length)];
   const d = { id: uid(), name: '', hull: pick(starshipHulls()).id, modules: [
     { id: uid(), kind: 'stardrive', caps: [], n: 1, k: 1 }, { id: uid(), kind: 'reactor', caps: [], n: 1, k: 1 }, { id: uid(), kind: 'weapon_system', caps: [], n: 1, k: 1 }] };
@@ -541,7 +543,7 @@ export function designFromChips(S, stacks, budget, rng = rng32(1), caps = allCap
     if (s.off) continue;                                                             // a HIDDEN stack (the editor's 👁): kept in the tray, left out of the ship
     const h = Math.max(1, s.h || 1), dl = s.dials || null;
     if (s.kind === 'hangar') { const m = hangarFor(4 * h, (dl && dl.sz) || 1, s.role); m.src = s.id; d.modules.push(m); names.push(`Drones${h > 1 ? ' ×' + h : ''}${s.role && s.role !== 'standard' ? ' ' + PRESETS[s.role].name.toLowerCase() : ''}`); }
-    else if (KINDS[s.kind]?.mount) { const m = { id: uid(), kind: s.kind, caps: [], n: 2 * h, src: s.id }; applyPreset(m, s.role && PRESETS[s.role] ? s.role : 'standard'); tune(m, dl); d.modules.push(m); names.push(`${NAMES[s.kind]}${h > 1 ? ' ×' + h : ''}${s.role && s.role !== 'standard' ? ' ' + PRESETS[s.role].name.toLowerCase() : ''}`); }
+    else if (KINDS[s.kind]?.mount) { const m = { id: uid(), kind: s.kind, caps: [], n: gunsPerChip * h, src: s.id }; applyPreset(m, s.role && PRESETS[s.role] ? s.role : 'standard'); tune(m, dl); d.modules.push(m); names.push(`${NAMES[s.kind]}${h > 1 ? ' ×' + h : ''}${s.role && s.role !== 'standard' ? ' ' + PRESETS[s.role].name.toLowerCase() : ''}`); }
     else if (s.kind === 'armor') { d.modules.push({ id: uid(), kind: 'armor', caps: [], n: 4 * h, src: s.id }); names.push(`armour${h > 1 ? ' ×' + h : ''}`); }
     else if (s.kind === 'shield') { d.modules.push({ id: uid(), kind: 'shield', caps: [], n: h, k: 1, src: s.id }); names.push(`shields${h > 1 ? ' ×' + h : ''}`); }   // one generator a chip, dialled to cover the hull
     else if (s.kind === 'fast') { d.modules.push({ id: uid(), kind: 'thruster', caps: [], n: 2 * h, src: s.id }); names.push(`fast${h > 1 ? ' ×' + h : ''}`); }

@@ -215,7 +215,7 @@ async function build3D() {
       hardpoints: (last.hardpoints || []).map(h => ({ kind: h.kind, x: (h.x - V.ox) / V.S, y: (h.y - V.oy) / V.S, r: h.r / V.S })), turretK: last._turret,
       engines: ($('engines').checked ? last.engineSpots || [] : []).map(e => ({ x: (e.x - V.ox) / V.S, y: (e.y - V.oy) / V.S, w: e.w / V.S, h: e.h / V.S, img, src: e.src, flip: e.flip, flipX: e.flipX })), nozzles: (last.nozzles || []).map(n => ({ x: (n.x - V.ox) / V.S, y: (n.y - V.oy) / V.S, h: n.h / V.S })),
       hullArt: hullArtOf(P) } : null;   // the 2D layout as painted above, in hull squares — and the hull alone, its texture
-    const sh = await buildShip(sel, await stockFor(style.id), { styleId: style.id, poly: P, volume: vol(), guns: guns(), seed: +$('seed').value, form: $('form3d').value, layout });
+    const sh = await buildShip(sel, await stockFor(style.id), { styleId: style.id, poly: P, volume: vol(), guns: guns(), seed: +$('seed').value, form: $('form3d').value, layout, turrets: $('guns3d').checked });
     if (n !== n3d) return;                                                          // a newer change is on its way
     ship3d = sh; draw3D(); $('info3d').textContent = sh.B.recipe;
   } catch (e) { $('info3d').textContent = 'the 3D ship could not be built: ' + e.message; console.error(e); }
@@ -233,6 +233,7 @@ function draw3D() {
   setInterval(() => { if ($('spin3d').checked && $('v3d').checked && drag == null && ship3d) { yaw3d += 0.05; draw3D(); } }, 60); }
 $('v3d').onchange = () => { $('v3dBox').classList.toggle('on', $('v3d').checked); if ($('v3d').checked) { ship3d = null; schedule3D(); } };
 $('form3d').onchange = () => schedule3D();
+$('guns3d').onchange = () => schedule3D();
 $('lightColor').addEventListener('input', () => draw3D());
 // ---------------- wiring ----------------
 $('style').innerHTML = Object.values(STYLES).filter(s => s.ribbon).map(s => `<option value="${s.id}">${esc(s.name)}${s.deco ? '' : ' · no greebles yet'}</option>`).join('');

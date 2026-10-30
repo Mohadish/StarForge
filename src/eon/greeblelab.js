@@ -437,6 +437,12 @@ export function renderSolids(B, o = {}) {
     } else if (it.k === 'glow') {
       const [cx, cy] = S[0], r = Math.max(2, it.r * U * 0.95), c2 = it.color ? rgb(it.color) : black ? '255,255,255' : grgb, gr = g.createRadialGradient(cx, cy, 0, cx, cy, r * 2.2);
       gr.addColorStop(0, 'rgba(255,255,240,1)'); gr.addColorStop(0.3, `rgba(${c2},.95)`); gr.addColorStop(0.55, `rgba(${c2},.35)`); gr.addColorStop(1, `rgba(${c2},0)`); g.fillStyle = gr; g.beginPath(); g.arc(cx, cy, r * 2.2, 0, 7); g.fill();
+    } else if (it.k === 'plume') {                                                    // an engine's exhaust: a cylinder of light astern, fading out, its hot core at the nozzle — seen from any side
+      const A = pr(...it.a), B = pr(...it.b), c2 = it.color ? rgb(it.color) : black ? '255,255,255' : grgb, H2 = hull2(S);
+      g.save(); g.globalCompositeOperation = 'lighter';
+      if (Math.hypot(B[0] - A[0], B[1] - A[1]) > 1) { const lg = g.createLinearGradient(A[0], A[1], B[0], B[1]); lg.addColorStop(0, `rgba(${c2},.55)`); lg.addColorStop(0.5, `rgba(${c2},.2)`); lg.addColorStop(1, `rgba(${c2},0)`); g.fillStyle = lg; g.beginPath(); H2.forEach((q, i) => i ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1])); g.closePath(); g.fill(); }
+      const r = Math.max(2, it.r * U * 1.2), cg = g.createRadialGradient(A[0], A[1], 0, A[0], A[1], r); cg.addColorStop(0, 'rgba(255,255,240,.9)'); cg.addColorStop(0.4, `rgba(${c2},.6)`); cg.addColorStop(1, `rgba(${c2},0)`); g.fillStyle = cg; g.beginPath(); g.arc(A[0], A[1], r, 0, 7); g.fill();
+      g.restore();
     } else if (it.k === 'cap') {                                                      // the top deck: the painted ship, as it lies (its outer rings are under the tiles)
       const z = it.P[0][2], Q0 = pr(0, 0, z), ex = sub(pr(1, 0, z), Q0), ey = sub(pr(0, 1, z), Q0), T = it.top;
       g.save(); poly(); g.fillStyle = '#2a3142'; g.fill(); g.clip();
@@ -975,7 +981,7 @@ function unionBox(P, x0, x1, y0, y1) {
   } while (!(onP && i === start) && ++guard < 2000);
   return ccw ? out : out.reverse();
 }
-export async function buildShip(hullId, styleStock, { styleId, volume = 700, loadout = 'two beams', seed = 1, level = 3, tone = null, form = 'decks', poly = null, guns: gunsIn = null, layout = null } = {}) {
+export async function buildShip(hullId, styleStock, { styleId, volume = 700, loadout = 'two beams', seed = 1, level = 3, tone = null, form = 'decks', poly = null, guns: gunsIn = null, layout = null, turrets = true } = {}) {
   // the hull: an outline as given (the Painter's, in hull squares, about its centre) or a named one
   const hull = poly ? (b => ({ id: hullId + '~', klass: 'starship', poly, area: areaOf(poly), box: b, bw: b.maxx - b.minx, bh: b.maxy - b.miny }))(bboxOf(poly)) : hullOf(hullId, volume), st = stockSet(styleStock), R = rnd('ship:' + hullId + ':' + seed + ':' + styleStock.style), clamp = (x, a, b) => Math.max(a, Math.min(b, x)), pick = l => l && l.length ? l[Math.floor(R() * l.length)] : null;
   const guns = gunsIn ? gunsIn.filter(g => g.n > 0 && TURRET_FAM[g.kind]).map(g => ({ kind: g.kind, n: g.n, size: g.size || 1 })) : (LOADOUTS[loadout] || LOADOUTS['two beams']).map(([kind, n]) => ({ kind, n, size: 1 }));   // a design's own guns (its hangars are not turrets)
@@ -1022,7 +1028,6 @@ export async function buildShip(hullId, styleStock, { styleId, volume = 700, loa
         for (let i = 0; i < n; i++) { const j = (i + 1) % n, Q = [topP[i], topP[j], bot[j], bot[i]], mx = (ring[i][0] + ring[j][0]) / 2 - cx2, my = (ring[i][1] + ring[j][1]) / 2 - cy2; if (Q[0][2] - Q[3][2] < 1e-3 && Q[1][2] - Q[2][2] < 1e-3) continue; walls.push({ k: 'quad', P: Q, n: quadN(Q, [mx, my, 0]), img: wallImg, src: wallImg ? [0, 0, wallImg.width, wallImg.height] : null, dim: 0.12, soft: true }); }
         return { k: 'pad', walls, top: { k: 'cap', P: topP, n: [0, 0, 1], tex: topTex }, cards, P: [...bot, ...topP, ...cards.flatMap(c => c.P)] };
       };
-      const flat = (x0, y0, x1, y1, z, img, src, flip) => ({ k: 'quad', P: flip ? [[x0, y1, z], [x1, y1, z], [x1, y0, z], [x0, y0, z]] : [[x0, y0, z], [x1, y0, z], [x1, y1, z], [x0, y1, z]], n: [0, 0, 1], img, src, bare: true });
       let ng = 0, np = 0;
       // a GREEBLE (his note: "lower, closer to the roof"): a thin slab lying on the roof face under it — its walls from the roof up, its top
       // parallel to the face, the greeble's art on that — so it hugs the slope instead of standing level and high on the downhill side
@@ -1036,13 +1041,19 @@ export async function buildShip(hullId, styleStock, { styleId, volume = 700, loa
         items.push({ k: 'pad', walls, top: { k: 'quad', P: tops, n: f.n3, img: tile, src: tile ? [0, 0, tile.width, tile.height] : null }, cards: [{ k: 'quad', P: art, n: f.n3, img: G.img, src: G.src, bare: true }], P: [...walls.flatMap(w => w.P), ...art], onRoof: true, xy: art.map(p => [p[0], p[1]]) }); ng++;
       }
       const tsty = STYLES[styleId || styleStock.style.split('+')[0]] || {}, TS = tsty.turrets, tsheet = TS ? await loadStyle({ sheet: TS.sheet }).catch(() => null) : null, mountImg = st.mount.length ? st.mount[0] : null; let nT = 0;
-      for (const hp of L2.hardpoints) {
-        if (!TURRET_FAM[hp.kind]) continue; const rP = hp.r, ring = Array.from({ length: 8 }, (_, i) => [hp.x + rP * Math.cos((i + 0.5) * Math.PI / 4), hp.y + rP * Math.sin((i + 0.5) * Math.PI / 4)]);
-        const zTop = Math.max(hAt(hp.x, hp.y), ...ring.map(([x, y]) => hAt(x, y))) + Math.max(0.05, rP * 0.3), cards = [];
-        if (mountImg) cards.push(flat(hp.x - rP, hp.y - rP, hp.x + rP, hp.y + rP, zTop + 0.004, mountImg, [0, 0, mountImg.width, mountImg.height], hp.y < 0));
+      // a HARD POINT (his note, 2026-10-29: the level pads stood "too tall … pokey"): a thin octagonal plate lying on the roof face under it,
+      // like a greeble's slab, the mount and the style's turret flat on that — tilted with the roof, so the gun hugs the hull. turrets: false
+      // leaves the guns out of the 3D altogether (the Painter's "guns" tick)
+      for (const hp of turrets ? L2.hardpoints : []) {
+        if (!TURRET_FAM[hp.kind]) continue;
+        const f = faceAt(hp.x, hp.y) || [0.1, 0.2, 0.35, 0.5].map(k => faceAt(hp.x * (1 - k), hp.y * (1 - k))).find(Boolean); if (!f) continue;
+        const rP = hp.r, t = 0.02 + 0.04 * rP, zF = (x, y) => hR + sl * ((x - f.q[0]) * f.m[0] + (y - f.q[1]) * f.m[1]) + t, on = (x, y, lift) => [x, y, zF(x, y) + lift];
+        const ring = Array.from({ length: 8 }, (_, i) => [hp.x + rP * 0.92 * Math.cos((i + 0.5) * Math.PI / 4), hp.y + rP * 0.92 * Math.sin((i + 0.5) * Math.PI / 4)]), tops = ring.map(([x, y]) => on(x, y, 0)), walls = [], wallImg = st.band.length ? st.band[0] : null, cards = [];
+        for (let i = 0; i < 8; i++) { const j = (i + 1) % 8, Q = [tops[i], tops[j], [ring[j][0], ring[j][1], Math.min(hAt(...ring[j]), tops[j][2] - 0.01)], [ring[i][0], ring[i][1], Math.min(hAt(...ring[i]), tops[i][2] - 0.01)]]; walls.push({ k: 'quad', P: Q, n: quadN(Q, [(ring[i][0] + ring[j][0]) / 2 - hp.x, (ring[i][1] + ring[j][1]) / 2 - hp.y, 0]), img: wallImg, src: wallImg ? [0, 0, wallImg.width, wallImg.height] : null, dim: 0.12, soft: true }); }
+        if (mountImg) { const a = [[hp.x - rP, hp.y - rP], [hp.x + rP, hp.y - rP], [hp.x + rP, hp.y + rP], [hp.x - rP, hp.y + rP]]; cards.push({ k: 'quad', P: (hp.y < 0 ? [a[3], a[2], a[1], a[0]] : a).map(([x, y]) => on(x, y, 0.004)), n: f.n3, img: mountImg, src: [0, 0, mountImg.width, mountImg.height], bare: true }); }
         const cell = TS && TS.cells[hp.kind === 'weapon_kinetic' ? 1 : hp.kind === 'weapon_missile' ? 2 : 0];
-        if (cell && tsheet) { const [cx0, cy0, cw2, ch2, px, py, body] = cell, k = 2 * rP * (L2.turretK || RECIPE.turret) / body; cards.push({ k: 'quad', P: [[-px, -py], [cw2 - px, -py], [cw2 - px, ch2 - py], [-px, ch2 - py]].map(([X, Y]) => [hp.x + X * k, hp.y + Y * k, zTop + 0.008]), n: [0, 0, 1], img: tsheet, src: [cx0, cy0, cw2, ch2], bare: true }); nT++; }   // flat, as in 2D, barrels forward
-        items.push({ ...pad(ring, zTop, st.band.length ? st.band[0] : null, st.tile.length ? st.tile[0] : null, cards), onRoof: true, xy: ring });
+        if (cell && tsheet) { const [cx0, cy0, cw2, ch2, px, py, body] = cell, k = 2 * rP * (L2.turretK || RECIPE.turret) / body; cards.push({ k: 'quad', P: [[-px, -py], [cw2 - px, -py], [cw2 - px, ch2 - py], [-px, ch2 - py]].map(([X, Y]) => on(hp.x + X * k, hp.y + Y * k, 0.008)), n: f.n3, img: tsheet, src: [cx0, cy0, cw2, ch2], bare: true }); nT++; }   // as in 2D, barrels forward
+        items.push({ k: 'pad', walls, top: { k: 'quad', P: tops, n: f.n3 }, cards, P: [...walls.flatMap(w => w.P), ...cards.flatMap(c => c.P)], onRoof: true, xy: ring });
       }
       // CUTOUTS on the cookie's long flanks (under its top), the ENGINES out of its stern, running lights
       for (let i = 0; i < base.length; i++) {
@@ -1055,11 +1066,16 @@ export async function buildShip(hullId, styleStock, { styleId, volume = 700, loa
       if (blue) {                                                                       // THE ENGINES (his call, 2026-10-29: "in the back end, in the cookie, not elevated — one row, in the right arrangement")
         const row = [];                                                                 // the 2D's engines by their place across the hull and their size; overlapping ones (other rows) merged, the bigger kept
         for (const E2 of [...L2.engines].sort((a, b) => b.h - a.h)) if (!row.some(o => Math.abs(o.y - E2.y) < (o.h + E2.h) / 2 * 0.92)) row.push(E2);
-        row.forEach((E2, i) => {                                                        // each a block out of the cookie's stern, as high as the cookie, the 2D art on its top, its glow at the nozzle
-          const hh = E2.h / 2, Lx = E2.w, xF = Math.min(...[-1, 0, 1].map(k => sternAt(E2.y + k * hh * 0.9))) - 0.005, xB = xF - Lx, xc = (xF + xB) / 2, sx2 = E2.flipX ? -1 : 1, sy2 = E2.flip ? -1 : 1, zT = hR * 0.98;
-          const art = { k: 'quad', P: [[xc - sx2 * Lx / 2, E2.y - sy2 * hh, zT + 0.004], [xc + sx2 * Lx / 2, E2.y - sy2 * hh, zT + 0.004], [xc + sx2 * Lx / 2, E2.y + sy2 * hh, zT + 0.004], [xc - sx2 * Lx / 2, E2.y + sy2 * hh, zT + 0.004]], n: [0, 0, 1], img: E2.img, src: E2.src, bare: true };
+        // each a block out of the cookie's stern, as high as the cookie, only as far past the stern as the 2D's engine reaches (his note,
+        // 2026-10-29: the whole sprite's length astern read as "a series of barrels popping from the bottom"), the nozzle end of the 2D art
+        // on its top, and a PLUME of light trailing astern — a body seen from every side, not a dot that blinks out past its face
+        row.forEach((E2, i) => {
+          const hh = E2.h / 2, xF = Math.min(...[-1, 0, 1].map(k => sternAt(E2.y + k * hh * 0.9))) - 0.005, xB = Math.min(xF - 0.06 * E2.w, E2.x - E2.w / 2), Lx = xF - xB, fr = Math.min(1, Lx / E2.w), xc = (xF + xB) / 2, sx2 = E2.flipX ? -1 : 1, sy2 = E2.flip ? -1 : 1, zT = hR * 0.98;
+          const [ex, ey, ew, eh] = E2.src, src = sx2 > 0 ? [ex, ey, ew * fr, eh] : [ex + ew * (1 - fr), ey, ew * fr, eh];   // the art's back end (its left, or its right when the style flips its engines)
+          const art = { k: 'quad', P: [[xc - sx2 * Lx / 2, E2.y - sy2 * hh, zT + 0.004], [xc + sx2 * Lx / 2, E2.y - sy2 * hh, zT + 0.004], [xc + sx2 * Lx / 2, E2.y + sy2 * hh, zT + 0.004], [xc - sx2 * Lx / 2, E2.y + sy2 * hh, zT + 0.004]], n: [0, 0, 1], img: E2.img, src, bare: true };
           items.push(pad([[xB, E2.y - hh * 0.8], [xF, E2.y - hh * 0.8], [xF, E2.y + hh * 0.8], [xB, E2.y + hh * 0.8]], zT, st.band.length ? st.band[i % st.band.length] : null, st.tile.length ? st.tile[0] : null, [art], 0)); nE++;
-          items.push({ k: 'glow', P: [[xB - 0.06, E2.y, zT * 0.5]], r: Math.min(hh * 0.7, zT * 0.6), n: [-1, 0, 0] });   // the exhaust, seen from astern
+          const r0 = Math.min(hh * 0.6, zT * 0.45), len = E2.h * 2.4, a = [xB - 0.01, E2.y, zT * 0.5], ringAt = (x, r) => Array.from({ length: 12 }, (_, j) => [x, a[1] + r * Math.cos(j * Math.PI / 6), a[2] + r * Math.sin(j * Math.PI / 6)]);
+          items.push({ k: 'plume', a, b: [a[0] - len, a[1], a[2]], r: r0, P: [...ringAt(a[0], r0), ...ringAt(a[0] - len, r0 * 0.55)] });   // the 2D's plume: 2.4 engine heights astern, fading
         });
       }
       else { const specs = new Map();
@@ -1070,7 +1086,7 @@ export async function buildShip(hullId, styleStock, { styleId, volume = 700, loa
       } }
       for (let i = 0; i < base.length; i++) { const a = base[i], q = base[(i + 1) % base.length]; if (Math.hypot(q[0] - a[0], q[1] - a[1]) < 1.2 || outN[i][0] < -0.5) continue; items.push({ k: 'glow', P: [[(a[0] + q[0]) / 2 + outN[i][0] * 0.03, (a[1] + q[1]) / 2 + outN[i][1] * 0.03, hR * 0.3]], r: 0.05, n: [outN[i][0], outN[i][1], 0] }); }   // facing out of its wall
       const B = [{ t: 'ship', items }];
-      B.recipe = `${Math.round(hull.area * 32)} volume · a roof of ${faces.length} faces${L2.hullArt ? ' in the 2D hull painting' : ''} · ${ng} greebles from the 2D · ${nT} turrets on pads · ${nE} engine${nE === 1 ? '' : 's'}${blue ? ' from the 2D' : ''}`;
+      B.recipe = `${Math.round(hull.area * 32)} volume · a roof of ${faces.length} faces${L2.hullArt ? ' in the 2D hull painting' : ''} · ${ng} greebles from the 2D · ${turrets ? nT + ' turrets lying on the roof' : 'no guns'} · ${nE} engine${nE === 1 ? '' : 's'}${blue ? ' from the 2D' : ''}`;
       return { B, hull };
     }
   }

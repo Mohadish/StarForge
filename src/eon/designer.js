@@ -18,7 +18,7 @@ const fmt = n => n >= 10000 ? (n / 1000).toFixed(1) + 'k' : Math.round(n).toLoca
 const STORE = 'forge.painter.ship.v2';
 const PMIN = 150, PMAX = 30000, toPos = p => Math.round(1000 * Math.log(Math.max(PMIN, Math.min(PMAX, p)) / PMIN) / Math.log(PMAX / PMIN)), toPrice = v => Math.round(PMIN * Math.pow(PMAX / PMIN, v / 1000) / 10) * 10;   // the price slider runs on a log scale: 150 … 30 000
 const isWeapon = c => CHIPS.weapon.some(w => w[0] === c.kind);
-const starter = () => ({ name: 'My ship', chips: [{ type: 'weapon', kind: 'weapon_energy', h: 1, role: null }, { type: 'trait', kind: 'armor', h: 1, role: null }], price: 600, locked: false, seed: 1 + Math.floor(Math.random() * 1e6), fixed: null });
+const starter = () => ({ name: 'My ship', chips: [{ type: 'weapon', kind: 'weapon_energy', h: 2, role: null }, { type: 'trait', kind: 'armor', h: 1, role: null }], price: 600, locked: false, seed: 1 + Math.floor(Math.random() * 1e6), fixed: null });
 
 export function createDesigner({ $, S = { breakthroughs: [] }, hdlg, getHull, setHull, coat, setCoat, onChange }) {
   let D = null, ship = null, SHIPS = readShips();
@@ -28,13 +28,13 @@ export function createDesigner({ $, S = { breakthroughs: [] }, hdlg, getHull, se
   const note = html => { $('dNote').innerHTML = html; };
   const stacksOut = () => chipEd.stacks.map(c => ({ id: c.id, type: c.type, kind: c.kind, h: c.h, role: c.role, ...(c.dials ? { dials: { ...c.dials } } : {}) }));
   const keep = () => { D.chips = stacksOut(); D.hull = getHull() || D.hull; try { localStorage.setItem(STORE, JSON.stringify(D)); } catch (e) { /* fine */ } };
-  const chipEd = createChipEditor({ palette: $('dPalette'), tray: $('dTray'), info: $('dInfo'), sheet: $('dSheet'), dropZones: ['#out', '.stage'] }, { onChange: () => { D.fixed = null; changed(); } });
+  const chipEd = createChipEditor({ palette: $('dPalette'), tray: $('dTray'), info: $('dInfo'), sheet: $('dSheet'), dropZones: ['#out', '.stage'] }, { onChange: () => { D.fixed = null; changed(); }, gunsPerChip: 1 });
 
   function build() {
     const hull = getHull();
     if (D.fixed) { const d = designOf(D.fixed); if (hull) d.hull = hull; ship = shipFromDesign(S, d); ship.arch = archetype(ship); return; }   // a pasted code, exactly as it was built
     const stacks = stacksOut(); if (!stacks.some(isWeapon)) { ship = null; return; }
-    const d = designFromChips(S, stacks, D.locked ? D.price : null, rng32(D.seed)); if (!d) { ship = null; return; }
+    const d = designFromChips(S, stacks, D.locked ? D.price : null, rng32(D.seed), undefined, 1); if (!d) { ship = null; return; }   // a chip is ONE gun, as in the game
     if (hull) d.hull = hull;
     ship = shipFromDesign(S, d); ship.arch = archetype(ship);
     if (!D.locked) D.price = Math.round(ship.cost);
@@ -66,7 +66,7 @@ export function createDesigner({ $, S = { breakthroughs: [] }, hdlg, getHull, se
   function open(rec, from = 'code') {
     D = { name: rec.name || 'Ship', chips: [], price: rec.price || rec.cost || 600, locked: !!rec.locked, seed: rec.seed || 1, fixed: null, ...(rec.id && from === 'mine' ? { libId: rec.id } : {}) };
     if (Array.isArray(rec.chips) && rec.chips.length) chipEd.set(rec.chips);
-    else { D.fixed = { name: rec.name, hull: rec.hull, modules: rec.modules }; chipEd.set(chipsOfDesign(designOf(rec))); }
+    else { D.fixed = { name: rec.name, hull: rec.hull, modules: rec.modules }; chipEd.set(chipsOfDesign(designOf(rec), 1)); }
     $('dName').value = D.name;
     if (setHull) setHull(rec); if (rec.style && setCoat) setCoat(rec);
     changed(); note(`<b>${esc(D.name)}</b> is open — ${from === 'mine' ? 'from your ships' : 'from the code'}${D.fixed ? ', exactly as it was built (📌)' : ''}.`);
