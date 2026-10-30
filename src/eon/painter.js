@@ -202,10 +202,11 @@ function drawField(g) {
 const STOCKS = new Map(), stockFor = async id => STOCKS.get(id) || (STOCKS.set(id, await stockOf(id)), STOCKS.get(id));
 let ship3d = null, yaw3d = 0.35, t3d = null, n3d = 0;
 function schedule3D() { if (!$('v3d').checked) return; clearTimeout(t3d); t3d = setTimeout(build3D, ed.dragging ? 700 : 250); }
-// the hull alone (no greebles, engines or mounts), painted with the page's own settings at a fixed scale about the outline's centre
+// the hull and its turret mounts (no greebles or engines), painted with the page's own settings at a fixed scale about the outline's centre
 function hullArtOf(P) {
   if (!last || !last._opts) return null; const S3 = 48, W = Math.ceil((2 * Math.max(...P.map(p => Math.abs(p[0]))) + 1) * S3), H = Math.ceil((2 * Math.max(...P.map(p => Math.abs(p[1]))) + 1) * S3), c = document.createElement('canvas'); c.width = W; c.height = H;
-  paintHull(c, P, img, style, { ...last._opts, px: S3, center: [0, 0], greebles: false, engines: false, mounts: false, glow: false, outline: false, voidColor: undefined }, decoImg);
+  const V = last.view, hps = (last.hardpoints || []).map(h => ({ kind: h.kind, x: (h.x - V.ox) / V.S, y: (h.y - V.oy) / V.S, size: h.size }));   // the mounts too, where the 2D has them (his note, 2026-10-30: the 3D plate read as "a weird grey solid element")
+  paintHull(c, P, img, style, { ...last._opts, px: S3, center: [0, 0], greebles: false, engines: false, guns: [], hardpoints: hps, glow: false, outline: false, voidColor: undefined }, decoImg);
   return { img: c, S: S3, x0: -W / 2 / S3, y0: -H / 2 / S3 };
 }
 async function build3D() {
@@ -215,7 +216,7 @@ async function build3D() {
       hardpoints: (last.hardpoints || []).map(h => ({ kind: h.kind, x: (h.x - V.ox) / V.S, y: (h.y - V.oy) / V.S, r: h.r / V.S })), turretK: last._turret,
       engines: ($('engines').checked ? last.engineSpots || [] : []).map(e => ({ x: (e.x - V.ox) / V.S, y: (e.y - V.oy) / V.S, w: e.w / V.S, h: e.h / V.S, img, src: e.src, flip: e.flip, flipX: e.flipX })), nozzles: (last.nozzles || []).map(n => ({ x: (n.x - V.ox) / V.S, y: (n.y - V.oy) / V.S, h: n.h / V.S })),
       hullArt: hullArtOf(P) } : null;   // the 2D layout as painted above, in hull squares — and the hull alone, its texture
-    const sh = await buildShip(sel, await stockFor(style.id), { styleId: style.id, poly: P, volume: vol(), guns: guns(), seed: +$('seed').value, form: $('form3d').value, layout, turrets: $('guns3d').checked });
+    const sh = await buildShip(sel, await stockFor(style.id), { styleId: style.id, poly: P, volume: vol(), guns: guns(), seed: +$('seed').value, form: $('form3d').value, layout, turrets: $('turrets').checked });
     if (n !== n3d) return;                                                          // a newer change is on its way
     ship3d = sh; draw3D(); $('info3d').textContent = sh.B.recipe;
   } catch (e) { $('info3d').textContent = 'the 3D ship could not be built: ' + e.message; console.error(e); }
@@ -233,7 +234,6 @@ function draw3D() {
   setInterval(() => { if ($('spin3d').checked && $('v3d').checked && drag == null && ship3d) { yaw3d += 0.05; draw3D(); } }, 60); }
 $('v3d').onchange = () => { $('v3dBox').classList.toggle('on', $('v3d').checked); if ($('v3d').checked) { ship3d = null; schedule3D(); } };
 $('form3d').onchange = () => schedule3D();
-$('guns3d').onchange = () => schedule3D();
 $('lightColor').addEventListener('input', () => draw3D());
 // ---------------- wiring ----------------
 $('style').innerHTML = Object.values(STYLES).filter(s => s.ribbon).map(s => `<option value="${s.id}">${esc(s.name)}${s.deco ? '' : ' · no greebles yet'}</option>`).join('');
@@ -243,7 +243,7 @@ for (const id of ['vol', 'mPlating', 'mFittings', 'seed', 'wash', 'lights', 'was
 $('seedN').onchange = e => { $('seed').value = Math.max(0, Math.min(999, Math.round(+e.target.value || 0))); repaint(); };
 $('seedNext').onclick = () => { $('seed').value = (+$('seed').value + 1) % 1000; repaint(); };
 for (const id of ['glow', 'greebles', 'inner', 'spine', 'engines', 'outline', 'base', 'voids', 'backing', 'underlay']) $(id).onchange = () => repaint();
-$('turrets').onchange = () => repaint(true);
+$('turrets').onchange = () => { repaint(true); schedule3D(); };   // the turrets in 2D and in 3D alike (his note, 2026-10-30)
 $('field').onchange = () => repaint(true);
 $('resetOff').onclick = () => { for (const id of ['mPlating', 'mFittings', 'ribOff', 'engOff', 'coreOff', 'spineOff', 'fatOff', 'greebleOff', 'mountOff', 'turretOff']) $(id).value = 0; repaint(); };
 // the turrets follow the pointer over the ship (a finger too); off the canvas they face forward again

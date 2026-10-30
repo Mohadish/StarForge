@@ -774,7 +774,7 @@ async function paintedTop(styleId, hull, guns, tone) {
   paintHull(cv, hull.poly, img, st, { ...recipeFor(hull.area * 32), px: S, center: [0, 0], guns, engines: false, wash: 0, lights: 0 }, deco);   // the decks' art: the guns on their mounts, no engines
   const blank = () => { const c = document.createElement('canvas'); c.width = W; c.height = H; return c; }, hullArt = blank();
   const r = paintHull(blank(), hull.poly, img, st, { ...recipeFor(hull.area * 32), px: S, center: [0, 0], guns, wash: 0, lights: 0, glow: false }, deco);   // the layout, as the Painter paints it (engines and all)
-  paintHull(hullArt, hull.poly, img, st, { ...recipeFor(hull.area * 32), px: S, center: [0, 0], guns: [], engines: false, greebles: false, mounts: false, wash: 0, lights: 0, glow: false }, deco);   // the hull alone: the roof's texture
+  paintHull(hullArt, hull.poly, img, st, { ...recipeFor(hull.area * 32), px: S, center: [0, 0], guns: [], hardpoints: r.hardpoints.map(h => ({ kind: h.kind, x: (h.x - W / 2) / S, y: (h.y - H / 2) / S, size: h.size })), engines: false, greebles: false, wash: 0, lights: 0, glow: false }, deco);   // the hull and its mounts: the roof's texture
   const top = { img: tone ? toned(cv, tone, 0.45) : cv, S, x0: -W / 2 / S, y0: -H / 2 / S, hps: r.hardpoints.map(h => ({ kind: h.kind, x: (h.x - W / 2) / S, y: (h.y - H / 2) / S, r: h.r / S })),   // the mounts back in squares
     greebles: (r.greebleSpots || []).filter(g => g.cell && deco && deco[g.cell[4]]).map(g => ({ x: (g.x - W / 2) / S, y: (g.y - H / 2) / S, w: g.w / S, h: g.h / S, img: deco[g.cell[4]], src: g.cell.slice(0, 4), flip: g.flip })),   // and its greebles: where, how big, which art
     engines: (r.engineSpots || []).map(e => ({ x: (e.x - W / 2) / S, y: (e.y - H / 2) / S, w: e.w / S, h: e.h / S, img, src: e.src, flip: e.flip, flipX: e.flipX })), nozzles: (r.nozzles || []).map(n => ({ x: (n.x - W / 2) / S, y: (n.y - H / 2) / S, h: n.h / S })),
@@ -1018,9 +1018,8 @@ export async function buildShip(hullId, styleStock, { styleId, volume = 700, loa
       const onFace = (f, u, w, lift) => [f.q[0] + f.d[0] * u + f.m[0] * w + f.n3[0] * lift, f.q[1] + f.d[1] * u + f.m[1] * w + f.n3[1] * lift, hR + sl * w + f.n3[2] * lift];
       for (const f of faces) { const Rr = keyR('face', f.a, f.b); items.push({ k: 'roof', P: f.P3, n: f.n3, map: { q: f.q, d: f.d, m: f.m, z0: hR, s: sl }, S: strips.length ? strips[Math.floor(Rr() * strips.length)] : null, hb, seed: Math.floor(Rr() * 1000), art: L2.hullArt || null }); }   // the 2D hull painting laid straight down on it (the strip in rows where there is none)
       // THE 2D LAYOUT IN 3D (his ask, 2026-10-28: "take the position of the greebles we see in 2D and plop them onto the 3D object"): where
-      // the painter put a greeble, a pedestal rises out of the roof to a LEVEL top and the greeble's own art lies on it; every hard point is a
-      // pad, extruded from the roof to a level top, the mount on it and the style's turret flat on that at its 2D size. The layout is the
-      // Painter's own (handed in) or the painted top's here
+      // the painter put a greeble, a thin slab carries the greeble's own art on the roof; every hard point's turret lies on the roof over
+      // its mount (the mount is in the texture). The layout is the Painter's own (handed in) or the painted top's here
       const faceAt = (x, y) => faces.find(F => inside(F.P2 || (F.P2 = F.P.map(p => [p[0], p[1]])), x, y));
       const hAt = (x, y) => { const f = faceAt(x, y); return f ? hR + sl * Math.max(0, (x - f.q[0]) * f.m[0] + (y - f.q[1]) * f.m[1]) : hR; };   // the roof's height there (the eave's, past the outline)
       const pad = (ring, zTop, wallImg, topTex, cards, zBot = null) => {                   // walls from the roof (or zBot) up to a level top, the top, the cards on it
@@ -1029,31 +1028,41 @@ export async function buildShip(hullId, styleStock, { styleId, volume = 700, loa
         return { k: 'pad', walls, top: { k: 'cap', P: topP, n: [0, 0, 1], tex: topTex }, cards, P: [...bot, ...topP, ...cards.flatMap(c => c.P)] };
       };
       let ng = 0, np = 0;
-      // a GREEBLE (his note: "lower, closer to the roof"): a thin slab lying on the roof face under it — its walls from the roof up, its top
-      // parallel to the face, the greeble's art on that — so it hugs the slope instead of standing level and high on the downhill side
+      // WHERE A PIECE RESTS (his notes, 2026-10-30): one ACROSS THE CREST (the spine) lies level from side to side, tilted fore and aft with
+      // the ridge at most, on the highest roof under it; any other lies on the face under its middle, tilted with it, close to the roof, and
+      // never lower than the eave (past the outline its plane would dive under the hull). Its walls go down to the roof, or to the cookie's
+      // foot where no hull is under them: a real block that holds it up. → { z(x, y): its top, n: its normal, foot(x, y): its walls' foot, level }
+      const footAt = (x, y) => faceAt(x, y) ? hAt(x, y) : 0;
+      const restOn = (cx, cy, hw, hh, t) => {
+        if (cy - hh < 0 && cy + hh > 0) {
+          const S9 = [-1, 0, 1].flatMap(a => [-1, 0, 1].map(b => [cx + a * hw, cy + b * hh])), b = clamp((hAt(cx + hw, 0) - hAt(cx - hw, 0)) / (2 * hw || 1), -sl, sl), a = Math.max(...S9.map(([x, y]) => hAt(x, y) - b * x)) + t;
+          return { z: x => a + b * x, n: unit([-b, 0, 1]), foot: footAt, level: true };
+        }
+        const f = faceAt(cx, cy) || [0.1, 0.2, 0.35, 0.5].map(k => faceAt(cx * (1 - k), cy * (1 - k))).find(Boolean);   // past the outline: the nearest face's slope
+        if (!f) return { z: () => hR + t, n: [0, 0, 1], foot: footAt, level: true };
+        return { z: (x, y) => Math.max(hR, hR + sl * ((x - f.q[0]) * f.m[0] + (y - f.q[1]) * f.m[1])) + t, n: f.n3, foot: footAt, level: false };
+      };
+      const slabWalls = (ring, tops, R, c, img) => ring.map((p, i) => { const j = (i + 1) % ring.length, q = ring[j], Q = [tops[i], tops[j], [q[0], q[1], Math.min(R.foot(q[0], q[1]), tops[j][2] - 0.01)], [p[0], p[1], Math.min(R.foot(p[0], p[1]), tops[i][2] - 0.01)]]; return { k: 'quad', P: Q, n: quadN(Q, [(p[0] + q[0]) / 2 - c[0], (p[1] + q[1]) / 2 - c[1], 0]), img, src: img ? [0, 0, img.width, img.height] : null, dim: 0.12, soft: true }; });
+      // a GREEBLE (his note: "lower, closer to the roof"): a thin slab under its art — on its face, or level across a ridge / past the outline
       for (const G of L2.greebles) {
-        const f = faceAt(G.x, G.y) || [0.1, 0.2, 0.35, 0.5].map(k => faceAt(G.x * (1 - k), G.y * (1 - k))).find(Boolean); if (!f) continue;   // one past the outline (it breaks it, as in 2D): the nearest face's plane, hanging past the eave
-        const hw = G.w / 2, hh = G.h / 2, cw = hw * 0.72, ch = hh * 0.72, t = 0.04 + 0.05 * Math.min(G.w, G.h), zF = (x, y) => hR + sl * ((x - f.q[0]) * f.m[0] + (y - f.q[1]) * f.m[1]) + t;   // the face's plane, lifted by the slab's thickness
-        const ring = [[G.x - cw, G.y - ch], [G.x + cw, G.y - ch], [G.x + cw, G.y + ch], [G.x - cw, G.y + ch]], tops = ring.map(([x, y]) => [x, y, zF(x, y)]), walls = [];
-        for (let i = 0; i < 4; i++) { const j = (i + 1) % 4, Q = [tops[i], tops[j], [ring[j][0], ring[j][1], Math.min(hAt(...ring[j]), tops[j][2] - 0.01)], [ring[i][0], ring[i][1], Math.min(hAt(...ring[i]), tops[i][2] - 0.01)]]; walls.push({ k: 'quad', P: Q, n: quadN(Q, [(ring[i][0] + ring[j][0]) / 2 - G.x, (ring[i][1] + ring[j][1]) / 2 - G.y, 0]), img: st.band.length ? st.band[ng % st.band.length] : null, src: st.band.length ? [0, 0, st.band[ng % st.band.length].width, st.band[ng % st.band.length].height] : null, dim: 0.12, soft: true }); }
-        const lift = (x, y) => [x, y, zF(x, y) + 0.004], art = G.flip ? [lift(G.x - hw, G.y + hh), lift(G.x + hw, G.y + hh), lift(G.x + hw, G.y - hh), lift(G.x - hw, G.y - hh)] : [lift(G.x - hw, G.y - hh), lift(G.x + hw, G.y - hh), lift(G.x + hw, G.y + hh), lift(G.x - hw, G.y + hh)];
+        const hw = G.w / 2, hh = G.h / 2, cw = hw * 0.72, ch = hh * 0.72, R = restOn(G.x, G.y, hw, hh, 0.04 + 0.05 * Math.min(G.w, G.h)), band = st.band.length ? st.band[ng % st.band.length] : null;
+        const ring = [[G.x - cw, G.y - ch], [G.x + cw, G.y - ch], [G.x + cw, G.y + ch], [G.x - cw, G.y + ch]], tops = ring.map(([x, y]) => [x, y, R.z(x, y)]), walls = slabWalls(ring, tops, R, [G.x, G.y], band);
+        const lift = (x, y) => [x, y, R.z(x, y) + 0.004], art = G.flip ? [lift(G.x - hw, G.y + hh), lift(G.x + hw, G.y + hh), lift(G.x + hw, G.y - hh), lift(G.x - hw, G.y - hh)] : [lift(G.x - hw, G.y - hh), lift(G.x + hw, G.y - hh), lift(G.x + hw, G.y + hh), lift(G.x - hw, G.y + hh)];
         const tile = st.tile.length ? st.tile[ng % st.tile.length] : null;
-        items.push({ k: 'pad', walls, top: { k: 'quad', P: tops, n: f.n3, img: tile, src: tile ? [0, 0, tile.width, tile.height] : null }, cards: [{ k: 'quad', P: art, n: f.n3, img: G.img, src: G.src, bare: true }], P: [...walls.flatMap(w => w.P), ...art], onRoof: true, xy: art.map(p => [p[0], p[1]]) }); ng++;
+        items.push({ k: 'pad', walls, top: { k: 'quad', P: tops, n: R.n, img: tile, src: tile ? [0, 0, tile.width, tile.height] : null }, cards: [{ k: 'quad', P: art, n: R.n, img: G.img, src: G.src, bare: true }], P: [...walls.flatMap(w => w.P), ...art], onRoof: true, xy: art.map(p => [p[0], p[1]]) }); ng++;
       }
-      const tsty = STYLES[styleId || styleStock.style.split('+')[0]] || {}, TS = tsty.turrets, tsheet = TS ? await loadStyle({ sheet: TS.sheet }).catch(() => null) : null, mountImg = st.mount.length ? st.mount[0] : null; let nT = 0;
-      // a HARD POINT (his note, 2026-10-29: the level pads stood "too tall … pokey"): a thin octagonal plate lying on the roof face under it,
-      // like a greeble's slab, the mount and the style's turret flat on that — tilted with the roof, so the gun hugs the hull. turrets: false
-      // leaves the guns out of the 3D altogether (the Painter's "guns" tick)
-      for (const hp of turrets ? L2.hardpoints : []) {
-        if (!TURRET_FAM[hp.kind]) continue;
-        const f = faceAt(hp.x, hp.y) || [0.1, 0.2, 0.35, 0.5].map(k => faceAt(hp.x * (1 - k), hp.y * (1 - k))).find(Boolean); if (!f) continue;
-        const rP = hp.r, t = 0.02 + 0.04 * rP, zF = (x, y) => hR + sl * ((x - f.q[0]) * f.m[0] + (y - f.q[1]) * f.m[1]) + t, on = (x, y, lift) => [x, y, zF(x, y) + lift];
-        const ring = Array.from({ length: 8 }, (_, i) => [hp.x + rP * 0.92 * Math.cos((i + 0.5) * Math.PI / 4), hp.y + rP * 0.92 * Math.sin((i + 0.5) * Math.PI / 4)]), tops = ring.map(([x, y]) => on(x, y, 0)), walls = [], wallImg = st.band.length ? st.band[0] : null, cards = [];
-        for (let i = 0; i < 8; i++) { const j = (i + 1) % 8, Q = [tops[i], tops[j], [ring[j][0], ring[j][1], Math.min(hAt(...ring[j]), tops[j][2] - 0.01)], [ring[i][0], ring[i][1], Math.min(hAt(...ring[i]), tops[i][2] - 0.01)]]; walls.push({ k: 'quad', P: Q, n: quadN(Q, [(ring[i][0] + ring[j][0]) / 2 - hp.x, (ring[i][1] + ring[j][1]) / 2 - hp.y, 0]), img: wallImg, src: wallImg ? [0, 0, wallImg.width, wallImg.height] : null, dim: 0.12, soft: true }); }
-        if (mountImg) { const a = [[hp.x - rP, hp.y - rP], [hp.x + rP, hp.y - rP], [hp.x + rP, hp.y + rP], [hp.x - rP, hp.y + rP]]; cards.push({ k: 'quad', P: (hp.y < 0 ? [a[3], a[2], a[1], a[0]] : a).map(([x, y]) => on(x, y, 0.004)), n: f.n3, img: mountImg, src: [0, 0, mountImg.width, mountImg.height], bare: true }); }
-        const cell = TS && TS.cells[hp.kind === 'weapon_kinetic' ? 1 : hp.kind === 'weapon_missile' ? 2 : 0];
-        if (cell && tsheet) { const [cx0, cy0, cw2, ch2, px, py, body] = cell, k = 2 * rP * (L2.turretK || RECIPE.turret) / body; cards.push({ k: 'quad', P: [[-px, -py], [cw2 - px, -py], [cw2 - px, ch2 - py], [-px, ch2 - py]].map(([X, Y]) => on(hp.x + X * k, hp.y + Y * k, 0.008)), n: f.n3, img: tsheet, src: [cx0, cy0, cw2, ch2], bare: true }); nT++; }   // as in 2D, barrels forward
-        items.push({ k: 'pad', walls, top: { k: 'quad', P: tops, n: f.n3 }, cards, P: [...walls.flatMap(w => w.P), ...cards.flatMap(c => c.P)], onRoof: true, xy: ring });
+      // a HARD POINT: its mount is in the roof's own texture (the 2D's, shadow and all — his note: the plate read as "a weird grey solid
+      // element"); the style's turret lies on the roof over it, as in 2D, barrels forward. On the crest it stands level on a short drum.
+      // turrets: false (the Painter's turrets tick) leaves the turrets out, the mounts stay — as in 2D
+      const tsty = STYLES[styleId || styleStock.style.split('+')[0]] || {}, TS = tsty.turrets, tsheet = TS ? await loadStyle({ sheet: TS.sheet }).catch(() => null) : null; let nT = 0;
+      for (const hp of turrets && tsheet ? L2.hardpoints : []) {
+        const cell = TURRET_FAM[hp.kind] && TS.cells[hp.kind === 'weapon_kinetic' ? 1 : hp.kind === 'weapon_missile' ? 2 : 0]; if (!cell) continue;
+        const [cx0, cy0, cw2, ch2, px, py, body] = cell, k = 2 * hp.r * (L2.turretK || RECIPE.turret) / body, R = restOn(hp.x, hp.y, hp.r * 0.7, hp.r * 0.7, 0.015);
+        const P = [[-px, -py], [cw2 - px, -py], [cw2 - px, ch2 - py], [-px, ch2 - py]].map(([X, Y]) => { const x = hp.x + X * k, y = hp.y + Y * k; return [x, y, R.z(x, y)]; });
+        const card = { k: 'quad', P, n: R.n, img: tsheet, src: [cx0, cy0, cw2, ch2], bare: true }, xy = P.map(p => [p[0], p[1]]); nT++;
+        if (!R.level) { items.push({ ...card, onRoof: true, xy }); continue; }
+        const ring = Array.from({ length: 8 }, (_, i) => [hp.x + hp.r * 0.5 * Math.cos((i + 0.5) * Math.PI / 4), hp.y + hp.r * 0.5 * Math.sin((i + 0.5) * Math.PI / 4)]), walls = slabWalls(ring, ring.map(([x, y]) => [x, y, R.z(x, y) - 0.004]), R, [hp.x, hp.y], st.band.length ? st.band[0] : null);
+        items.push({ k: 'pad', walls, top: card, cards: [], P: [...walls.flatMap(w => w.P), ...P], onRoof: true, xy });
       }
       // CUTOUTS on the cookie's long flanks (under its top), the ENGINES out of its stern, running lights
       for (let i = 0; i < base.length; i++) {
