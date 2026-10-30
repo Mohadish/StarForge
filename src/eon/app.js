@@ -13,7 +13,7 @@ import { hullDef, hullsFor, setUserHulls, bboxOf, areaOf, HULL_VOLUME, fieldBubb
 import { createHullEditor } from './hulledit.js';
 import { mountNav } from './nav.js';
 import { lookOf as fleetLook, lookFromColors, styleChoices, spriteOf, thumbOf } from './skins.js';
-import { shipFromDesign, designFromStacks, archetype } from './battle.js';
+import { shipFromDesign, designFromStacks, archetype, EXOTIC } from './battle.js';
 import { createChipEditor, CIVIL, vsLayers, CHIPS, CHIPC } from './chipeditor.js';
 import { chipsOfDesign } from './shipcode.js';
 import { createShapeEditor, GW, GH } from './shapeedit.js';
@@ -31,7 +31,7 @@ import { renderResearch, initResearch, researchDoneHtml } from './projects.js';
 import { FAMILIES as RFAM, modelsOf, newestModel, CHANNEL_ICON } from './research.js';
 import { icon as ticon, slotIcon, personIcon, ICON_COLOR, componentIcon } from './techicons.js';
 import { weaponSvg, drawWeapon, plainLook, isWeaponLook } from './weaponart.js';
-import { traitWords, sWord } from './traits.js';
+import { traitWords, sWord, rareWords } from './traits.js';
 import { globeTexture, drawGlobe, globeIcon } from './globe.js';
 initResearch({ save: () => save(), refresh: () => refresh() });   // the Research tab's orders save and redraw like every other
 import { TRI_COLOR, drawSurface, focusTetra, drawTri as drawEffortTri, triFromPoint, triBall, toCanvas, districtAt as surfaceCellAt, mapSize } from './colonyview.js';
@@ -1633,7 +1633,7 @@ function modelList(kind) {
 }
 function statTxt(r, v) { return `${num(v, r.dec ?? (Math.abs(v) >= 10 ? 0 : 1))}${r.unit ? ' ' + r.unit : ''}`; }
 // a model's line in the list: what it is good at (its traits) — the plain one its numbers
-function modelLine(m, c) { if (m && m.traits && m.traits.length) return m.traits.map(t => (traitWords(m.fam, t) || {}).good || t.id).join(' · '); return c.rows.filter(r => r.k !== 'power').slice(0, 3).map(r => statTxt(r, r.val)).join(' · '); }
+function modelLine(m, c) { const w = m && m.rare ? rareWords(m.fam, m.rare) : null; if (w) return `★ ${w.good}`; if (m && m.traits && m.traits.length) return m.traits.map(t => (traitWords(m.fam, t) || {}).good || t.id).join(' · '); return c.rows.filter(r => r.k !== 'power').slice(0, 3).map(r => statTxt(r, r.val)).join(' · '); }
 // what its battle effects do, in words
 function fxWords(fx) {
   const o = [], pc = v => Math.round(v * 100) + ' %';
@@ -1644,8 +1644,16 @@ function fxWords(fx) {
   if (fx.nod) o.push('<span class="tg">armour cannot shrug any of it off</span>');
   if (fx.slip) o.push(`<span class="tg">point defence hits it ×${fx.slip.toFixed(2)} as often</span>`);
   if (fx.seek) o.push(`<span class="tg">the target's dodging counts ×${fx.seek.toFixed(2)}</span>`);
+  if (fx.emp) o.push(`<span class="tg">drains a shield by ${pc(fx.emp)} more of what it takes, and holds it down ${EXOTIC.empHold} s longer</span>`);
+  if (fx.delam) o.push(`<span class="tg">against armour ×${(1 + fx.delam * 0.3).toFixed(2)} on thin plating, up to ×${(1 + fx.delam * EXOTIC.delamCap).toFixed(2)} on the heaviest</span>`);
+  if (fx.blast) o.push(`<span class="tg">a ship it finishes blows apart: ${pc(fx.blast)} of its hull in damage to every ship nearby</span>`);
+  if (fx.heal) o.push(`<span class="tg">the hull knits itself: ${(fx.heal * 100).toFixed(1)} % of it a second, free</span>`);
+  if (fx.drink) o.push(`<span class="tg">beams cool the ship instead of heating it, and ${pc(fx.drink)} of what they take returns to the field</span>`);
+  if (fx.autopd) o.push(`<span class="tg">every gun turns on missiles coming at the ship, ×${fx.autopd.toFixed(1)} as likely to hit them</span>`);
   return o.map(x => `<div>${x}</div>`).join('');
 }
+// SOMETHING EXTRAORDINARY (traits.js EXTRA): its line, gold, above the rest
+function rareHtml(m) { const w = m && m.rare ? rareWords(m.fam, m.rare) : null; return w ? `<div><b style="color:#ffd26a">★ Extraordinary</b> — <b style="color:${w.col}">${esc(w.adj)}</b>: <span class="tg">${esc(w.good)}</span></div>` : ''; }
 function modelDetail(kind, m, c, L = null) {
   const gain = r => r.less ? r.plain / Math.max(1e-9, r.val) - 1 : r.val / Math.max(1e-9, r.plain) - 1, K = KINDS[kind];
   const art = L ? `<div class="art">${weaponSvg(L, { w: 190, h: 101 })}</div>` : '';
@@ -1656,7 +1664,7 @@ function modelDetail(kind, m, c, L = null) {
   const dc = m ? Math.round((c.cost[1] / Math.max(1e-9, c.cost[0]) - 1) * 100) : 0, dv = m && c.volume ? Math.round((c.volume[1] / Math.max(1e-9, c.volume[0]) - 1) * 100) : 0;
   const cost = m && (dc || dv) ? `<div class="muted">${dc ? `cost ${dc > 0 ? '+' : ''}${dc} %` : ''}${dc && dv ? ' · ' : ''}${dv ? `bulk ${dv > 0 ? '+' : ''}${dv} %` : ''} against the standard one</div>` : '';
   const head = m ? `<div><b>${esc(m.name)}</b> <span class="muted">— developed in eon ${m.eon}</span></div>` : `<div><b>The standard ${esc(K.name.toLowerCase())}</b> — what every yard builds, with what your empire knows in it</div>`;
-  return art + head + traits + rows + fxWords(m && m.fx ? m.fx : {}) + spill + drive + cost + '<div class="muted" style="margin-top:3px">New ships only: the ones already built keep what they were built with.</div>';
+  return art + head + rareHtml(m) + traits + rows + fxWords(m && m.fx ? m.fx : {}) + spill + drive + cost + '<div class="muted" style="margin-top:3px">New ships only: the ones already built keep what they were built with.</div>';
 }
 const newestSys = () => Object.fromEntries(MODEL_SYS.map(k => [k, newestModel(S, k)?.id]).filter(x => x[1]));
 // the model of a system the design sizes itself (the reactor, the star drive, the weapons computer): the design's choice
@@ -1871,6 +1879,7 @@ function renderDesign(c) {
   let hull = box(ICON.volume, 'Volume', `${fmt(t.volume)} · ${plural(t.squares, 'square')}`) + box(ICON.hp, 'Hull', `${fmt(t.hp)} HP`);
   if (t.armor) hull += box('▣', 'Armour', `${fmt(t.armor)} HP · shrugs ${t.deflect.toFixed(1)}/hit`);
   if (t.hullRepair) hull += box(ICON.upkeep, 'Repairs in battle', `${t.hullRepair.toFixed(1)} hull/s`);
+  if (t.selfHeal) hull += box(ICON.upkeep, '★ Knits itself', `${(t.selfHeal * t.hp).toFixed(1)} hull/s, free`);
   if (hasShield) hull += box(ICON.shield, 'Shield', `${fmt(t.shield)} · +${fmt(t.shieldRec)}/s`) + box(ICON.cover, 'Shield covers', pct(t.cover) + ' of the hull', t.cover < 0.999);
   let power = box(ICON.power, 'Power', `${fmt(t.powerOut)} made / ${fmt(t.powerUse)} used`, t.powerFactor < 1);
   if (t.powerFactor < 1) power += box(ICON.runs, 'Runs at', pct(t.powerFactor), true);

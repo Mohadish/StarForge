@@ -65,8 +65,9 @@ export const KINDS = {
     scale: { min: 1, max: 128, step: 0.25, stats: ['capacity', 'recovery', 'power'], sqrtStats: ['radius'] },   // min 1: a small ship's shield is the plain one, as it always was (the lab's balance)
     stats: [st('capacity', 'Capacity', 'HP', ['shield_capacity']), st('recovery', 'Recovery', 'HP/s', ['shield_recovery'], { dec: 1 }),
             st('radius', 'Field reach', 'squares', ['shield_reach'], { dec: 1 }), st('power', 'Power use', 'MW', ['power_efficiency'], { less: true })] },
-  armor: { group: 'Defence', name: 'Armor', short: 'ARM', color: '#c9d4e8', cost: 25, volume: 20, base: { hp: 300, deflect: 3, repair: 0.5 },
-    stats: [st('hp', 'Hit points', 'HP', ['armor_integrity', 'hull_integrity']), st('deflect', 'Shrugs off per hit', 'HP', ['armor_deflection'], { dec: 1 }), st('repair', 'Repair rate (paid from a fabricator\'s stock)', 'HP/s', ['hull_regeneration'], { dec: 1 })] },
+  // armour, once broken, stays broken (his call, 2026-10-30): no fabricator mends it — only the hull under it is patched
+  armor: { group: 'Defence', name: 'Armor', short: 'ARM', color: '#c9d4e8', cost: 25, volume: 20, base: { hp: 300, deflect: 3 },
+    stats: [st('hp', 'Hit points', 'HP', ['armor_integrity', 'hull_integrity']), st('deflect', 'Shrugs off per hit', 'HP', ['armor_deflection'], { dec: 1 })] },
   thruster: { group: 'Engines', name: 'Thrusters', short: 'THR', color: '#7ef3b0', engine: 'thruster', cost: 30, volume: 15, base: { thrust: 100, evasion: 10, power: 20 },
     stats: [st('thrust', 'Battle thrust', '', ['thrust']), st('evasion', 'Evasion', '', ['agility', 'evasion']), st('power', 'Power use', 'MW', ['drive_efficiency'], { less: true })] },
   // the star drive is dialled to the hull: a ship needs enough drive for its bulk to leave the system at all
@@ -247,7 +248,7 @@ export function designStats(S, design, caps = allCapsules(S)) {
     t.cost += m.cost * n; t.volume += m.volume * bulk; t.powerUse += (v.power || 0) * n;
     if (m.kind === 'reactor') { t.powerOut += v.output * n; t.reserve += v.reserve * n; t.reactorVol += m.volume * n; }
     if (m.kind === 'weapon_system') { t.mounts += v.mounts * n; t.bonus = Math.max(t.bonus, v.bonus); }
-    if (m.kind === 'armor') { t.armor += v.hp * n; t.deflect = Math.max(t.deflect, v.deflect); t.repair += v.repair * n; }
+    if (m.kind === 'armor') { t.armor += v.hp * n; t.deflect = Math.max(t.deflect, v.deflect); }
     if (m.kind === 'shield') { t.shieldRaw += v.capacity * n; t.shieldRec += v.recovery * n; for (let i = 0; i < n; i++) radii.push(v.radius); }
     if (g.engine) { t.engines[g.engine] += n; t.thrust += v.thrust * n; t.evasionRaw += v.evasion * n; if (v.lift) t.lift += v.lift * n; }
     if (g.mount) { t.mountsUsed += m.load * n; guns.push({ modId: m.mod.id, kind: m.kind, n, pos: m.mod.pos, size: m.volume / g.volume, load: m.load, role: roleOf(m.mod) }); if (g.charges) { t.missiles += Math.round(v.charges) * n; t.missileVol += m.volume * n; } if (g.hangar) { t.drones += Math.round(v.craft) * n; t.droneVol += m.volume * n; } }
@@ -305,6 +306,10 @@ export function designStats(S, design, caps = allCapsules(S)) {
   // its own pace (the slowest drive aboard sets it); a fleet goes at its slowest ship's (model.js fleetPace)
   const drives = mods.filter(m => m.kind === 'stardrive'); t.driveMul = drives.length ? Math.min(...drives.map(m => !m.model ? 1 : m.model.mul ? m.model.mul.pace || 1 : 1 + ((m.model.boost && m.model.boost.drive_efficiency) || 0) / 100)) : 1;
   t.models = [...new Set(mods.filter(m => m.model).map(m => m.model.id))];
+  // SOMETHING EXTRAORDINARY aboard (traits.js EXTRA): a Living armour's hull that knits itself (share of the hull a second), a Thirsting
+  // shield that drinks beams, a Sentinel computer that turns every gun on incoming missiles — the best one aboard, never stacked
+  const ex = (kind, key) => Math.max(0, ...mods.filter(m => m.kind === kind && m.model && m.model.fx && m.model.fx[key]).map(m => m.model.fx[key]));
+  t.selfHeal = ex('armor', 'heal'); t.drink = ex('shield', 'drink'); t.autoPD = ex('weapon_system', 'autopd');
   // where the guns sit; the ones beyond what the weapons computer can run are marked
   const mounts = hardPoints(hull, guns);
   let left = t.mounts;                                       // the computer serves the guns in the order they were added: the newest go short

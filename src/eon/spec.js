@@ -33,6 +33,7 @@ export function designSpecHtml(ds, opts = {}) {
   let hull = box(ICON.hp, 'Hull', `${fmt(t.hp)} HP`);
   if (t.armor) hull += box('▣', 'Armour', `${fmt(t.armor)} HP · shrugs ${t.deflect.toFixed(1)}/hit`);
   if (t.hullRepair) hull += box(ICON.upkeep, 'Repairs in battle', `${t.hullRepair.toFixed(1)} hull/s`);
+  if (t.selfHeal) hull += box(ICON.upkeep, '★ Knits itself', `${(t.selfHeal * t.hp).toFixed(1)} hull/s, free`);
   if (t.shieldRaw) hull += box(ICON.shield, 'Shield', `${fmt(t.shield)} · +${fmt(t.shieldRec)}/s`) + box(ICON.cover, 'Shield covers', pct(t.cover) + ' of the hull', t.cover < 0.999);
   let power = box(ICON.power, 'Power', `${fmt(t.powerOut)} made / ${fmt(t.powerUse)} used`, t.powerFactor < 1);
   if (t.powerFactor < 1) power += box(ICON.runs, 'Runs at', pct(t.powerFactor), true);

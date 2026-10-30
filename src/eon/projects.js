@@ -6,7 +6,7 @@
 // The breakthroughs found stay in the background (their capsules still work); a new one shows up as an advisor's suggestion.
 import { FAMILIES, CATEGORIES, FIELD_COL, advisors, qualityOf, needOf, nameOf, generationOf, startProject, setInfluence, dropProject, benefitsOf, textOf, CHANNEL_ICON, giftOf, expectOf, sameAs } from './research.js';
 import { weaponSvg, plainLook, isWeaponLook } from './weaponart.js';
-import { traitWords, sWord } from './traits.js';
+import { traitWords, sWord, chanceWord, rareWords } from './traits.js';
 import { explored } from './model.js';
 import { icon, ICON_COLOR, componentIcon } from './techicons.js';
 import { KINDS } from './modules.js';   // placeholder icons (his call 2026-10-23: the icon generator comes later)
@@ -38,12 +38,15 @@ export function researchDoneHtml(r) {
   // THE REVEAL (his ask, 2026-10-24): a component is its own thing — its name, its physical form, its character
   if (F.module && r.traits) {
     const art = r.look && isWeaponLook(r.look) ? weaponSvg(r.look, { w: 150, h: 80 }) : componentIcon({ id: r.model, kind: F.module, gen: r.gen }, { color: (KINDS[F.module] || {}).color, size: 44 });
-    return `<b>Research done: ${F.icon} ${esc(r.name)}</b> <span class="tiny">— a new ${esc(F.name.toLowerCase())} of its own</span><div class="pjreveal">${art}<div class="pjexpect">${traitLines(r.fam, r.traits)}</div></div>${r.gift && r.gift.length ? `<div class="pjgift">Your focus adds: ${r.gift.map(g => `${token(g.icon, g.pct)} ${esc(g.word)}`).join(' · ')}.</div>` : ''}<div class="pjfind">To fit it: ${where}</div>`;
+    const rw = r.rare ? rareWords(r.fam, r.rare) : null, rare = rw ? `<div class="pjrare">★ Something extraordinary — <b style="color:${rw.col}">${esc(rw.adj)}</b>: it ${esc(rw.good)}</div>` : '';
+    return `<b>Research done: ${F.icon} ${esc(r.name)}</b> <span class="tiny">— a new ${esc(F.name.toLowerCase())} of its own</span><div class="pjreveal">${art}<div class="pjexpect">${rare}${traitLines(r.fam, r.traits)}</div></div>${r.gift && r.gift.length ? `<div class="pjgift">Your focus adds: ${r.gift.map(g => `${token(g.icon, g.pct)} ${esc(g.word)}`).join(' · ')}.</div>` : ''}<div class="pjfind">To fit it: ${where}</div>`;
   }
   const comp = F.module && r.model ? `<div class="pjfind">${componentIcon({ id: r.model, kind: F.module, gen: r.gen }, { color: (KINDS[F.module] || {}).color, size: 20 })} A new ${esc(F.name.toLowerCase())} to fit: <b>${esc(r.name)}</b> — ${where}</div>` : '';
   return `<b>Research done: ${F.icon} ${esc(r.name)}</b>${paragraph(r.fam, r.gen, ben, r.boosts || [], r.gift || [])}${comp}`;
 }
 
+// the forecast of something extraordinary (traits.js RARE): how likely — never what it will be
+const rareHint = ex => { const w = ex && chanceWord(ex.rare); return w ? `<div class="pjrare">★ ${w[0].toUpperCase() + w.slice(1)} of something extraordinary — its fields are strong</div>` : ''; };
 // a component's traits in words: what it is good at (green), its price (red), how strong
 function traitLines(fam, traits, expect = false) {
   return traits.map(t => { const w = traitWords(fam, t); if (!w) return ''; return `<div><b style="color:${w.col || '#ffd26a'}">${esc(w.adj)}</b>${t.main ? '' : ' <span class="tiny">(a touch of it)</span>'} — <span class="tg">${esc(w.good)}</span>, <span class="tb">but ${esc(w.bad)}</span> <span class="tiny">· ${expect ? 'likely ' : ''}${sWord(t.s)}</span></div>`; }).join('');
@@ -103,7 +106,7 @@ function nodeHtml(pl, S, c) {
   const ex = pl.F.module ? expectOf(S, c.fields, pl.fam, pl.p) : null;   // a component: what we expect of it — its form is found when it is done
   return `<div class="pjnode" data-pjnode="${pl.i}" style="--fc:${FIELD_COL[Object.keys(pl.F.recipe)[0]]}">
     <div class="pjhead"><span class="pjicon">${pl.F.icon}</span><div><b>${esc(pl.name)}</b><div class="tiny">${ex ? 'taking shape' : `${esc(pl.F.name)}${pl.gen > 1 ? ` · generation ${pl.gen}` : ''}`}</div></div><button class="x" data-pjdrop="${pl.i}" title="drop it — what it has done is lost">✕</button></div>
-    ${ex ? `<div class="pjform">${ghostArt(pl.F, 84, 45)}<div class="pjexpect"><div class="tiny">We expect:</div>${traitLines(pl.fam, ex.traits, true)}<div class="tiny">Its physical form is still unknown — the engineers are shaping it.</div>${dupHtml(S, c, pl.fam, ex.traits)}</div></div>` : paragraph(pl.fam, pl.gen, benefitsOf(S, null, pl.fam, pl.q), pl.boosts.map(b => b.name), giftOf(S))}
+    ${ex ? `<div class="pjform">${ghostArt(pl.F, 84, 45)}<div class="pjexpect"><div class="tiny">We expect:</div>${traitLines(pl.fam, ex.traits, true)}${rareHint(ex)}<div class="tiny">Its physical form is still unknown — the engineers are shaping it.</div>${dupHtml(S, c, pl.fam, ex.traits)}</div></div>` : paragraph(pl.fam, pl.gen, benefitsOf(S, null, pl.fam, pl.q), pl.boosts.map(b => b.name), giftOf(S))}
     <div class="pjbar"><i style="width:${Math.min(100, Math.round(pl.done * 100))}%"></i></div>
     <div class="tiny">${Math.round(pl.p.prog || 0)} of ${pl.need} · ${pl.gain > 0 ? `done in <b>${eonWord(pl.eons)}</b>` : '<b class="up">no research reaches it</b>'} · coming out ${gradeHtml(pl.q)}${pl.boosts.length ? ` · ${pl.boosts.length} find${pl.boosts.length > 1 ? 's' : ''} help` : ''}</div>
     <label class="pjinf"><span>influence</span><input type="range" min="0" max="100" step="5" value="${pl.p.inf || 0}" data-pjinf="${pl.i}"><b data-pjinfv="${pl.i}">${pl.p.inf || 0} %</b></label></div>`;
@@ -116,7 +119,7 @@ function famCard(S, c, fam, why = null, star = false, top = null) {
     const ex = expectOf(S, c.fields, fam), [gw] = GRADE(q);
     return `<div class="pjcard ${star ? 'star' : ''} ${pick && pick.fam === fam ? 'on' : ''}" data-pjsel="${fam}">${star ? '<span class="pjstar">★ Your advisors\' pick — the best way with what you have</span>' : ''}<div class="pjhead"><span class="pjicon">${F.icon}</span><div><b>A new ${esc(F.name.toLowerCase())}</b><div class="tiny">would come out ${gradeHtml(q)}</div></div></div>
       ${why ? `<div class="tiny pjwhy">${esc(why)}</div>` : ''}
-      <div class="pjform">${ghostArt(F)}<div class="pjexpect"><div class="tiny">We expect:</div>${traitLines(fam, ex.traits, true)}</div></div>
+      <div class="pjform">${ghostArt(F)}<div class="pjexpect"><div class="tiny">We expect:</div>${traitLines(fam, ex.traits, true)}${rareHint(ex)}</div></div>
       ${dupHtml(S, c, fam, ex.traits)}${whyHtml(S, c, fam)}${!star && top && q < top.q * 0.93 ? `<div class="pjwhere" style="color:#ffb347">Possible — but it would come out less well than a new ${esc(FAMILIES[top.fam].name.toLowerCase())}.</div>` : ''}
       <div class="tiny">${needOf(S, fam)} research · its physical form is found when it is done</div>
       <button class="go" data-pjstart="${fam}">Start</button></div>`;

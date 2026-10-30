@@ -420,3 +420,4 @@
 /* an explored world in the galaxy pop-up: its globe (2026-10-23) */
 .syspop .sp .spglobe{display:block;margin:0 auto;border-radius:50%;outline-offset:-3px}
 .pjgift{color:#9fd0ff;font-size:11px}
+.pjrare{color:#ffd26a;font-size:11px;margin:2px 0;text-shadow:0 0 6px rgba(255,210,106,.35)}

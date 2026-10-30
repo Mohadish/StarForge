@@ -14,7 +14,7 @@
 import { DOMAINS, CHANNEL_X } from '../data/properties.js';
 import { counts } from './colony.js';
 import { CLIMATE } from './districts.js';
-import { traitsFrom, makeup, lookOf, nameFor, traitWords } from './traits.js';
+import { traitsFrom, makeup, lookOf, nameFor, traitWords, rareChance, rollRare, rareFx, rareWords } from './traits.js';
 
 export const FIELD_IDS = Object.keys(DOMAINS);
 export const FIELD_COL = { materials: '#c9a27a', fabrication: '#ffb347', energy: '#ffd84f', electrics: '#7fd8ff', optics: '#c79bff', thermal: '#ff7a59', motion: '#5fe0b4', life: '#8fd16a', information: '#4fa3ff' };
@@ -129,7 +129,7 @@ export const nameOf = (S, fam) => { const F = FAMILIES[fam], g = generationOf(S,
 // THE SAME AGAIN: a component of the same character you already have (the same main trait and the same touch) — the same research makes
 // the same thing (his quest: to get something different, study other fields)
 export function sameAs(S, fam, traits) { const key = ts => ts.map(t => t.id).join('+'), k = key(traits); return k ? (S.models || []).find(m => m.fam === fam && m.traits && key(m.traits) === k) || null : null; }
-export function expectOf(S, fields, fam, p = null) { const { q, ch } = qualityOf(S, fields, fam); return { q, traits: traitsFrom(fam, ch, p && p.feed, p && p.fed).map(t => ({ ...t, ...traitWords(fam, t) })) }; }
+export function expectOf(S, fields, fam, p = null) { const { q, ch } = qualityOf(S, fields, fam); return { q, traits: traitsFrom(fam, ch, p && p.feed, p && p.fed).map(t => ({ ...t, ...traitWords(fam, t) })), rare: rareChance(fam, ch, p && p.feed, p && p.fed) }; }   // rare: the chance of something extraordinary (the forecast says how likely, never what)
 export const strengthOf = (potential, found, boosts = 0) => { const M = RESEARCH.strength; return M.base + M.potential * potential + M.perFind * Math.min(10, found) + M.booster * boosts; };
 
 // a place's research split over the fields: what it has to give, plus a little of everything
@@ -206,11 +206,14 @@ export function advanceProjects(S, plans, rep) {
     } else if (F.module) {
       // A COMPONENT OF ITS OWN (his call, 2026-10-24: "a brand new energy weapon — it does something different, not an upgrade"): its
       // TRAITS from the fields that fed it (traits.js), a name of its own, its physical form (look); fitted on new designs only
-      S.models = S.models || []; const traits = traitsFrom(pl.fam, pl.ch, pl.p.feed, pl.p.fed), { mul, fx } = makeup(pl.fam, traits), id = `md${S.eon}${pl.fam}${pl.gen}`;
-      const model = { id, fam: pl.fam, kind: F.module, name: nameFor(S, pl.fam, traits, F.base), gen: pl.gen, traits, mul, fx, look: lookOf(pl.fam, traits, mul, id), eon: S.eon, q: +pl.q.toFixed(2) };
-      S.models.push(model); Object.assign(research, { model: model.id, name: model.name, traits, look: model.look });
+      // and maybe SOMETHING EXTRAORDINARY (traits.js RARE, his rule 2026-10-30): a chance that grows with how strong its fields were
+      S.models = S.models || []; const traits = traitsFrom(pl.fam, pl.ch, pl.p.feed, pl.p.fed), mk = makeup(pl.fam, traits), mul = mk.mul, id = `md${S.eon}${pl.fam}${pl.gen}`;
+      const rare = rollRare(pl.fam, pl.ch, pl.p.feed, pl.p.fed, `${S.seed}|${S.eon}|${pl.fam}|${pl.gen}`), rw = rare ? rareWords(pl.fam, rare) : null, fx = rare ? { ...mk.fx, ...rareFx(pl.fam, rare) } : mk.fx, look = lookOf(pl.fam, traits, mul, id);
+      if (rw) { look.col = rw.col; look.rare = rare.id; }
+      const model = { id, fam: pl.fam, kind: F.module, name: nameFor(S, pl.fam, traits, F.base, rw ? rw.adj : null), gen: pl.gen, traits, mul, fx, look, eon: S.eon, q: +pl.q.toFixed(2), ...(rare ? { rare } : {}) };
+      S.models.push(model); Object.assign(research, { model: model.id, name: model.name, traits, look: model.look, rare });
       if (giftProp) S.breakthroughs.unshift({ id: `pj${S.eon}${pl.fam}g`, name: `${model.name} (focus gift)`, field: top, fieldName: DOMAINS[top].name, eon: S.eon, origin: 'a research project', under: null, project: pl.fam, props: [giftProp] });
-      rep.push({ kind: 'breakthrough', research, text: `Research done: ${model.name} — a new ${F.name.toLowerCase()} of its own: ${traits.map(t => { const w = traitWords(pl.fam, t); return w ? `${w.good}, but ${w.bad}` : t.id; }).join('; ')} — fit it on new designs` });
+      rep.push({ kind: 'breakthrough', research, text: `Research done: ${model.name} — a new ${F.name.toLowerCase()} of its own: ${traits.map(t => { const w = traitWords(pl.fam, t); return w ? `${w.good}, but ${w.bad}` : t.id; }).join('; ')}${rw ? ` — and something EXTRAORDINARY: it ${rw.good}` : ''} — fit it on new designs` });
     } else if (F.level) {
       const up = RESEARCH.level.base + RESEARCH.level.q * pl.q; S.slotLevels = S.slotLevels || {}; S.slotLevels[F.level] = (S.slotLevels[F.level] || 1) + up;
       rep.push({ kind: 'breakthrough', research, text: `Research done: ${pl.name} — every ${F.level === 'food' ? 'farm' : F.level === 'housing' ? 'home' : F.level === 'industry' ? 'works' : 'lab'} district gives ${ben[0].pct} % more (quality ${Math.round(pl.q * 100)} %)` });

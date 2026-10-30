@@ -111,9 +111,42 @@ export function lookOf(fam, traits, mul, seed) {
   }
   return L;
 }
-// a name nobody in the empire has given yet
-export function nameFor(S, fam, traits, base) {
-  const T = TRAITS[fam], adj = traits[0] && T ? T[traits[0].field].adj : 'New', nouns = [base, ...(NOUNS[fam] || [])].filter((x, i, a) => x && a.indexOf(x) === i), taken = new Set((S.models || []).map(m => m.name));
+// SOMETHING EXTRAORDINARY (his rule, 2026-10-30: "a game of chance — excellent in two or three of its fields and there is a very good
+// chance of something unique"): a finished component may come out EXTRAORDINARY — one effect no plain research gives. The chance grows
+// with how strong the recipe's fields were while they fed it (every field past `from` adds k × the excess, from `base` up to `cap`); the
+// forecast tells only how likely, never what — a surprise. Which one: the family's list, by the field that fed it best; how strong: the
+// best field's. fx go into the model's fx (battle.js; armour heal / shield drink / computer autopd reach the ship through modules.js).
+export const RARE = { base: 0.05, from: 0.4, k: 0.7, cap: 0.85 };
+export const EXTRA = {
+  beam:     [{ id: 'emp', adj: 'Ion', good: 'drains shields and holds them down: a field it hits does not recover for a long while', fx: { emp: [0.4, 0.8] }, col: '#9fd8ff' }],
+  gun:      [{ id: 'delam', adj: 'Shear', good: 'tears armour by its size: the heavier the plating, the more each hit strips away', fx: { delam: [0.5, 1] }, col: '#ffcf7a' }],
+  missile:  [{ id: 'volatile', adj: 'Nova', good: 'a ship it finishes blows apart and hurts everything around it', fx: { blast: [0.2, 0.4] }, col: '#ff9a3c' }],
+  armor:    [{ id: 'living', adj: 'Living', good: 'the hull under it knits itself back, free, all through the battle', fx: { heal: [0.003, 0.006] } }],
+  shield:   [{ id: 'thirst', adj: 'Thirsting', good: 'drinks the beams that hit it: they cool the ship instead of heating it, and top the field back up', fx: { drink: [0.2, 0.4] } }],
+  computer: [{ id: 'sentinel', adj: 'Sentinel', good: 'every gun turns on the missiles coming at the ship, and hits them far more often', fx: { autopd: [1.4, 2] } }],
+};
+// a field's strength as it fed the project (its average while feeding), else as it is now
+const fieldS = (chs, feed, fed) => chs.map(c => { const st = fed > 0 && feed && feed[c.id] > 0 ? feed[c.id] / (fed * c.w) : c.strength; return { field: c.id, w: c.w, st, s: sOf(st) }; });
+export function rareChance(fam, chs, feed = null, fed = 0) {
+  if (!EXTRA[fam]) return 0;
+  const x = fieldS(chs, feed, fed).reduce((a, r) => a + Math.max(0, r.s - RARE.from), 0);
+  return +Math.min(RARE.cap, RARE.base + RARE.k * x).toFixed(3);
+}
+// a die that does not touch the game's own dice (the same key, the same throw — replays stay true)
+const die = key => { let h = 2166136261; for (let i = 0; i < key.length; i++) { h ^= key.charCodeAt(i); h = Math.imul(h, 16777619); } h ^= h >>> 13; h = Math.imul(h, 0x5bd1e995); h ^= h >>> 15; return (h >>> 0) / 4294967296; };
+export function rollRare(fam, chs, feed, fed, key) {
+  const p = rareChance(fam, chs, feed, fed); if (!p || die(String(key)) >= p) return null;
+  const rows = fieldS(chs, feed, fed).sort((a, b) => b.w * b.st - a.w * a.st || (a.field < b.field ? -1 : 1)), L = EXTRA[fam], D = L.find(e => e.field === rows[0].field) || L[0];
+  return { id: D.id, field: rows[0].field, s: +Math.max(...rows.map(r => r.s)).toFixed(3) };
+}
+const rareDef = (fam, rare) => rare && EXTRA[fam] ? EXTRA[fam].find(e => e.id === rare.id) || null : null;
+export const rareFx = (fam, rare) => { const D = rareDef(fam, rare), out = {}; if (D) for (const [k, v] of Object.entries(D.fx)) out[k] = +(Array.isArray(v) ? lerp(v[0], v[1], rare.s) : v).toFixed(4); return out; };
+export const rareWords = (fam, rare) => { const D = rareDef(fam, rare); return D ? { adj: D.adj, good: D.good, col: D.col || '#ffd26a' } : null; };
+// the forecast in words: how likely, never what
+export const chanceWord = p => p >= 0.6 ? 'a very good chance' : p >= 0.3 ? 'a good chance' : p >= 0.12 ? 'some chance' : null;
+// a name nobody in the empire has given yet (an extraordinary one takes its own word)
+export function nameFor(S, fam, traits, base, adj0 = null) {
+  const T = TRAITS[fam], adj = adj0 || (traits[0] && T ? T[traits[0].field].adj : 'New'), nouns = [base, ...(NOUNS[fam] || [])].filter((x, i, a) => x && a.indexOf(x) === i), taken = new Set((S.models || []).map(m => m.name));
   for (const n of nouns) if (!taken.has(`${adj} ${n}`)) return `${adj} ${n}`;
   for (let k = 2; ; k++) if (!taken.has(`${adj} ${nouns[0]} ${k}`)) return `${adj} ${nouns[0]} ${k}`;
 }

@@ -497,6 +497,11 @@ function draw() {
     const [, kind, out, , , , , si, gi] = sh, [[fx, fy], [tx, ty]] = shotEnds(sh), ang = Math.atan2(ty - fy, tx - fx), jit = ((n * 7919) % 23 - 11) * 0.06, gl = si != null && ships[si] && ships[si].guns[gi] ? ships[si].guns[gi].look : null, col = (gl && gl.col) || COLOR[kind] || '#fff';   // a component's beam in its own colour (traits.js)
     if (si !== undefined && si !== null && p <= 1) { const prev = aim.get(si * 1000 + gi); if (!prev || p < prev.p) aim.set(si * 1000 + gi, { a: ang, p }); }
     if (!paint) return;
+    if (kind === 'x') {                                                              // a Nova wreck blowing apart (battle.js boom): a ring out to its reach
+      const f = 1 - p / 0.8; if (f <= 0) return; const R = Math.hypot(tx - fx, ty - fy) * (1.05 - 0.55 * f);
+      g.globalAlpha = 0.3 * f; g.fillStyle = '#ff9a3c'; g.beginPath(); g.arc(fx, fy, R, 0, 7); g.fill();
+      g.globalAlpha = f; g.strokeStyle = '#ffe2a8'; g.lineWidth = 2; g.beginPath(); g.arc(fx, fy, R, 0, 7); g.stroke(); return;
+    }
     if (kind === 'm') {                                                              // a missile arriving: on the hull an orange blast, on a shield a purple flash at the shield's edge, a miss fizzles past
       const f = 1 - p / 0.6; if (f <= 0) return; g.globalAlpha = f;
       if (out === 4) { g.fillStyle = 'rgba(207,137,255,.55)'; g.beginPath(); g.arc(tx, ty, 5 + 9 * f, 0, 7); g.fill(); g.strokeStyle = '#cf89ff'; g.lineWidth = 1.5; g.beginPath(); g.arc(tx, ty, 8 + 16 * (1 - f), 0, 7); g.stroke(); }

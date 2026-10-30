@@ -85,7 +85,7 @@ export function shipFromDesign(S, design, caps = allCapsules(S)) {
     missiles: t.missiles, drones: t.drones, airCap: t.airCap, fab: t.industry * FAB.missilesPerIndustry, dfab: t.industry * FAB.dronesPerIndustry, pd: guns.filter(g => g.role === 'pd').length,
     stock: t.fabStock, stockMax: t.fabStock, missileCost: t.missileCost, droneCost: t.droneCost, maxReloads: t.maxReloads, maxSorties: t.maxSorties,
     hullPerStock: t.hullPerStock, armorPerStock: t.armorPerStock, massGen: t.massGen, spare: Math.max(0, t.powerOut - t.powerUse),
-    heatCap: t.heatCap, cool: t.cool, batterySec: t.batterySec, industry: t.industry };
+    heatCap: t.heatCap, cool: t.cool, batterySec: t.batterySec, industry: t.industry, selfHeal: t.selfHeal || 0, drink: t.drink || 0, autoPD: t.autoPD || 0 };
 }
 const missilesLeft = s => s.guns.reduce((a, g) => a + (Number.isFinite(g.ammo) ? g.ammo : 0), 0);
 // what a mover wants to do this tick to hold `want` from (tx,ty) — close / back off / circle — as a displacement
@@ -125,14 +125,23 @@ export const BREAK = { capital: 2.5 };
 export const PIERCE = { sniper: 0.7 };
 // A COMPONENT'S EFFECTS (traits.js fx, 2026-10-24): sh / ar × what the hit does to a shield / to armour, pierce more of it through the
 // shield, nod past armour's shrug-off, burn a share of what got past the shield eaten into armour and hull over BURN seconds
+// SOMETHING EXTRAORDINARY (traits.js EXTRA, 2026-10-30): an Ion beam (fx.emp) drains a field by that share more of what it took and holds
+// it down `empHold` s past the usual delay · a Shear gun (fx.delam) hits armour ×(1 + delam × the armour's size against `delamRef`, at
+// most `delamCap`) — terrible on heavy plating, a little better than plain on thin · a Nova missile (fx.blast) that finishes a ship
+// blows it apart: blast × its hull in damage to every ship within `blastR` + twice its size, half at the rim · a Thirsting shield
+// (o.drink) drinks what it takes from a beam: it cools the ship by as much as it would have heated it, and that share returns to the field
+export const EXOTIC = { empHold: 6, delamRef: 1000, delamCap: 3, blastR: 150 };
 export function strike(o, dmg, kind, rng, onShield, brk = 0, pierce = null, fx = null) {
   o.hitN = (o.hitN || 0) + 1;                                                     // ENDURANCE: being shot at tires a crew too
-  const pen = Math.min(0.9, (pierce ?? PEN[kind] ?? 0) + ((fx && fx.pierce) || 0)), ks = (fx && fx.sh) || 1, ka = (fx && fx.ar) || 1; let soft = dmg * (1 - pen); const through = dmg * pen;
+  const pen = Math.min(0.9, (pierce ?? PEN[kind] ?? 0) + ((fx && fx.pierce) || 0)), ks = (fx && fx.sh) || 1; let soft = dmg * (1 - pen); const through = dmg * pen;
+  const ka = ((fx && fx.ar) || 1) * (fx && fx.delam ? 1 + fx.delam * Math.min(EXOTIC.delamCap, (o.arMax || 0) / EXOTIC.delamRef) : 1);
   const shielded = o.sh > 0 && (onShield === undefined ? rng() < o.cover : onShield);
   if (shielded) {
     o.shHitN = (o.shHitN || 0) + 1;                                               // the field was hit: it holds off regenerating for SHIELD.delay
-    if (brk) { const ab = Math.min(o.sh, soft * brk * ks); o.sh -= ab; soft = Math.max(0, soft - ab / (brk * ks)); if (o.heatCap) o.heat += ab * HEAT.shield; }   // a shield-breaker: no hardness, ×brk on the field; what the field could not hold goes through
-    else { const bite = Math.max(0, soft * ks - SHIELD.hard), ab = Math.min(o.sh, bite); o.sh -= ab; soft = (bite - ab) / ks; if (o.heatCap) o.heat += ab * HEAT.shield; }   // a shield turning a hit heats the ship (HEAT)
+    const drink = o.drink && kind === 'weapon_energy' ? o.drink : 0;
+    const took = ab => { if (o.heatCap) o.heat = Math.max(0, o.heat + (drink ? -1 : 1) * ab * HEAT.shield); if (drink) o.sh = Math.min(o.shMax, o.sh + ab * drink); if (fx && fx.emp) { o.sh = Math.max(0, o.sh - ab * fx.emp); o.emp = EXOTIC.empHold; } };   // a shield turning a hit heats the ship (HEAT) — a Thirsting one is cooled by a beam; an Ion beam drains it and holds it down
+    if (brk) { const ab = Math.min(o.sh, soft * brk * ks); o.sh -= ab; soft = Math.max(0, soft - ab / (brk * ks)); took(ab); }   // a shield-breaker: no hardness, ×brk on the field; what the field could not hold goes through
+    else { const bite = Math.max(0, soft * ks - SHIELD.hard), ab = Math.min(o.sh, bite); o.sh -= ab; soft = (bite - ab) / ks; took(ab); }
   }
   let h = soft + through;
   if (fx && fx.burn && h > 0) o.burn = (o.burn || 0) + h * fx.burn;                // a burn: eaten into armour and hull over BURN seconds (the ships' loop)
@@ -217,6 +226,12 @@ export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {})
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
   const gunAt = (s, g) => { const c = Math.cos(s.ang), sn = Math.sin(s.ang); return [s.x + c * g.mx - sn * g.my, s.y + sn * g.mx + c * g.my]; };       // a hard point in the field
   const impact = (o, fx, fy, where) => { const dx = fx - o.x, dy = fy - o.y, d = Math.hypot(dx, dy) || 1, r = where === 'shield' ? o.shieldR : o.hullR; return [o.x + dx / d * r, o.y + dy / d * r]; };   // where on the target a hit from (fx,fy) lands
+  // a Nova kill (EXOTIC): the wreck blows apart — every ship near it is hit, half as hard at the rim; the replay draws the ring ('x': from the wreck to its rim)
+  const boom = (o, fx, side, was) => {
+    if (!fx || !fx.blast || !was || o.hp > 0 || o.blown) return; o.blown = true;
+    const R = EXOTIC.blastR + 2 * o.hullR, dmg = fx.blast * o.hpMax; log(side, 'x', 1, o.x, o.y, o.x + R, o.y);
+    for (const t of ships) { if (t === o || t.dead || t.hp <= 0) continue; const d = dist(t, o); if (d > R) continue; const r = strike(t, dmg * (1 - 0.5 * d / R), 'blast', rng); dealt[side] += r.h; log(side, 'm', r.where === 'shield' ? 4 : 1, o.x, o.y, ...impact(t, o.x, o.y, r.where), undefined, undefined, t); }
+  };
   const nearestFoe = (x, y, side) => { let best = null, bd = Infinity; for (const o of alive(1 - side)) { const d = Math.hypot(o.x - x, o.y - y); if (d < bd) { bd = d; best = o; } } return best; };
   // who a ship goes for: the nearest living enemy, a hurt one counting as nearer; it keeps its target unless
   // another is clearly better. An ELIMINATE order narrows the pool to those ships; an area order to what is in the area.
@@ -313,11 +328,11 @@ export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {})
       // it flies all the way in: a shield covering the spot takes it at the shield's edge; otherwise it bursts on the hull; a miss flies past
       if (m.hit && o.sh > 0 && !m.shieldRolled && d <= o.shieldR + reach) {
         m.shieldRolled = true;
-        if (rng() < o.cover) { const r = strike(o, m.dmg, 'weapon_missile', rng, true, 0, null, m.fx); m.done = true; hits[m.side]++; dealt[m.side] += r.h; log(m.side, 'm', 4, m.x, m.y, ...impact(o, m.x, m.y, 'shield'), undefined, undefined, o, m.id); continue; }
+        if (rng() < o.cover) { const was = o.hp > 0, r = strike(o, m.dmg, 'weapon_missile', rng, true, 0, null, m.fx); m.done = true; hits[m.side]++; dealt[m.side] += r.h; log(m.side, 'm', 4, m.x, m.y, ...impact(o, m.x, m.y, 'shield'), undefined, undefined, o, m.id); boom(o, m.fx, m.side, was); continue; }
       }
       if (d <= o.hullR + reach) {
         m.done = true;
-        if (m.hit) { const r = strike(o, m.dmg, 'weapon_missile', rng, false, 0, null, m.fx); hits[m.side]++; dealt[m.side] += r.h; log(m.side, 'm', 1, m.x, m.y, ...impact(o, m.x, m.y, 'hull'), undefined, undefined, o, m.id); }
+        if (m.hit) { const was = o.hp > 0, r = strike(o, m.dmg, 'weapon_missile', rng, false, 0, null, m.fx); hits[m.side]++; dealt[m.side] += r.h; log(m.side, 'm', 1, m.x, m.y, ...impact(o, m.x, m.y, 'hull'), undefined, undefined, o, m.id); boom(o, m.fx, m.side, was); }
         else log(m.side, 'm', 0, m.x, m.y, o.x, o.y, undefined, undefined, o, m.id);
         continue;
       }
@@ -344,7 +359,9 @@ export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {})
         // who gets this shot: point defence takes what is coming in first; a gun with a ship in reach shoots the ship;
         // an idle kinetic gun or beam swats drones and missiles (beams well, guns poorly); launchers only ever fire at ships
         let tgt = null, pdk = 1;
+        const inc = s.autoPD && !missile && g.role !== 'pd' ? near(missiles.filter(x => x.tgt === s)) : null;   // a Sentinel computer (EXOTIC): every gun turns on a missile coming at its ship
         if (g.role === 'pd') tgt = near(missiles)?.[0] || near(drones)?.[0] || o;
+        else if (inc) { tgt = inc[0]; pdk = Math.min(1, (beam ? PD.beamIdle : PD.gunIdle) * s.autoPD); }
         else if (o) tgt = o;
         else if (!missile) { tgt = near(drones)?.[0] || near(missiles)?.[0]; pdk = beam ? PD.beamIdle : PD.gunIdle; }
         if (!tgt) continue;
@@ -361,7 +378,7 @@ export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {})
         if (tgt === o) {
           if (missile) { missiles.push({ id: nextId++, side: s.side, tgt: o, x: gx, y: gy, age: 0, phase: rng() * 6.28, wob: rng() < 0.5 ? 1 : -1, dmg: g.dmg, fx: g.fx, hit: rng() < g.acc / 100 * (1 - Math.min(0.9, o.evade * (DODGE[g.kind] || 1) * ((g.fx && g.fx.seek) || 1))) }); continue; }   // a Seeker sees through some of its dodging
           const hit = rng() < g.acc / 100 * (1 - o.evade);
-          if (hit) { const r = strike(o, g.dmg * (g.role === 'pd' ? pdVsShip(o) : 1), g.kind, rng, undefined, g.brk, g.pierce, g.fx); hits[s.side]++; dealt[s.side] += r.h; log(s.side, kch, r.where === 'shield' ? 4 : 1, gx, gy, ...impact(o, gx, gy, r.where), s.idx, gi, o); }
+          if (hit) { const was = o.hp > 0, r = strike(o, g.dmg * (g.role === 'pd' ? pdVsShip(o) : 1), g.kind, rng, undefined, g.brk, g.pierce, g.fx); hits[s.side]++; dealt[s.side] += r.h; log(s.side, kch, r.where === 'shield' ? 4 : 1, gx, gy, ...impact(o, gx, gy, r.where), s.idx, gi, o); boom(o, g.fx, s.side, was); }
           else log(s.side, kch, 0, gx, gy, o.x, o.y, s.idx, gi, o);
         } else if (tgt.bat === undefined) {                                  // a missile (a drone carries a battery; both carry an age — telling them apart by age had let every drone off the hook)
           const hit = rng() < g.acc / 100 * PD.vsMissile * pdk * ((tgt.fx && tgt.fx.slip) || 1); log(s.side, kch, hit ? 2 : 0, gx, gy, tgt.x, tgt.y, s.idx, gi, tgt); if (hit) { tgt.done = true; shot[s.side]++; }   // a Cluster is hard to shoot down
@@ -379,19 +396,19 @@ export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {})
       for (const f of fleets[s.side]) if (!f.dead) capLoss(f, hit);
     }
     // shields recover (free: they are fields, not material); REPAIRS COST THE BANK (his call, 2026-10-10): the fabricator
-    // patches the hull and knits the armour only out of its stock — the hull first, the armour last and dearer (only while
-    // no missile or drone is waiting to be rebuilt). Armour used to knit itself for free, forever: it out-healed drones.
+    // patches the hull only out of its stock. ARMOUR, once broken, stays broken (his call, 2026-10-30): no fabricator mends it.
     for (const s of ships) {
       if (s.dead) continue;
       if (s.burn > 0.01) { const x = s.burn * Math.min(1, B.dt / BURN); s.burn -= x; let h = x; if (s.ar > 0) { const ab = Math.min(s.ar, h); s.ar -= ab; h -= ab; } if (h > 0) s.hp -= h; }   // an Ember's burn eats on (traits.js)
+      if (s.selfHeal > 0 && s.hp > 0 && s.hp < s.hpMax) { const r = Math.min(s.selfHeal * s.hpMax * B.dt, s.hpMax - s.hp); s.hp += r; s.repaired += r; }   // a Living armour (EXOTIC): the hull knits itself, free
       if ((s.shHitN || 0) !== s.shSeen) { s.shSeen = s.shHitN || 0; s.shHitT = time; }          // SHIELD.delay: the field regenerates only after a quiet spell
-      if (dark(s)) s.sh = 0; else if (time - (s.shHitT ?? -1e9) >= SHIELD.delay) s.sh = Math.min(s.shMax, s.sh + s.rec * power(s) * perf(s) * B.dt);   // dark: no power to hold the field — it collapses
+      if (s.emp > 0) s.emp -= B.dt;                                                               // an Ion beam holds the field down
+      if (dark(s)) s.sh = 0; else if (time - (s.shHitT ?? -1e9) >= SHIELD.delay && !(s.emp > 0)) s.sh = Math.min(s.shMax, s.sh + s.rec * power(s) * perf(s) * B.dt);   // dark: no power to hold the field — it collapses
       if (s.massGen > 0 && s.spare > 0 && !s.off) s.stock = Math.min(s.stockMax, s.stock + s.massGen * s.spare * B.dt);   // (breakthrough) spare power made into material
       if (!s.off && !hot(s)) {                                                       // the fabricator's mending needs the reactor too, and heats the ship
         const pf = perf(s);                                                          // a tired crew mends slower too (ENDURANCE)
         if (s.hp > 0 && s.hp < s.hpMax && s.hullRepair > 0 && s.stock > 0) { const r = Math.min(s.hullRepair * pf * B.dt, s.hpMax - s.hp, s.stock * s.hullPerStock); s.hp += r; s.repaired += r; s.stock -= r / s.hullPerStock; s.heat += r / s.hullPerStock * HEAT.fab; }
         const waiting = (s.stock >= s.missileCost && s.missileCost > 0 && s.guns.some(g => Number.isFinite(g.ammo) && g.ammo < g.mag)) || (s.stock >= s.droneCost && s.droneCost > 0 && s.bays.some(b => b.spent > 0));
-        if (s.arMax && s.ar < s.arMax && s.repair > 0 && s.stock > 0 && !waiting) { const r = Math.min(s.repair * pf * B.dt, s.arMax - s.ar, s.stock * s.armorPerStock); s.ar += r; s.stock -= r / s.armorPerStock; s.heat += r / s.armorPerStock * HEAT.fab; }
         // ENDURANCE: out of the fight, a fabricator wins back part of the worn ceiling (never above `top`), from the stock
         if (!s.engaged && !waiting && s.industry > 0 && s.em < s.top && s.stock > 0) { const r = Math.min(ENDURE.fix * s.industry * pf * B.dt, s.top - s.em, s.stock / ENDURE.fixCost * 0.01), u = r / 0.01 * ENDURE.fixCost; s.em += r; s.stock -= u; s.heat += u * HEAT.fab; }
       }
