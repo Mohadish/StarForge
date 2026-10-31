@@ -9,7 +9,8 @@
 //   in the report, in the picker, in the tree — until you research it.
 // · Breakthrough gains are TECHNOLOGY (a level or an adaptation stamped on the districts: the builders refit them, colony.js); refinements
 //   are PRACTICE — they count everywhere at once (S.refine, S.adaptR, S.waterR).
-export const REFINE = { first: 3.5, decay: 0.85, qMin: 0.5, qMax: 1.6, gunK: 1.5, adaptK: 2, waterK: 2 };
+export const REFINE = { first: 3.5, decay: 0.85, qMin: 0.5, qMax: 1.6, gunK: 1.5, adaptK: 2, waterK: 2, shipK: 2, btK: 3, xenoK: 3, cheapK: 1, fieldK: 1 };
+export const CAPS = { cheap: 0.5, water: 0.85 };   // research can make projects at most half as dear
 export const BT = { at: 1.15, passive: 0.25, effort: 0.4, cap: 0.35 };
 export const AV_NEED = { base: 900, tier: 1.5, per: 0.15 };   // research an avenue takes: base × tier^(t−1) × (1 + per × refinements done)
 // the stats a gun's refinement improves, and the field that drives each (his: materials → damage, motion → range, fabrication → rate)
@@ -28,6 +29,31 @@ export const AVENUES = {
       text: 'Crops in racks of nutrient water under lamps: every farm district feeds far more.' },
     rad:     { tier: 3, from: ['heat', 'drought'], all: true, needs: ['shield'], name: 'Shielded farms', recipe: { life: 0.4, materials: 0.3, motion: 0.3 }, jump: { adapt: { radiation: 0.4 } }, step: 'adapt:radiation', dev: 'farms_rad',
       text: 'Fields under a lattice of shields, strains that mend their own seeds: farms under open radiation lose far less.' },
+  },
+  // RESEARCH (his ask, 2026-10-31: "the labs just build on themselves — no tiers, only percentage boosts"; the same ids as the tech web's
+  // labs family): the basics refine the labs' output; each breakthrough changes HOW the empire learns — more research, lab ships that learn
+  // more where they park, breakthroughs found more often, projects that cost less, stronger research fields, anomalies that teach more
+  labs: {
+    basic:         { tier: 1, name: 'Laboratories', recipe: { information: 0.5, electrics: 0.3, optics: 0.2 }, step: 'science', dev: 'labs',
+      text: 'Benches, instruments and patient people: every lab district studies a little more.' },
+    academy:       { tier: 2, from: ['basic'], name: 'Academy Network', recipe: { information: 0.55, life: 0.25, electrics: 0.2 }, jump: { science: 20 }, step: 'science', dev: 'labs',
+      text: 'Schools that feed the labs: more and better researchers — every lab district studies far more.' },
+    fieldstations: { tier: 2, from: ['basic'], name: 'Field Stations', recipe: { optics: 0.4, information: 0.35, motion: 0.25 }, jump: { shipsci: 0.4 }, step: 'shipsci', dev: 'sensors',
+      text: 'Labs that go to what they study: lab ships parked at places learn far more.' },
+    archive:       { tier: 2, from: ['basic'], name: 'Specimen Archives', recipe: { life: 0.5, information: 0.35, materials: 0.15 }, jump: { bt: 0.4 }, step: 'bt', dev: 'labs',
+      text: 'Everything ever found, kept and catalogued: breakthroughs come more often, in every family.' },
+    simulation:    { tier: 3, from: ['academy'], needs: ['computer'], name: 'Simulation Labs', recipe: { information: 0.6, electrics: 0.3, energy: 0.1 }, jump: { cheap: 0.15 }, step: 'cheap', dev: 'computer',
+      text: 'Experiments run in the machine first: every research project costs less. (needs a weapons-computer project done)' },
+    collider:      { tier: 3, from: ['fieldstations'], name: 'Particle Collider', recipe: { energy: 0.45, motion: 0.35, electrics: 0.2 }, jump: { fields: { energy: 0.1, motion: 0.1, electrics: 0.1 } }, step: 'fields:energy,motion,electrics', dev: 'reactor',
+      text: 'Matter smashed to see inside it: energy, fields & motion and electrics are stronger for every project.' },
+    genelab:       { tier: 3, from: ['archive'], name: 'Gene Sequencing Labs', recipe: { life: 0.55, information: 0.35, electrics: 0.1 }, jump: { fields: { life: 0.15 } }, step: 'fields:life', dev: 'labs',
+      text: 'Life read at speed: life & chemistry is stronger for every project.' },
+    observatory:   { tier: 4, from: ['fieldstations'], min: 2, name: 'Orbital Observatory', recipe: { optics: 0.55, information: 0.3, motion: 0.15 }, jump: { fields: { optics: 0.15 } }, step: 'fields:optics', dev: 'sensors',
+      text: 'Telescopes above every world: optics is stronger for every project.' },
+    xenobio:       { tier: 4, from: ['genelab'], name: 'Xenobiology Institute', recipe: { life: 0.45, information: 0.35, optics: 0.2 }, jump: { xeno: 0.5 }, step: 'xeno', dev: 'labs',
+      text: 'Studies whatever lives and happens elsewhere: anomalies teach far more to the labs that study them.' },
+    fusiontest:    { tier: 4, from: ['collider'], needs: ['reactor'], name: 'Fusion Test Facility', recipe: { energy: 0.5, thermal: 0.35, materials: 0.15 }, jump: { fields: { energy: 0.12, thermal: 0.12 } }, step: 'fields:energy,thermal', dev: 'reactor',
+      text: 'A star in a cage to study: energy and thermal are stronger for every project. (needs a reactor project done)' },
   },
   gun: {
     driver:     { tier: 1, name: 'Driver', recipe: { materials: 0.35, fabrication: 0.35, motion: 0.3 }, step: 'gun', look: 'auto',

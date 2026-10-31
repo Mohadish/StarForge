@@ -187,7 +187,7 @@ function avSoFar(S, fam, av, compact) {
     const old = A.tier === 1 ? (S.models || []).filter(x => x.fam === fam && !x.av) : [];   // an older game's guns, developed before the avenues — still in Design
     return old.length ? `<div class="tiny">your earlier guns, still in Design: ${old.map(x => `<b>${esc(x.name)}</b>`).join(', ')}</div>` : '';
   }
-  const ic = A.step === 'water' ? 'water' : 'food', ic2 = A.step.startsWith('adapt:') ? A.step.slice(6) : null;
+  const ic = A.step === 'water' ? 'water' : A.step === 'food' || A.step.startsWith('adapt:') ? 'food' : A.step === 'cheap' ? 'cost' : A.step.startsWith('fields:') ? 'computing' : 'labs', ic2 = A.step.startsWith('adapt:') ? A.step.slice(6) : null;
   const j = h.jumpGains ? gainTokens(h.jumpGains) : '', s = h.sum ? token(ic, +h.sum.toFixed(1), ic2) : '';
   return `<div class="tcaps">${j}${s}${h.old && !j && !s ? '<span class="tiny">developed before the avenues — its gains are in your colonies</span>' : ''}</div>`;
 }

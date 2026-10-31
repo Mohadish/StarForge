@@ -204,9 +204,9 @@ const surfaceOf = (S, pl) => { const G = migrateColony(S, pl); if (G) ensureStam
 // S.refine.food × every farm, S.adaptR on top of each farm's own adaptation
 function colonyCaps(S, pl, G) {
   const R = S.adaptR || {}, plus = ad => { const ks = Object.keys(R); if (!ks.length) return ad; const o = { ...ad }; for (const h of ks) o[h] = Math.min(1, (o[h] || 0) + R[h]); return o; };
-  const climate = farmClimate(pl, plus(S.adapt || {})), memo = new Map(), rf = 1 + ((S.refine && S.refine.food) || 0);
+  const climate = farmClimate(pl, plus(S.adapt || {})), memo = new Map(), rf = 1 + ((S.refine && S.refine.food) || 0), rs = 1 + ((S.refine && S.refine.science) || 0);
   const climFor = k => { const ad = G.ad && G.ad[k]; if (!ad) return climate.mul; const a2 = plus(ad), key = JSON.stringify(a2); if (!memo.has(key)) memo.set(key, farmClimate(pl, a2).mul); return memo.get(key); };
-  return { climate, ...capsOf(G, { levels: S.slotLevels || LEVEL1, unitMul: (k, kind) => kind === 'food' ? climFor(k) * rf : 1 }) };
+  return { climate, ...capsOf(G, { levels: S.slotLevels || LEVEL1, unitMul: (k, kind) => kind === 'food' ? climFor(k) * rf : kind === 'science' ? rs : 1 }) };   // the labs' refinements too
 }    // a world snapshot from before the slots meets the engine here (upgrade() does it for a save)
 
 // a starting design: a silhouette and a list of modules ({ kind, n?, w/h for a gantry, k for a reactor })

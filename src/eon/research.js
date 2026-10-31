@@ -15,7 +15,7 @@ import { DOMAINS, CHANNEL_X } from '../data/properties.js';
 import { counts } from './colony.js';
 import { CLIMATE } from './districts.js';
 import { traitsFrom, makeup, lookOf, nameFor, traitWords, rareChance, rollRare, rareFx, rareWords, die } from './traits.js';
-import { AVENUES, REFINE, BT, AV_NEED, hasAvenues, baseAvenue, refineGain, qFactor, gunShares, candidates } from './avenues.js';
+import { AVENUES, REFINE, BT, AV_NEED, CAPS, hasAvenues, baseAvenue, refineGain, qFactor, gunShares, candidates } from './avenues.js';
 
 export const FIELD_IDS = Object.keys(DOMAINS);
 export const FIELD_COL = { materials: '#c9a27a', fabrication: '#ffb347', energy: '#ffd84f', electrics: '#7fd8ff', optics: '#c79bff', thermal: '#ff7a59', motion: '#5fe0b4', life: '#8fd16a', information: '#4fa3ff' };
@@ -124,7 +124,8 @@ export const generationOf = (S, fam) => ((S.gens || {})[fam] || 0) + 1;
 // in S.models for the designs and ships built with them
 export const modelsOf = (S, kind) => { const l = (S.models || []).filter(m => m.kind === kind), last = new Map(); for (const m of l) if (m.av) last.set(m.fam + ':' + m.av, m); return l.filter(m => !m.av || last.get(m.fam + ':' + m.av) === m); };
 export const newestModel = (S, kind) => { const l = modelsOf(S, kind); return l.length ? l[l.length - 1] : null; };
-export const needOf = (S, fam) => Math.round(RESEARCH.need * Math.pow(RESEARCH.growth, generationOf(S, fam) - 1));
+export const cheapOf = S => 1 - Math.min(CAPS.cheap, S.projCheap || 0);   // Simulation Labs (avenues.js): every project costs less research
+export const needOf = (S, fam) => Math.round(RESEARCH.need * Math.pow(RESEARCH.growth, generationOf(S, fam) - 1) * cheapOf(S));
 // a component's project has no name yet — the name comes with what it turns out to be (traits.js nameFor)
 export const nameOf = (S, fam) => { const F = FAMILIES[fam], g = generationOf(S, fam); return F.module ? `A new ${F.name.toLowerCase()}` : `${F.base} Mk ${roman(g)}`; };
 // WHAT WE EXPECT of a component under way (or one you might start): its traits from the fields as they fed it so far (p.feed), else as
@@ -151,8 +152,11 @@ export function naturalFlows(S, colonies, ships) {
   const by = Object.fromEntries(FIELD_IDS.map(f => [f, 0])), from = Object.fromEntries(FIELD_IDS.map(f => [f, []])), colAt = new Map(colonies.map(p => [p.pl.id, p]));
   const pour = (r, pl, G, label) => { if (!(r > 0) || !pl) return; const P = placeProfile(pl), C = G ? characterOf(G) : null, s = C ? RESEARCH.selfStudy : 0;
     for (const f of FIELD_IDS) { const v = r * ((1 - s) * P[f] + s * (C ? C[f] : 0)); if (v <= 1e-9) continue; by[f] += v; from[f].push({ label, v }); } };
-  for (const p of colonies) pour(p.research, p.pl, p.G, p.pl.name);
-  for (const { u, t } of ships) if (!u.dest && t.research > 0) { const pl = S.places.find(x => x.id === u.at), col = colAt.get(u.at); pour(t.research, pl, col ? col.G : null, `${u.name} at ${pl ? pl.name : '?'}`); }
+  // THE LABS' AVENUES (avenues.js): Field Stations — a lab ship learns more where it parks (S.labShips); the Xenobiology Institute — an
+  // anomaly teaches more to whoever studies it (S.xeno)
+  const xeno = pl => pl && pl.kind === 'anomaly' ? 1 + (S.xeno || 0) : 1;
+  for (const p of colonies) pour(p.research * xeno(p.pl), p.pl, p.G, p.pl.name);
+  for (const { u, t } of ships) if (!u.dest && t.research > 0) { const pl = S.places.find(x => x.id === u.at), col = colAt.get(u.at); pour(t.research * (1 + (S.labShips || 0)) * xeno(pl), pl, col ? col.G : null, `${u.name} at ${pl ? pl.name : '?'}`); }
   for (const f of FIELD_IDS) from[f].sort((a, b) => b.v - a.v);
   return { by, from, total: FIELD_IDS.reduce((a, f) => a + by[f], 0) };
 }
@@ -166,19 +170,21 @@ export function boostersFor(S, fam) {
 // AVENUE of the family (avenues.js) — its own recipe, and no finds boosting it (his call: the finds stay out of the research)
 export function qualityOf(S, fields, fam, av = null) {
   const F = FAMILIES[fam], A = av && AVENUES[fam] ? AVENUES[fam][av] : null, recipe = A ? A.recipe : F.recipe, byId = new Map(fields.map(f => [f.id, f])), boosts = A || hasAvenues(fam) ? [] : boostersFor(S, fam);
-  const ch = Object.entries(recipe).map(([id, w]) => { const f = byId.get(id), nb = boosts.filter(b => b.field === id).length; return { id, w, nb, potential: f ? f.potential : 0, found: S.found[id] || 0, strength: strengthOf(f ? f.potential : 0, S.found[id] || 0, nb) }; });
+  const fb = S.fieldBoost || {};   // the labs' avenues (avenues.js: a collider, gene labs…): a field stronger for every project
+  const ch = Object.entries(recipe).map(([id, w]) => { const f = byId.get(id), nb = boosts.filter(b => b.field === id).length; return { id, w, nb, potential: f ? f.potential : 0, found: S.found[id] || 0, strength: strengthOf(f ? f.potential : 0, S.found[id] || 0, nb) + (fb[id] || 0) }; });
   return { q: ch.reduce((a, x) => a + x.w * x.strength, 0), ch, boosts };
 }
 // ---------------------------------------------------------------- THE AVENUES (avenues.js, his design 2026-10-31, stage 1: farms, guns)
 // an older game: its generations of the farms, the climate's crops and the guns become refinements of their avenues; a project on a
 // climate family becomes a project on its avenue. Breakthrough gains already in S.slotLevels / S.adapt stay where they are
 export function ensureAvenues(S) {
-  if (S.avV === 1) return; S.av = S.av || {}; S.offers = S.offers || []; S.refine = S.refine || {}; S.adaptR = S.adaptR || {};
+  if (S.avV === 2) return; S.av = S.av || {}; S.offers = S.offers || []; S.refine = S.refine || {}; S.adaptR = S.adaptR || {};
   const g = S.gens || {}, put = (fam, id, n) => { if (!n) return; const h = (S.av[fam] = S.av[fam] || {}); if (!h[id]) h[id] = { n, gain: {}, eon: S.eon, old: true }; };
-  put('farms', 'farming', g.farms); put('farms', 'cold', g.farms_cold); put('farms', 'heat', g.farms_hot); put('farms', 'rad', g.farms_rad); put('gun', 'driver', g.gun);
+  if (!S.avV) { put('farms', 'farming', g.farms); put('farms', 'cold', g.farms_cold); put('farms', 'heat', g.farms_hot); put('farms', 'rad', g.farms_rad); put('gun', 'driver', g.gun); }
+  put('labs', 'basic', g.labs);   // v2 (2026-10-31): the labs' generations
   const OLD = { farms_cold: 'cold', farms_hot: 'heat', farms_rad: 'rad' };
   for (const p of S.projects || []) { if (OLD[p.fam]) { p.av = OLD[p.fam]; p.fam = 'farms'; } else if (hasAvenues(p.fam) && !p.av) p.av = baseAvenue(p.fam); }
-  S.avV = 1;
+  S.avV = 2;
 }
 export const heldOf = (S, fam, av) => ((S.av || {})[fam] || {})[av] || null;
 // the avenue a project of the family takes when none is named: an offer first (the oldest), else the highest tier held, else the base
@@ -189,15 +195,22 @@ export function defaultAv(S, fam) {
 export const offered = (S, fam, av) => (S.offers || []).some(o => o.fam === fam && o.av === av);
 // what it is called: the base avenue by its refinements (Driver III), any other by its name, then II, III… as it is refined
 export const avName = (fam, av, n) => { const A = AVENUES[fam][av]; return A.tier === 1 ? `${A.name} ${roman(Math.max(1, n))}` : n <= 1 ? A.name : `${A.name} ${roman(n)}`; };
-export const avNeed = (S, fam, av) => { const A = AVENUES[fam][av], h = heldOf(S, fam, av); return Math.round(AV_NEED.base * Math.pow(AV_NEED.tier, A.tier - 1) * (1 + AV_NEED.per * ((h && h.n) || 0))); };
+export const avNeed = (S, fam, av) => { const A = AVENUES[fam][av], h = heldOf(S, fam, av); return Math.round(AV_NEED.base * Math.pow(AV_NEED.tier, A.tier - 1) * (1 + AV_NEED.per * ((h && h.n) || 0)) * cheapOf(S)); };
 // is the next research on it a breakthrough (the avenue's first) or a refinement (the r-th, 0 the first)?
 export function nextStep(S, fam, av) { const A = AVENUES[fam][av], h = heldOf(S, fam, av), n = (h && h.n) || 0; return A.tier > 1 && !n ? { jump: true, r: 0, n } : { jump: false, r: A.tier === 1 ? n : n - 1, n }; }
 // WHAT IT WOULD GIVE (the cards): [{ key, icon, icon2, pct, word }] — a breakthrough its leap, a refinement its share of the small gain
 // (a gun's over damage / reach / rate by the fields: strengths { field: strength })
 export function avGains(S, fam, av, q, strengths = {}) {
   const A = AVENUES[fam][av], st = nextStep(S, fam, av), k = qFactor(q), out = [], hz = { cold: 'cold', heat: 'heat', radiation: 'radiation' };
+  const fieldWord = f => ({ motion: 'fields & motion', life: 'life & chemistry' }[f] || f);
   if (st.jump && A.jump) {
     if (A.jump.food) out.push({ key: 'food', icon: 'food', pct: Math.round(A.jump.food * k), word: 'food from every farm' });
+    if (A.jump.science) out.push({ key: 'science', icon: 'labs', pct: Math.round(A.jump.science * k), word: 'research from every lab' });   // the labs (avenues.js)
+    if (A.jump.shipsci) out.push({ key: 'shipsci', icon: 'labs', pct: Math.round(A.jump.shipsci * k * 100), word: 'research from lab ships' });
+    if (A.jump.bt) out.push({ key: 'bt', icon: 'labs', pct: Math.round(A.jump.bt * k * 100), word: 'chance of breakthroughs' });
+    if (A.jump.cheap) out.push({ key: 'cheap', icon: 'cost', pct: Math.round(A.jump.cheap * k * 100), word: 'less research for every project' });
+    if (A.jump.xeno) out.push({ key: 'xeno', icon: 'labs', pct: Math.round(A.jump.xeno * k * 100), word: 'research from anomalies' });
+    for (const [f, v] of Object.entries(A.jump.fields || {})) out.push({ key: 'field:' + f, icon: 'computing', pct: Math.round(v * k * 100), word: `${fieldWord(f)} stronger` });
     for (const [h, v] of Object.entries(A.jump.adapt || {})) out.push({ key: 'adapt:' + h, icon: 'food', icon2: hz[h], pct: Math.round(v * k * 100), word: `adapted to the ${h === 'heat' ? 'heat' : h}` });
     if (A.jump.water) out.push({ key: 'water', icon: 'water', pct: Math.round(A.jump.water * k * 100), word: 'less water needed' });
     for (const [s, v] of Object.entries(A.mul || {})) if (Math.abs(v - 1) > 0.01) out.push({ key: s, icon: s === 'damage' ? 'damage' : s === 'range' ? 'range' : 'rate', pct: Math.round((v - 1) * 100), word: s });
@@ -208,6 +221,12 @@ export function avGains(S, fam, av, q, strengths = {}) {
   else if (step.startsWith('adapt:')) { const h = step.slice(6); out.push({ key: step, icon: 'food', icon2: hz[h], pct: +(g * REFINE.adaptK).toFixed(1), word: `adapted to the ${h}` }); }
   else if (step === 'water') out.push({ key: 'water', icon: 'water', pct: +(g * REFINE.waterK).toFixed(1), word: 'less water needed' });
   else if (step === 'gun') { const sh = gunShares(A, strengths); for (const [s, w] of Object.entries(sh)) out.push({ key: s, icon: s === 'damage' ? 'damage' : s === 'range' ? 'range' : 'rate', pct: +(g * REFINE.gunK * w).toFixed(1), word: s === 'rate' ? 'rate of fire' : s }); }
+  else if (step === 'science') out.push({ key: 'science', icon: 'labs', pct: +g.toFixed(1), word: 'research from every lab' });
+  else if (step === 'shipsci') out.push({ key: 'shipsci', icon: 'labs', pct: +(g * REFINE.shipK).toFixed(1), word: 'research from lab ships' });
+  else if (step === 'bt') out.push({ key: 'bt', icon: 'labs', pct: +(g * REFINE.btK).toFixed(1), word: 'chance of breakthroughs' });
+  else if (step === 'cheap') out.push({ key: 'cheap', icon: 'cost', pct: +(g * REFINE.cheapK).toFixed(1), word: 'less research for every project' });
+  else if (step === 'xeno') out.push({ key: 'xeno', icon: 'labs', pct: +(g * REFINE.xenoK).toFixed(1), word: 'research from anomalies' });
+  else if (step.startsWith('fields:')) for (const f of step.slice(7).split(',')) out.push({ key: 'field:' + f, icon: 'computing', pct: +(g * REFINE.fieldK).toFixed(1), word: `${fieldWord(f)} stronger` });
   return out;
 }
 // a gun avenue's component: its avenue's own character (mul, fx) and every refinement's gain on top — a new version each time (no
@@ -226,6 +245,13 @@ function applyAvenue(S, pl, rep) {
     if (A.jump && A.jump.food) { S.slotLevels = S.slotLevels || {}; S.slotLevels.food = (S.slotLevels.food || 1) + A.jump.food * k / 25; }   // a level = +25 % (colony.js UNIT.levelGain): new technology, refitted into the districts
     for (const [hz, v] of Object.entries((A.jump && A.jump.adapt) || {})) { S.adapt = S.adapt || {}; S.adapt[hz] = Math.min(1, (S.adapt[hz] || 0) + v * k); }
     if (A.jump && A.jump.water) S.water = Math.min(0.8, (S.water || 0) + A.jump.water * k);
+    const J = A.jump || {};   // the labs' breakthroughs (avenues.js)
+    if (J.science) { S.slotLevels = S.slotLevels || {}; S.slotLevels.science = (S.slotLevels.science || 1) + J.science * k / 25; }   // new technology: refitted into the lab districts
+    if (J.shipsci) S.labShips = (S.labShips || 0) + J.shipsci * k;
+    if (J.bt) S.btBonus = (S.btBonus || 0) + J.bt * k;
+    if (J.cheap) S.projCheap = Math.min(CAPS.cheap, (S.projCheap || 0) + J.cheap * k);
+    if (J.xeno) S.xeno = (S.xeno || 0) + J.xeno * k;
+    for (const [f, v] of Object.entries(J.fields || {})) { S.fieldBoost = S.fieldBoost || {}; S.fieldBoost[f] = +((S.fieldBoost[f] || 0) + v * k).toFixed(4); }
     S.offers = (S.offers || []).filter(o => !(o.fam === fam && o.av === av));
   } else {
     const g = refineGain(st.r, pl.q), step = A.step || '';
@@ -233,6 +259,12 @@ function applyAvenue(S, pl, rep) {
     else if (step.startsWith('adapt:')) { const hz = step.slice(6); S.adaptR[hz] = Math.min(0.6, (S.adaptR[hz] || 0) + g * REFINE.adaptK / 100); }
     else if (step === 'water') S.waterR = Math.min(0.5, (S.waterR || 0) + g * REFINE.waterK / 100);
     else if (step === 'gun') for (const x of gains) h.gain[x.key] = +((h.gain[x.key] || 0) + x.pct).toFixed(2);
+    else if (step === 'science') S.refine.science = (S.refine.science || 0) + g / 100;   // practice: counts in every lab at once
+    else if (step === 'shipsci') S.labShips = (S.labShips || 0) + g * REFINE.shipK / 100;
+    else if (step === 'bt') S.btBonus = (S.btBonus || 0) + g * REFINE.btK / 100;
+    else if (step === 'cheap') S.projCheap = Math.min(CAPS.cheap, (S.projCheap || 0) + g * REFINE.cheapK / 100);
+    else if (step === 'xeno') S.xeno = (S.xeno || 0) + g * REFINE.xenoK / 100;
+    else if (step.startsWith('fields:')) for (const f of step.slice(7).split(',')) { S.fieldBoost = S.fieldBoost || {}; S.fieldBoost[f] = +((S.fieldBoost[f] || 0) + g * REFINE.fieldK / 100).toFixed(4); }
   }
   if (st.jump) h.jumpGains = gains; else if (A.step !== 'gun' && gains[0]) h.sum = +((h.sum || 0) + gains[0].pct).toFixed(2);   // what it has given, for its card in the tree
   h.n = (h.n || 0) + 1; h.eon = S.eon; h.q = +pl.q.toFixed(2);
@@ -248,7 +280,7 @@ export function avChance(S, fields, fam, av, plans = []) {
   const A = AVENUES[fam][av], q = qualityOf(S, fields, fam, av).q;
   let p = q >= BT.at ? BT.passive * (q - BT.at + 0.1) : 0;
   for (const pl of plans) if (pl.fam === fam && pl.av && A.from.includes(pl.av) && pl.gain > 0) p += BT.effort * (pl.gain / pl.need) * q * q;
-  return { p: Math.min(BT.cap, p), q };
+  return { p: Math.min(BT.cap, p * (1 + (S.btBonus || 0))), q };   // Specimen Archives (avenues.js labs): breakthroughs come more often
 }
 export function discoverAvenues(S, fields, plans, rep) {
   if (!fields) return [];
