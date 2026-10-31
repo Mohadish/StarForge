@@ -1621,15 +1621,15 @@ function stackSub(s, mods) {
 // THE COMPONENTS IN THE DESIGNER (his ask, 2026-10-24: "click on a weapon … a list of all the energy weapons developed, with unique names;
 // hovering shows the detailed output"): every model of a kind, the plain one first — its icon, a line of its numbers, and its details against
 // the plain one (with the empire's know-how in both). Kept while the eon's numbers stand
-function modelList(kind) {
+function modelList(kind, tune = null) {   // tune: a pile's role and dials (chipeditor tuneOf) — the numbers as that pile would have them
   const K = KINDS[kind]; if (!K || !K.stats) return [];
   if (MLC.at !== LAST || MLC.n !== (S.models || []).length) MLC = { at: LAST, n: (S.models || []).length, map: new Map() };
-  if (MLC.map.has(kind)) return MLC.map.get(kind);
-  const pas = (LAST && LAST.passive) || {}, plain = modelCard(S, kind, null, pas);
+  const key = kind + (tune ? '|' + JSON.stringify(tune) : ''); if (MLC.map.has(key)) return MLC.map.get(key);
+  const pas = (LAST && LAST.passive) || {}, plain = modelCard(S, kind, null, pas, tune);
   const look = m => (m && m.look && isWeaponLook(m.look)) ? m.look : (!m || !m.look) ? plainLook(kind) : null;   // a weapon's physical form (weaponart.js); other kinds keep the little icon
-  const entry = m => { const c = m ? modelCard(S, kind, m, pas) : plain, L = look(m); return { id: m ? m.id : null, name: m ? m.name : `Standard ${K.name.toLowerCase()}`, gen: m ? m.gen : 0,
+  const entry = m => { const c = m ? modelCard(S, kind, m, pas, tune) : plain, L = look(m); return { id: m ? m.id : null, name: m ? m.name : `Standard ${K.name.toLowerCase()}`, gen: m ? m.gen : 0,
     icon: L ? weaponSvg(L, { w: 40, h: 21, bg: false }) : componentIcon(m, { kind, color: K.color, size: 18 }), line: modelLine(m, c), detail: modelDetail(kind, m, c, L) }; };
-  const list = [entry(null), ...modelsOf(S, kind).map(entry)]; MLC.map.set(kind, list); return list;
+  const list = [entry(null), ...modelsOf(S, kind).map(entry)]; MLC.map.set(key, list); return list;
 }
 function statTxt(r, v) { return `${num(v, r.dec ?? (Math.abs(v) >= 10 ? 0 : 1))}${r.unit ? ' ' + r.unit : ''}`; }
 // a model's line in the list: what it is good at (its traits) — the plain one its numbers

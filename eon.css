@@ -350,7 +350,8 @@
 .tfam{position:sticky;left:0;z-index:2;display:flex;gap:6px;align-items:center;font-size:12px;padding:6px 8px 6px 6px;background:rgba(8,13,26,.9);border-radius:0 10px 10px 0;border:1px solid #1d2a45;border-left:0;align-self:center}
 .tfam .pjicon{font-size:18px;width:22px}
 .tcell{min-height:30px}
-.tcard{position:relative;border:2px solid var(--tc);border-radius:12px;padding:9px;background:linear-gradient(#152340,#0b1426);box-shadow:0 0 18px color-mix(in srgb,var(--tc) 20%,transparent);cursor:pointer}
+.tcard{position:relative;border:2px solid var(--tc);border-radius:12px;padding:9px;background:linear-gradient(#152340,#0b1426);box-shadow:0 0 18px color-mix(in srgb,var(--tc) 20%,transparent)}
+.tgrid.mini .tcard{cursor:pointer}
 .tcard:hover{box-shadow:0 0 26px color-mix(in srgb,var(--tc) 48%,transparent)}
 .tcard.going{border-style:dashed}
 .tcard.full{cursor:default}

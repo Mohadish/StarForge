@@ -60,7 +60,7 @@ const CSS = `
 .ce-sheet .row span { color: var(--muted, #9eb3d8) }
 .ce-sheet .warn { color: var(--bad, #ff7979); margin-top: 4px }
 .ce-sheet .sys { color: #6f83a8; font-size: 11px; margin-top: 6px }
-.chipb.models::after { content: ' ▾'; opacity: .7 }
+.chipb.models::after { content: ' · ' attr(data-n) ' ▾'; opacity: .8; font-weight: 800 }
 .ce-tray .stack .newer { font-size: 11px; font-weight: 800; color: #ffb347 }
 .ce-tray .stack.auto.pick { cursor: pointer }
 .ce-tray .stack.auto.pick:hover { background: rgba(255,255,255,.07) }
@@ -112,7 +112,9 @@ export function createChipEditor({ palette, tray, info, sheet, dropZones = [] },
   // THE MODELS (2026-10-24): models(kind) → [the plain one (id null), …every model developed] as { id, name, icon, line, detail } (the page's);
   // a chip's kind of module (the "Fast" chip is the thrusters); a stack may carry one (s.model). Each is its OWN thing, not an upgrade (his
   // call): a drag brings the standard one, a tap the list to choose from
-  const MK = { fast: 'thruster', fab: 'works' }, mkOf = k => MK[k] || k, listOf = kind => (models && models(kind)) || [];
+  const MK = { fast: 'thruster', fab: 'works' }, mkOf = k => MK[k] || k, listOf = (kind, tune = null) => (models && models(kind, tune)) || [];   // tune: a pile's role and dials — its list's numbers as that pile would have them
+  // a pile's role and dials, as the module reads them (modules.js gunTune): a gun's damage / rate / reach / load, a hangar's drone size
+  const tuneOf = s => { const dl = s.dials || {}; if (s.kind === 'hangar') return dl.sz ? { sz: dl.sz, preset: s.role } : null; if (!KINDS[s.kind]?.mount) return null; const p = PRESETS[s.role] || PRESETS.standard; return { dmg: dl.dmg || p.dmg, rof: dl.rof || p.rof, rng: dl.rng || p.rng, chg: dl.chg || 1, preset: s.role || null }; };
   const modelIn = (kind, id) => listOf(kind).find(m => m.id === (id ?? null)) || null, newestOf = key => { const l = listOf(mkOf(key)); return l.length > 1 ? l[l.length - 1].id : null; };
   const stackIcon = s => { const m = modelIn(mkOf(s.kind), s.model); return m && listOf(mkOf(s.kind)).length > 1 ? m.icon || '' : ''; };
   const newerOf = () => '';   // no "newer" marker: a model is another tool, not a better one
@@ -135,7 +137,7 @@ export function createChipEditor({ palette, tray, info, sheet, dropZones = [] },
     } else html = stacks.map(chip).join('');
     tray.innerHTML = html || '<span class="tiny">Empty. Tap or drag chips from above; drop a chip on a stack to pile it up; drop a role on a weapon to give it that role. Double-click a stack for its details.</span>';
     palette.querySelector('[data-prow="role"]')?.classList.toggle('off', !stacks.some(isWeapon));   // a role wants a weapon to sit on
-    for (const c of palette.querySelectorAll('[data-chip]')) { const [t, k] = c.dataset.chip.split(':'), has = t !== 'role' && listOf(mkOf(k)).length > 1; c.classList.toggle('models', has); c.title = has ? 'tap it: choose which one — each does something different (a drag brings the standard one)' : 'drag it into the tray (or onto a stack), or tap it'; }
+    for (const c of palette.querySelectorAll('[data-chip]')) { const [t, k] = c.dataset.chip.split(':'), n = t !== 'role' ? listOf(mkOf(k)).length - 1 : 0, has = n > 0; c.classList.toggle('models', has); c.dataset.n = has ? n : ''; c.title = has ? `tap it: choose which one — ${n} of your own besides the standard, each does something different (a drag brings the standard one)` : 'drag it into the tray (or onto a stack), or tap it'; }
     renderInfo();
     if (onRender) onRender(open);
   }
@@ -152,8 +154,8 @@ export function createChipEditor({ palette, tray, info, sheet, dropZones = [] },
   // plain one, click to take it. onPick(id | null)
   let menu = null;
   const closeMenu = () => { if (menu) { menu.remove(); menu = null; } };
-  function openMenu(anchor, kind, what, onPick, current) {
-    closeMenu(); const list = listOf(kind).slice(); if (!list.length) return;   // the standard one first, then each in the order it was developed
+  function openMenu(anchor, kind, what, onPick, current, tune = null) {
+    closeMenu(); const list = listOf(kind, tune).slice(); if (!list.length) return;   // the standard one first, then each in the order it was developed
     const at = Math.max(0, current === undefined ? 0 : list.findIndex(m => m.id === (current ?? null)));
     menu = document.createElement('div'); menu.className = 'ce-menu';
     menu.innerHTML = `<div class="hd">${esc(what)} — hover for its numbers, click to take it</div>` + list.map((m, i) => `<div class="ce-mi${i === at ? ' on' : ''}" data-mi="${i}">${m.icon || ''}<b>${esc(m.name)}</b>${current !== undefined && m.id === (current ?? null) ? '<span class="tag">fitted</span>' : ''}<small>${m.line || ''}</small></div>`).join('') + `<div class="ce-mdet">${list[at].detail || ''}</div>`;
@@ -239,7 +241,7 @@ export function createChipEditor({ palette, tray, info, sheet, dropZones = [] },
     const s = stacks.find(x => x.id === open); if (!s) return;
     if (onInfoClick && onInfoClick(e, s)) return emit();
     if (e.target.closest('[data-sclose]')) { open = null; return render(); }
-    const mb = e.target.closest('[data-smodel]'); if (mb) return openMenu(mb, mkOf(s.kind), `Which ${nameOf(s.type || 'trait', s.kind)}?`, id => { if (id) s.model = id; else delete s.model; emit(); }, s.model ?? null);
+    const mb = e.target.closest('[data-smodel]'); if (mb) { const tu = tuneOf(s), rn = s.role && PRESETS[s.role] ? PRESETS[s.role].name : null; return openMenu(mb, mkOf(s.kind), `Which ${nameOf(s.type || 'trait', s.kind)}?${rn ? ` (numbers as a ${rn.toLowerCase()})` : ''}`, id => { if (id) s.model = id; else delete s.model; emit(); }, s.model ?? null, tu); }
     if (e.target.closest('[data-sreset]')) { delete s.dials; return emit(); }
     const b = e.target.closest('[data-dial]'); if (!b) return;
     const [k, d] = b.dataset.dial.split(':'), dir = +d, p = PRESETS[s.role] || PRESETS.standard, base = { dmg: p.dmg, rof: p.rof, rng: p.rng, chg: 1, sz: 1 };

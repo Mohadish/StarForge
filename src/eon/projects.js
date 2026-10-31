@@ -226,10 +226,13 @@ function drawFlow() {
   const B = board.getBoundingClientRect(), W = B.width, H = B.height, sec = $('rFieldsSec').getBoundingClientRect(); svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
   const rows = new Map([...document.querySelectorAll('#eFields .frow[data-field]')].map(row => { const r = row.getBoundingClientRect(); return [row.dataset.field, { y: Math.max(8, Math.min(H - 8, r.top + r.height / 2 - B.top)), off: r.bottom < sec.top + 30 || r.top > sec.bottom - 10 }]; }));
   let out = '';
-  const T = ($('rTree') || board).getBoundingClientRect(), tx0 = T.left - B.left + 8, tx1 = T.right - B.left - 8, ty0 = T.top - B.top + 8, ty1 = T.bottom - B.top - 8;   // a node scrolled out of the tree's view: the channel ends at its edge
+  // a node scrolled or zoomed out of the tree's view: the channel still runs to where it is — and is cut at the tree's frame, so it
+  // leaves the view toward it (his catch, 2026-10-31: the clamped ends "lost track" of the cells outside the frame)
+  const ty = Math.max(0, ($('rTree') || board).getBoundingClientRect().top - B.top);
+  out += `<defs><clipPath id="rfClip"><rect x="0" y="0" width="40" height="${H}"/><rect x="0" y="${ty}" width="${W}" height="${Math.max(0, H - ty)}"/></clipPath></defs><g clip-path="url(#rfClip)">`;
   for (const [id, r] of rows) if (!(ctx.c.projects || []).some(p => p.F.recipe[id])) out += `<path d="M0 ${r.y} L22 ${r.y}" stroke="#5b6a8a" stroke-width="2" opacity="${r.off ? 0.1 : 0.3}" stroke-linecap="round"/>`;
   for (const pl of ctx.c.projects || []) {
-    const node = document.querySelector(`#rTree [data-pjnode="${pl.i}"]`); if (!node) continue; const N = node.getBoundingClientRect(), nh = Math.min(N.height, Math.max(24, ty1 - ty0)), nx = Math.max(tx0, Math.min(tx1, N.left - B.left)), ny = Math.max(ty0, Math.min(ty1 - nh, N.top - B.top));
+    const node = document.querySelector(`#rTree [data-pjnode="${pl.i}"]`); if (!node) continue; const N = node.getBoundingClientRect(), nx = N.left - B.left, ny = N.top - B.top, nh = N.height;
     const ids = Object.keys(pl.F.recipe).sort((a, b) => (rows.get(a)?.y ?? 0) - (rows.get(b)?.y ?? 0)), dim = hiFam && hiFam !== pl.fam;
     ids.forEach((id, k) => {
       const r = rows.get(id); if (!r) return; const x = pl.ch.find(c => c.id === id), w = pl.F.recipe[id], py = ny + 14 + (k + 0.5) * (nh - 28) / ids.length, col = FIELD_COL[id];
@@ -240,7 +243,7 @@ function drawFlow() {
       out += `<circle cx="3" cy="${r.y}" r="3.5" fill="${col}"/><circle cx="${nx}" cy="${py}" r="4" fill="${col}"/>`;
     });
   }
-  svg.innerHTML = out;
+  svg.innerHTML = out + '</g>';
 }
 export function renderResearch(c, S) {
   ctx = { c, S }; const fl = $('eFields'), tree = $('rTreeIn'), pk = $('rPick'), card = $('rCard'); if (!fl || !tree) return;
@@ -253,14 +256,15 @@ export function renderResearch(c, S) {
 }
 const act = fn => { if (!ctx) return; const err = fn(ctx.S); if (err) return alert(err); hooks.save(); hooks.refresh(); };
 // THE TREE's hands (his ask, 2026-10-31): the WHEEL zooms (round the pointer; past ZOOM.mini the cards turn simple), a DRAG on the tree
-// moves it, a CLICK on a card opens all of it (any zoom), a RIGHT-CLICK on a picture draws another shape of it
+// moves it, a CLICK on a card opens all of it — only while the cards are the simple ones (his call: "if you can see all the information
+// already, you don't need it bigger"), a RIGHT-CLICK on a picture draws another shape of it
 let pan = null;
 document.addEventListener('wheel', e => {
   const tree = e.target.closest?.('#rTree'); if (!tree || !ctx) return; e.preventDefault();
   const notch = Math.sign(e.deltaY) * Math.min(1, Math.abs(e.deltaY) / 100);   // a mouse notch = 12 %, a touchpad's small strokes less
   const z0 = zoom, z1 = Math.max(ZOOM.min, Math.min(ZOOM.max, z0 * Math.exp(-notch * 0.12))); if (Math.abs(z1 - z0) < 1e-4) return;
   const R = tree.getBoundingClientRect(), mx = e.clientX - R.left, my = e.clientY - R.top, ax = (tree.scrollLeft + mx) / z0, ay = (tree.scrollTop + my) / z0;
-  zoom = z1; if ((z0 < ZOOM.mini) !== (z1 < ZOOM.mini)) renderResearch(ctx.c, ctx.S); else $('rTreeIn').style.zoom = z1;
+  zoom = z1; if ((z0 < ZOOM.mini) !== (z1 < ZOOM.mini)) { if (z1 >= ZOOM.mini) popup = null; renderResearch(ctx.c, ctx.S); } else $('rTreeIn').style.zoom = z1;   // back to the whole cards: the opened one closes
   tree.scrollLeft = ax * z1 - mx; tree.scrollTop = ay * z1 - my; drawFlow();
 }, { passive: false });
 document.addEventListener('pointerdown', e => { const tree = e.button === 0 && e.target.closest?.('#rTree'); if (!tree || e.target.closest('input, button, label, select')) return; pan = { tree, x: e.clientX, y: e.clientY, sl: tree.scrollLeft, st: tree.scrollTop, moved: false }; });
@@ -275,7 +279,7 @@ document.addEventListener('click', e => {
   if (e.target.closest('[data-tclose]')) { popup = null; return renderResearch(ctx.c, ctx.S); }
   if (pan && pan.justMoved) return;                                                // the end of a drag, not a click
   if (e.target.closest('#rTree') && !e.target.closest('input, button, label, select')) {
-    const k = e.target.closest('[data-tech], [data-pjnode]');
+    const k = zoom < ZOOM.mini ? e.target.closest('[data-tech], [data-pjnode]') : null;
     if (k) { popup = k.dataset.tech ? { tech: k.dataset.tech } : { node: +k.dataset.pjnode }; return renderResearch(ctx.c, ctx.S); }
     if (popup) { popup = null; return renderResearch(ctx.c, ctx.S); }
   }

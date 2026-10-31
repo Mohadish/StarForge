@@ -221,9 +221,10 @@ export function moduleStats(mod, capMap, passive, model = null) {
 
 // A MODEL'S CARD (2026-10-24, the designer's list): one plain module of the kind against the same module as that model — every stat with
 // the empire's know-how in both, the boosts that serve the whole ship (spill), the cost, and a star drive's pace between the stars
-export function modelCard(S, kind, model, passive = passiveOf(allCapsules(S))) {
+// tune: the pile's role and dials (a capital gun's damage ×4…) — both sides of the card as that pile would have them (his ask, 2026-10-31)
+export function modelCard(S, kind, model, passive = passiveOf(allCapsules(S)), tune = null) {
   const K = KINDS[kind]; if (!K) return null;
-  const mod = { id: 'card', kind, caps: [], n: 1, k: 1 }, none = new Map(), a = moduleStats(mod, none, passive, null), b = model ? moduleStats(mod, none, passive, model) : a;
+  const mod = { id: 'card', kind, caps: [], n: 1, k: 1, ...(tune || {}) }, none = new Map(), a = moduleStats(mod, none, passive, null), b = model ? moduleStats(mod, none, passive, model) : a;
   const rows = b.stats.map((s, i) => ({ k: s.k, label: s.label, unit: s.unit, less: !!s.less, dec: s.dec, plain: a.stats[i].val, val: s.val }));
   const spill = model ? Object.entries(model.boost || {}).filter(([ch]) => !K.stats.some(s => s.from.includes(ch))).map(([channel, pct]) => ({ channel, pct })) : [];
   return { rows, spill, cost: [a.cost, b.cost], volume: [a.volume, b.volume], fx: (model && model.fx) || {}, drive: kind === 'stardrive' ? (model && model.mul ? model.mul.pace || 1 : 1 + ((model && model.boost && model.boost.drive_efficiency) || 0) / 100) : null };
