@@ -10,7 +10,7 @@ import { weaponSvg, isWeaponLook } from './weaponart.js';
 import { traitWords, sWord, chanceWord, rareWords } from './traits.js';
 import { explored } from './model.js';
 import { icon, ICON_COLOR, componentIcon } from './techicons.js';
-import { KINDS } from './modules.js';   // placeholder icons (his call 2026-10-23: the icon generator comes later)
+import { KINDS, modelCard, allCapsules, passiveOf } from './modules.js';   // placeholder icons (his call 2026-10-23: the icon generator comes later)
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 const $ = id => document.getElementById(id);
@@ -123,10 +123,31 @@ function capsHtml(S, fam, t, expect = null) {
   const ben = t.pcts ? benOf(F, t.pcts) : benefitsOf(S, null, fam, t.q ?? 1);
   return ben.map(b => token(b.icon, b.pct, b.icon2)).join('');
 }
+// A COMPONENT'S SPECS (his ask, 2026-10-31: "to the right of the picture — damage as DPS, range, plus this against shields, minus that
+// against armour"): one standard module of its kind as that model, with the empire's know-how in it (modules.js modelCard)
+let PAS = null;
+const pasOf = S => { const k = S.eon + '|' + (S.breakthroughs || []).length; if (!PAS || PAS.k !== k) PAS = { k, p: passiveOf(allCapsules(S)) }; return PAS.p; };
+const n0 = v => Math.abs(v) >= 100 ? Math.round(v).toLocaleString('en') : Math.abs(v) >= 10 ? v.toFixed(0) : v.toFixed(1);
+function specs(S, F, m, compact = false) {
+  if (!F.module || !KINDS[F.module]) return '';
+  const c = modelCard(S, F.module, m, pasOf(S)); if (!c) return '';
+  const r = Object.fromEntries(c.rows.map(x => [x.k, x])), fx = c.fx || {}, out = [], mul = (v, w) => `<span class="${v > 1 ? 'tg' : 'tb'}">${w} ×${v.toFixed(2)}</span>`;
+  if (r.damage && r.rate) {                                                        // a gun, a beam, a launcher: what it does a second, as it lands
+    out.push(['DPS', `<b>${n0(r.damage.val * r.rate.val * Math.min(98, r.accuracy ? r.accuracy.val : 90) / 100)}</b>`], ['a shot', n0(r.damage.val)], ['rate', `${r.rate.val.toFixed(2)}/s`], ['range', `${n0(r.range.val)} u`]);
+    if (!compact && r.accuracy) out.push(['to hit', `${Math.round(r.accuracy.val)} %`]);
+  } else for (const x of c.rows.filter(x => x.k !== 'power').slice(0, compact ? 2 : 4)) out.push([x.label.toLowerCase(), `${n0(x.val)}${x.unit ? ' ' + esc(x.unit) : ''}`]);
+  if (r.power && !compact) out.push(['power', `${n0(r.power.val)} MW`]);
+  const vs = [];
+  if (fx.sh && Math.abs(fx.sh - 1) > 0.01) vs.push(mul(fx.sh, 'vs shields')); if (fx.ar && Math.abs(fx.ar - 1) > 0.01) vs.push(mul(fx.ar, 'vs armour'));
+  if (fx.pierce) vs.push(`<span class="tg">+${Math.round(fx.pierce * 100)} % through shields</span>`); if (fx.nod) vs.push('<span class="tg">ignores armour shrug</span>'); if (fx.burn) vs.push(`<span class="tg">burns ${Math.round(fx.burn * 100)} %</span>`);
+  if (compact) return `<div class="tspecl">${out.map(([k, v]) => `<span>${k} ${v}</span>`).join('')}${vs.join('')}</div>`;
+  return `<div class="tspecs">${out.map(([k, v]) => `<div><span class="muted">${k}</span><span>${v}</span></div>`).join('')}${vs.map(v => `<div class="vs">${v}</div>`).join('')}</div>`;
+}
 // a finished technology in the tree: the simple card (mini), the card, or the whole of it (the opened card)
 function techCard(S, t, mini, full = false) {
   const F = FAMILIES[t.fam], m = modelOf(S, t), key = t.fam + ':' + t.gen, look = m && m.look ? m.look : null;
-  const head = `${coin(t.fam)}<div class="ttop">${techArt(S, { fam: t.fam, gen: t.gen, q: t.q ?? 1, look, w: full ? 170 : mini ? 64 : 104 })}<div><div class="tname">${esc(t.name)}</div><div class="tiny">${mini ? tierWord(t.gen) : `${esc(F.name)} · ${tierWord(t.gen)}${t.eon != null ? ` · eon ${t.eon}` : ''}`}</div></div></div>`;
+  const art = techArt(S, { fam: t.fam, gen: t.gen, q: t.q ?? 1, look, w: full ? 170 : mini ? 64 : 104 }), title = `<div class="tname">${esc(t.name)}</div><div class="tiny">${mini ? tierWord(t.gen) : `${esc(F.name)} · ${tierWord(t.gen)}${t.eon != null ? ` · eon ${t.eon}` : ''}`}</div>`;
+  const head = full ? `${coin(t.fam)}<div class="ttitle">${title}</div><div class="tspecrow">${art}${specs(S, F, m) || ''}</div>` : `${coin(t.fam)}<div class="ttop">${art}<div>${title}</div></div>${mini ? '' : specs(S, F, m, true)}`;
   const caps = `<div class="tcaps">${capsHtml(S, t.fam, t)}</div>`;
   if (mini) return `<div class="tcard done mini" data-tech="${key}" style="--tc:${tcol(t.gen, t.q)}">${head}${caps}</div>`;
   const rw = m && m.rare ? rareWords(t.fam, m.rare) : null;

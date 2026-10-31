@@ -368,6 +368,15 @@
 .tart.ready{opacity:1}
 .tcard .pjhead{padding-right:22px}
 .tcard.full .ttop,.tcard.full .pjhead{flex-direction:column;align-items:flex-start}
+/* a component's specs (projects.js specs): beside the picture in the opened card, a line under it on the card in the tree */
+.ttitle{padding-right:60px;margin-bottom:6px}
+.tspecrow{display:flex;gap:12px;align-items:center}
+.tspecs{flex:1;min-width:0;font-size:12px;display:flex;flex-direction:column;gap:2px}
+.tspecs > div{display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid rgba(255,255,255,.05)}
+.tspecs > div.vs{justify-content:flex-start;border:0;font-weight:700}
+.tspecs .tg,.tspecl .tg{color:#7ef3b0}.tspecs .tb,.tspecl .tb{color:#ff9b8a}
+.tspecl{display:flex;flex-wrap:wrap;gap:2px 10px;font-size:11px;color:#c9d4ea;margin-top:5px}
+.tspecl b{color:#fff}
 #rCard{position:absolute;left:50%;top:62px;transform:translateX(-50%);width:min(440px,92%);max-height:calc(100% - 78px);overflow-y:auto;z-index:4;border-radius:14px;box-shadow:0 18px 60px rgba(0,0,0,.75)}
 #rCard[hidden]{display:none}
 #rCard .tcard{background:linear-gradient(#18284a,#0b1426 60%);padding:14px}
