@@ -27,13 +27,13 @@ import { makeBrain } from './ai.js';
 import { designSpecHtml, modulesLine, chipStripHtml, exoticBoxes } from './spec.js';
 import { FACTORS, FACTOR_COLOR, SIZES, sizeClassOf, gridOf, habitabilityOf, habWord } from './districts.js';
 import { DEV, LEVEL1, KIND_WORD as SLOT_WORD, filletWhy, isFull, counts, planetOf, unitCap, districtInfo, jobsOf, bOf } from './colony.js';
-import { renderResearch, initResearch, researchDoneHtml } from './projects.js';
+import { renderResearch, initResearch, researchDoneHtml, offerHtml } from './projects.js';
 import { FAMILIES as RFAM, modelsOf, newestModel, CHANNEL_ICON } from './research.js';
 import { icon as ticon, slotIcon, personIcon, ICON_COLOR, componentIcon } from './techicons.js';
 import { weaponSvg, drawWeapon, plainLook, isWeaponLook } from './weaponart.js';
 import { traitWords, sWord, rareWords } from './traits.js';
 import { globeTexture, drawGlobe, globeIcon } from './globe.js';
-initResearch({ save: () => save(), refresh: () => refresh() });   // the Research tab's orders save and redraw like every other
+initResearch({ save: () => save(), refresh: () => refresh(), state: () => S });   // the Research tab's orders save and redraw like every other (state: a breakthrough offered in the report can be started from anywhere)
 import { TRI_COLOR, drawSurface, focusTetra, drawTri as drawEffortTri, triFromPoint, triBall, toCanvas, districtAt as surfaceCellAt, mapSize } from './colonyview.js';
 mountNav('eon', { into: document.getElementById('topbar') });
 
@@ -393,7 +393,7 @@ function renderEmpire(c, skipTetra) {
 
   // the research fields and the breakthroughs: the Research tab (projects.js) since 2026-10-23 — the finds stay in the background
   const icon = { breakthrough: '★', bad: '▼', integ: '◆', step: '›', move: '→', battle: '⚔' }, col = { breakthrough: 'var(--time)', bad: 'var(--bad)', integ: 'var(--good)', battle: 'var(--good)' };
-  if (S.report?.length) $('eReport').innerHTML = `<div class="rep">${S.report.map(r => `<div>${icon[r.kind] || '·'} <span style="color:${col[r.kind] || 'inherit'}">${r.research ? researchDoneHtml(r.research) : esc(r.text)}</span>${r.battle && (S.battles || []).some(b => b.id === r.battle) ? ` <button class="go" data-watch="${r.battle}" title="replay it, as it was fought">▶ Watch</button>` : ''}</div>`).join('')}</div>`;
+  if (S.report?.length) $('eReport').innerHTML = `<div class="rep">${S.report.map(r => `<div>${icon[r.kind] || '·'} <span style="color:${col[r.kind] || 'inherit'}">${r.offer ? offerHtml(r.offer, S) : r.research ? researchDoneHtml(r.research) : esc(r.text)}</span>${r.battle && (S.battles || []).some(b => b.id === r.battle) ? ` <button class="go" data-watch="${r.battle}" title="replay it, as it was fought">▶ Watch</button>` : ''}</div>`).join('')}</div>`;
   else $('eReport').textContent = S.eon > 1 ? 'A quiet eon.' : 'Nothing yet.';
   if (!skipTetra) tetra.draw();
 }
@@ -1562,7 +1562,7 @@ function renderNotes() {
   if (!NOTES.length || SIM || REPLAY) { el.hidden = true; return; }
   const show = notesAll ? NOTES : NOTES.slice(0, 6);
   el.innerHTML = `<div class="nhead"><b>Eon ${S.eon - 1} — what happened</b><button class="x" data-nclear title="dismiss all">✕</button></div>`
-    + show.map(n => `<div class="nrow n-${n.kind}" data-note="${n.i}" title="${n.place || n.sys || n.battle || n.kind === 'breakthrough' ? 'click: go there' : ''}"><span class="ni">${NOTE_ICON[n.kind]}</span><span>${n.research ? researchDoneHtml(n.research) : esc(n.text)}</span><button class="x" data-ndel="${n.i}" title="dismiss">✕</button></div>`).join('')
+    + show.map(n => `<div class="nrow n-${n.kind}" data-note="${n.i}" title="${n.place || n.sys || n.battle || n.kind === 'breakthrough' ? 'click: go there' : ''}"><span class="ni">${NOTE_ICON[n.kind]}</span><span>${n.offer ? offerHtml(n.offer, S) : n.research ? researchDoneHtml(n.research) : esc(n.text)}</span><button class="x" data-ndel="${n.i}" title="dismiss">✕</button></div>`).join('')
     + (NOTES.length > show.length ? `<button class="x nmore" data-nmore>+ ${NOTES.length - show.length} more</button>` : '');
   el.hidden = false;
 }
@@ -1662,6 +1662,9 @@ function fxWords(fx) {
   if (fx.nanite) o.push(`<span class="tg">mends the hull ×${(1 + fx.nanite).toFixed(1)} as fast, making no heat</span>`);
   if (fx.synth) o.push(`<span class="tg">its stock goes ×${(1 + fx.synth).toFixed(2)} as far</span>`);
   if (fx.mgen) o.push(`<span class="tg">turns ${(fx.mgen * 100).toFixed(1)} % of the reactor's output into material a second</span>`);
+  if (fx.bypass) o.push(`<span class="tg">${pc(fx.bypass)} of every hit skips the armour, straight into the hull</span>`);   // the gun avenues (avenues.js)
+  if (fx.shock) o.push(`<span class="tg">${pc(fx.shock)} of what the armour stops still reaches the hull</span>`);
+  if (fx.flak) o.push(`<span class="tg">idle, it hits drones and missiles ×${fx.flak.toFixed(1)} as well</span>`);
   return o.map(x => `<div>${x}</div>`).join('');
 }
 // SOMETHING EXTRAORDINARY (traits.js EXTRA): its line, gold, above the rest

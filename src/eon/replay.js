@@ -59,7 +59,7 @@ export function applyAction(S, a) {
     case 'focus': { S.focus = a.w.slice(); return null; }
     case 'attention': { giveAttention(S, a.field, a.d); return null; }   // (no longer steers anything since 2026-10-23 — research flows by where the labs are)
     // RESEARCH PROJECTS (2026-10-23, research.js): { type: 'project', fam, inf? } · { type: 'projinf', index, inf } · { type: 'projdrop', index }
-    case 'project': return startProject(S, a.fam, a.inf ?? null);
+    case 'project': return startProject(S, a.fam, a.inf ?? null, a.av ?? null);   // av: an avenue (avenues.js, 2026-10-31)
     case 'skim': return setSkim(S, a.pct);   // { type: 'skim', pct }: the share of every colony's industry straight to the reserves (2026-10-23)
     case 'campaign': return setCampaign(S, a.place, a.pct, a.back !== false);   // { type: 'campaign', place, pct, back }: the effort to the builders for the refits (2026-10-23)
     case 'projinf': return setInfluence(S, a.index, a.inf);

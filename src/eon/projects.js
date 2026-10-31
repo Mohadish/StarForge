@@ -4,7 +4,9 @@
 // to give); "＋ New research project" in its corner opens the picker: what the ADVISORS suggest, or your own pick by category. A
 // project's INFLUENCE (the share of the empire's research it takes) is set on its node; what no project takes flows by itself.
 // The breakthroughs found stay in the background (their capsules still work); a new one shows up as an advisor's suggestion.
-import { FAMILIES, CATEGORIES, FIELD_COL, advisors, qualityOf, needOf, nameOf, generationOf, startProject, setInfluence, dropProject, benefitsOf, textOf, CHANNEL_ICON, giftOf, expectOf, sameAs, techTree, roman } from './research.js';
+import { FAMILIES, CATEGORIES, FIELD_COL, advisors, qualityOf, needOf, nameOf, generationOf, startProject, setInfluence, dropProject, benefitsOf, textOf, CHANNEL_ICON, giftOf, expectOf, sameAs, techTree, roman,
+  ensureAvenues, heldOf, defaultAv, offered, avName, avNeed, nextStep, avGains, avHint, modelsOf } from './research.js';
+import { AVENUES, hasAvenues, baseAvenue } from './avenues.js';
 import { techArt, reseed, techColor, FAM_ICON } from './techart.js';
 import { weaponSvg, isWeaponLook } from './weaponart.js';
 import { traitWords, sWord, chanceWord, rareWords } from './traits.js';
@@ -37,7 +39,20 @@ const CHIP_WORD = { weapon_energy: ['Beam'], weapon_kinetic: ['Gun'], weapon_mis
 // a finished project in the eon's report: its name and its paragraph with the numbers it came out with
 // the benefits a finished project came out with, as the paragraph's icons and numbers
 const benOf = (F, pcts) => F.adapt ? [{ icon: 'food', icon2: CHANNEL_ICON[F.adapt], pct: pcts[0] }] : F.level ? [{ icon: CHANNEL_ICON[F.level], pct: pcts[0] }] : Object.keys(F.channels).map((ch, i) => ({ icon: CHANNEL_ICON[ch], pct: pcts[i] }));
+// AN AVENUE's project done (avenues.js): its breakthrough (★, the leap) or its refinement (the small gain), with the capsules
+const gainTokens = gains => (gains || []).map(g => token(g.icon, g.pct, g.icon2)).join(' ');
+function avDoneHtml(r) {
+  const A = AVENUES[r.fam] && AVENUES[r.fam][r.av]; if (!A) return esc(r.name || '');
+  return `<b>Research done: ${esc(r.name)}</b> — ${r.jump ? `<span class="pjrare">★ a breakthrough</span>` : 'refined'} ${gainTokens(r.gains)}${r.model ? ` <span class="pjfind">— in Design, the <b>${esc((CHIP_WORD[FAMILIES[r.fam].module] || [''])[0])}</b> chip: ${esc(r.name)}</span>` : ''}`;
+}
+// A BREAKTHROUGH FOUND (his rule: "it just happens — would you like to research it?"): what it is, and a button that starts it
+export function offerHtml(o, S = null) {
+  const A = AVENUES[o.fam] && AVENUES[o.fam][o.av]; if (!A) return '';
+  const done = S && (heldOf(S, o.fam, o.av) || (S.projects || []).some(p => p.fam === o.fam && p.av === o.av));
+  return `<span class="pjrare">★ A breakthrough in ${esc(FAMILIES[o.fam].name.toLowerCase())}: your scientists found <b>${esc(A.name)}</b></span> — ${esc(A.text)} ${done ? '<span class="tiny">(under way)</span>' : `<button class="go" data-pjoffer="${o.fam}:${o.av}" title="start it now — or later, from the Research tab: it waits there">Research it</button>`}`;
+}
 export function researchDoneHtml(r) {
+  if (r && r.av) return avDoneHtml(r);
   const F = FAMILIES[r.fam]; if (!F) return esc(r.name || '');
   const ben = benOf(F, r.pcts);
   // a ship family makes a COMPONENT (2026-10-24): where to find it — the designer's chip — and that the built ships keep theirs
@@ -68,7 +83,7 @@ const GOALS = [
   { id: 'defence', name: 'Protection & repair', fams: ['shield', 'armor', 'fab'] },
   { id: 'motion', name: 'Engines & power', fams: ['drive', 'thruster', 'reactor'] },
   { id: 'info', name: 'Computers & sensors', fams: ['computer', 'sensors'] },
-  { id: 'civil', name: 'For the colonies', fams: ['farms', 'farms_cold', 'farms_hot', 'farms_rad', 'homes', 'works', 'labs'] },
+  { id: 'civil', name: 'For the colonies', fams: ['farms', 'homes', 'works', 'labs'] },   // the climate's crops: avenues of the farms (avenues.js)
 ];
 const fieldName = (c, id) => (c.fields.find(f => f.id === id) || {}).name || id;
 // WHERE TO LOOK for a field (the quest): the richest place you know of in it — a lab there (a lab ship, a colony) makes it count
@@ -156,36 +171,109 @@ function techCard(S, t, mini, full = false) {
   const more = full ? `<div class="tiny">${t.q != null ? `came out ${gradeHtml(t.q)} · ` : ''}${F.module ? `fitted on new designs — in Design, the <b>${esc((CHIP_WORD[F.module] || [F.name])[0])}</b> chip` : F.level || F.adapt ? 'in every colony' : `built into every ${esc(F.name.toLowerCase())}`}</div><div class="tiny muted">Right-click the picture: another shape of it.</div>` : '';
   return `<div class="tcard done${full ? ' full' : ''}" ${full ? 'data-techp' : 'data-tech'}="${key}" style="--tc:${tcol(t.gen, t.q)}">${head}${caps}${body}${more}</div>`;
 }
+// ---------------------------------------------------------------- THE AVENUES (avenues.js, his design 2026-10-31; stage 1: farms, guns)
+// an avenue's newest component (a gun's), its picture (its own device and seed), what researching it next would give
+const avModel = (S, fam, av) => { const l = modelsOf(S, (FAMILIES[fam] || {}).module || '').filter(m => m.av === av); return l[l.length - 1] || null; };
+const avArt = (S, fam, av, q, w) => { const A = AVENUES[fam][av], m = avModel(S, fam, av); return techArt(S, { fam, gen: A.tier, q, w, dev: A.dev || null, sk: fam + '.' + av, look: m && m.look ? m.look : A.look !== undefined ? { trait: A.look } : null }); };
+const strengthsOf = ch => Object.fromEntries(ch.map(x => [x.id, x.strength]));
+const nextGains = (S, c, fam, av) => { const { q, ch } = qualityOf(S, c.fields, fam, av); return { q, ch, gains: avGains(S, fam, av, q, strengthsOf(ch)) }; };
+const stackCls = n => n >= 3 ? ' stack2' : n === 2 ? ' stack1' : '';
+const timesTag = n => n > 1 ? `<span class="ttimes" title="researched ${n} times — the top card sums them up">×${n}</span>` : '';
+// what an avenue you hold has given so far: its breakthrough and the sum of its refinements (a gun: its component's specs)
+function avSoFar(S, fam, av, compact) {
+  const A = AVENUES[fam][av], h = heldOf(S, fam, av); if (!h) return '';
+  if (A.step === 'gun') {
+    const m = avModel(S, fam, av); if (m) return specs(S, FAMILIES[fam], m, compact) + (compact ? '' : fxLines(A.fx));
+    const old = A.tier === 1 ? (S.models || []).filter(x => x.fam === fam && !x.av) : [];   // an older game's guns, developed before the avenues — still in Design
+    return old.length ? `<div class="tiny">your earlier guns, still in Design: ${old.map(x => `<b>${esc(x.name)}</b>`).join(', ')}</div>` : '';
+  }
+  const ic = A.step === 'water' ? 'water' : 'food', ic2 = A.step.startsWith('adapt:') ? A.step.slice(6) : null;
+  const j = h.jumpGains ? gainTokens(h.jumpGains) : '', s = h.sum ? token(ic, +h.sum.toFixed(1), ic2) : '';
+  return `<div class="tcaps">${j}${s}${h.old && !j && !s ? '<span class="tiny">developed before the avenues — its gains are in your colonies</span>' : ''}</div>`;
+}
+// the battle effects of a gun avenue, in words (the same as the designer's)
+function fxLines(fx = {}) {
+  const o = [];
+  if (fx.bypass) o.push(`${Math.round(fx.bypass * 100)} % of every hit skips the armour into the hull`);
+  if (fx.shock) o.push(`${Math.round(fx.shock * 100)} % of what the armour stops still reaches the hull`);
+  if (fx.flak) o.push(`idle, it hits drones and missiles ×${fx.flak.toFixed(1)} as well`);
+  if (fx.surg) o.push('every hit on the hull jolts the crew');
+  return o.length ? `<div class="pjwhere">${o.map(esc).join(' · ')}</div>` : '';
+}
+// the PICKER's card for an avenue: refine it, or research the breakthrough you were offered
+function avCard(S, c, fam, av, why = null, star = false) {
+  const A = AVENUES[fam][av], st = nextStep(S, fam, av), h = heldOf(S, fam, av), { q, ch, gains } = nextGains(S, c, fam, av);
+  const what = st.jump ? '<div class="pjrare">★ A breakthrough your scientists found — research it to make it yours</div>' : `<div class="tiny">${h ? `Refine it — researched ${h.n}× so far; each time gives a little less than the last` : 'Refine the basics'}</div>`;
+  return `<div class="pjcard ${star ? 'star' : ''}" data-pjsel="${fam}" style="--tc:${tcol(A.tier, q)}">${star ? '<span class="pjstar">★ Your advisors\' pick</span>' : ''}<div class="pjhead">${avArt(S, fam, av, q, 72)}<div><b>${esc(avName(fam, av, st.n + 1))}</b><div class="tiny">${esc(FAMILIES[fam].name)} · ${tierWord(A.tier)} · would come out ${gradeHtml(q)}</div></div></div>
+    ${why ? `<div class="tiny pjwhy">${esc(why)}</div>` : ''}${what}
+    <p class="pjdesc">${esc(A.text)}</p><div class="tcaps">${gainTokens(gains)}</div>
+    <div class="pjrecipe">${ch.map(x => `<span title="strength ${x.strength.toFixed(2)}"><i class="fdot" style="background:${FIELD_COL[x.id]}"></i>${esc(c.fields.find(f => f.id === x.id)?.name || x.id)} ${Math.round(x.w * 100)} %</span>`).join('')}</div>
+    <div class="tiny">${avNeed(S, fam, av)} research</div>
+    <button class="go" data-pjstart="${fam}" data-pjav="${av}">Start</button></div>`;
+}
+// the avenues of a family the picker offers: what was found for you first, then what you hold (the highest tier first), the basics
+function avChoices(S, fam) {
+  const L = AVENUES[fam], held = Object.keys((S.av || {})[fam] || {}), offers = (S.offers || []).filter(o => o.fam === fam).map(o => o.av), base = baseAvenue(fam);
+  return [...new Set([...offers, ...held.sort((a, b) => L[b].tier - L[a].tier), base])].filter(av => L[av] && !(S.projects || []).some(p => p.fam === fam && p.av === av));
+}
+// the TREE's card for an avenue you hold (stacked by its refinements; pop: the opened card)
+function avTreeCard(S, c, fam, av, mini, pop = false) {
+  const A = AVENUES[fam][av], h = heldOf(S, fam, av), q = (h && h.q) || 1, key = fam + '.' + av, hint = !mini || pop;
+  const head = `${coin(fam)}${timesTag(h.n)}<div class="ttop">${avArt(S, fam, av, q, pop ? 150 : mini ? 64 : 96)}<div><div class="tname">${esc(avName(fam, av, h.n))}</div><div class="tiny">${mini && !pop ? tierWord(A.tier) : `${esc(FAMILIES[fam].name)} · ${tierWord(A.tier)}`}</div></div></div>`;
+  const busy = (S.projects || []).some(p => p.fam === fam && p.av === av);
+  const body = hint ? `${avSoFar(S, fam, av, !pop)}${pop ? `<p class="pjdesc">${esc(A.text)}</p>` : ''}${pop && c && !busy ? `<div class="tiny">Research it again: ${gainTokens(nextGains(S, c, fam, av).gains)}</div><button class="go" data-pjstart="${fam}" data-pjav="${av}">Refine it</button>` : ''}` : avSoFar(S, fam, av, true);
+  return `<div class="tcard done${mini && !pop ? ' mini' : ''}${pop ? ' full' : ''}${stackCls(h.n)}" ${pop ? 'data-avp' : 'data-av'}="${key}" style="--tc:${tcol(A.tier, q)}">${head}${body}</div>`;
+}
+// a breakthrough found, not researched yet — in its tier, with its Start
+function avOfferCard(S, fam, av, mini) {
+  const A = AVENUES[fam][av];
+  return `<div class="tcard offer${mini ? ' mini' : ''}" data-avo="${fam}.${av}" style="--tc:${tcol(A.tier, 1)}">${coin(fam)}<div class="ttop">${avArt(S, fam, av, 1, mini ? 64 : 96)}<div><div class="tname">${esc(A.name)}</div><div class="tiny pjrare">★ found — not researched</div></div></div>${mini ? '' : `<p class="pjdesc">${esc(A.text)}</p>`}<button class="go" data-pjstart="${fam}" data-pjav="${av}">Research it</button></div>`;
+}
 // THE NODES: one per project under way — what it is, how far, how long, how good, its influence (pop: the opened copy)
 function nodeHtml(pl, S, c, pop = false) {
-  const ex = pl.F.module ? expectOf(S, c.fields, pl.fam, pl.p) : null;   // a component: what we expect of it — its form is found when it is done
-  return `<div class="pjnode tcard going${pop ? ' full' : ''}" ${pop ? 'data-pjnodep' : 'data-pjnode'}="${pl.i}" style="--tc:${tcol(pl.gen, pl.q)}">${coin(pl.fam)}
-    <div class="pjhead">${techArt(S, { fam: pl.fam, gen: pl.gen, q: pl.q, w: pop ? 150 : 96 })}<div><b class="tname">${esc(pl.name)}</b><div class="tiny">${esc(pl.F.name)} · ${tierWord(pl.gen)} · ${ex ? 'taking shape' : 'under way'}</div></div>${pop ? '' : `<button class="x" data-pjdrop="${pl.i}" title="drop it — what it has done is lost">✕</button>`}</div>
-    ${ex ? `<div class="pjexpect"><div class="tiny">We expect:</div>${traitLines(pl.fam, ex.traits, true)}${rareHint(ex)}<div class="tiny">Its physical form is still unknown — the engineers are shaping it.</div>${dupHtml(S, c, pl.fam, ex.traits)}</div>` : paragraph(pl.fam, pl.gen, benefitsOf(S, null, pl.fam, pl.q), pl.boosts.map(b => b.name), giftOf(S))}
+  const ex = pl.F.module && !pl.av ? expectOf(S, c.fields, pl.fam, pl.p) : null;   // a component: what we expect of it — its form is found when it is done
+  const h = pl.av ? heldOf(S, pl.fam, pl.av) : null, art = pl.av ? avArt(S, pl.fam, pl.av, pl.q, pop ? 150 : 96) : techArt(S, { fam: pl.fam, gen: pl.gen, q: pl.q, w: pop ? 150 : 96 });
+  const sub = pl.av ? (pl.jump ? '<span class="pjrare">★ breakthrough</span>' : 'refining') : ex ? 'taking shape' : 'under way';
+  const body = pl.av ? `<p class="pjdesc">${esc(pl.A.text)}</p><div class="tcaps">${gainTokens(avGains(S, pl.fam, pl.av, pl.q, strengthsOf(pl.ch)))}</div>`   // an avenue: what it is, what this research gives
+    : ex ? `<div class="pjexpect"><div class="tiny">We expect:</div>${traitLines(pl.fam, ex.traits, true)}${rareHint(ex)}<div class="tiny">Its physical form is still unknown — the engineers are shaping it.</div>${dupHtml(S, c, pl.fam, ex.traits)}</div>` : paragraph(pl.fam, pl.gen, benefitsOf(S, null, pl.fam, pl.q), pl.boosts.map(b => b.name), giftOf(S));
+  return `<div class="pjnode tcard going${pop ? ' full' : ''}${h ? stackCls(h.n + 1) : ''}" ${pop ? 'data-pjnodep' : 'data-pjnode'}="${pl.i}" style="--tc:${tcol(pl.gen, pl.q)}">${coin(pl.fam)}${h ? timesTag(h.n + 1) : ''}
+    <div class="pjhead">${art}<div><b class="tname">${esc(pl.name)}</b><div class="tiny">${esc(pl.F.name)} · ${tierWord(pl.gen)} · ${sub}</div></div>${pop ? '' : `<button class="x" data-pjdrop="${pl.i}" title="drop it — what it has done is lost">✕</button>`}</div>
+    ${body}
     <div class="pjbar"><i style="width:${Math.min(100, Math.round(pl.done * 100))}%"></i></div>
     <div class="tiny">${Math.round(pl.p.prog || 0)} of ${pl.need} · ${pl.gain > 0 ? `done in <b>${eonWord(pl.eons)}</b>` : '<b class="up">no research reaches it</b>'} · coming out ${gradeHtml(pl.q)}${pl.boosts.length ? ` · ${pl.boosts.length} find${pl.boosts.length > 1 ? 's' : ''} help` : ''}</div>
     <label class="pjinf"><span>influence</span><input type="range" min="0" max="100" step="5" value="${pl.p.inf || 0}" data-pjinf="${pl.i}"><b data-pjinfv="${pl.i}">${pl.p.inf || 0} %</b></label>${pop ? `<button class="tdrop" data-pjdrop="${pl.i}" title="what it has done is lost">Drop this project</button>` : ''}</div>`;
 }
 // a project under way, simple: the picture, the name, how far, what we expect
 function nodeMini(pl, S, c) {
-  const ex = pl.F.module ? expectOf(S, c.fields, pl.fam, pl.p) : null;
-  return `<div class="pjnode tcard going mini" data-pjnode="${pl.i}" style="--tc:${tcol(pl.gen, pl.q)}">${coin(pl.fam)}<div class="ttop">${techArt(S, { fam: pl.fam, gen: pl.gen, q: pl.q, w: 64 })}<div><div class="tname">${esc(pl.name)}</div><div class="tiny">${tierWord(pl.gen)} · ${pl.gain > 0 ? eonWord(pl.eons) : 'stalled'}</div></div></div>
-    <div class="pjbar"><i style="width:${Math.min(100, Math.round(pl.done * 100))}%"></i></div><div class="tcaps">${capsHtml(S, pl.fam, { q: pl.q }, ex)}</div></div>`;
+  const ex = pl.F.module && !pl.av ? expectOf(S, c.fields, pl.fam, pl.p) : null, h = pl.av ? heldOf(S, pl.fam, pl.av) : null;
+  const art = pl.av ? avArt(S, pl.fam, pl.av, pl.q, 64) : techArt(S, { fam: pl.fam, gen: pl.gen, q: pl.q, w: 64 }), caps = pl.av ? gainTokens(avGains(S, pl.fam, pl.av, pl.q, strengthsOf(pl.ch))) : capsHtml(S, pl.fam, { q: pl.q }, ex);
+  return `<div class="pjnode tcard going mini${h ? stackCls(h.n + 1) : ''}" data-pjnode="${pl.i}" style="--tc:${tcol(pl.gen, pl.q)}">${coin(pl.fam)}${h ? timesTag(h.n + 1) : ''}<div class="ttop">${art}<div><div class="tname">${esc(pl.name)}</div><div class="tiny">${tierWord(pl.gen)} · ${pl.gain > 0 ? eonWord(pl.eons) : 'stalled'}</div></div></div>
+    <div class="pjbar"><i style="width:${Math.min(100, Math.round(pl.done * 100))}%"></i></div><div class="tcaps">${caps}</div></div>`;
 }
 // THE TREE (his ask, 2026-10-31: "the tree evolves from left to right… on top, columns of tiers"): a row per family that has something
 // (developed, or under way), grouped by category; a column per tier — a family's generation; at least three
 function treeHtml(S, c) {
+  ensureAvenues(S);
   const techs = techTree(S), plans = c.projects || [], mini = zoom < ZOOM.mini, rows = [];
-  for (const cat of CATEGORIES) { const fams = cat.fams.filter(f => FAMILIES[f] && (techs.some(t => t.fam === f) || plans.some(p => p.fam === f))); if (fams.length) rows.push({ cat, fams }); }
+  // an AVENUE family's cards (avenues.js): the avenues it holds, the ones found for it, the ones under way — each in its tier
+  const avOf = f => { const L = AVENUES[f]; return Object.keys(L).filter(av => heldOf(S, f, av) || offered(S, f, av) || plans.some(p => p.fam === f && p.av === av)); };
+  const has = f => hasAvenues(f) ? avOf(f).length > 0 : techs.some(t => t.fam === f) || plans.some(p => p.fam === f);
+  for (const cat of CATEGORIES) { const fams = cat.fams.filter(f => FAMILIES[f] && has(f)); if (fams.length) rows.push({ cat, fams }); }
   if (!rows.length) return '';
-  const n = Math.max(3, ...techs.map(t => t.gen), ...plans.map(p => p.gen));
+  const n = Math.max(3, ...techs.filter(t => !hasAvenues(t.fam)).map(t => t.gen), ...plans.map(p => p.gen), ...Object.keys(AVENUES).flatMap(f => avOf(f).map(av => AVENUES[f][av].tier)));
   let h = `<div class="tgrid${mini ? ' mini' : ''}" style="grid-template-columns:var(--lab) repeat(${n},var(--col))"><div class="thead tl"></div>`;
   for (let g = 1; g <= n; g++) h += `<div class="thead" style="--tc:${tcol(g, 1)}">Tier ${roman(g)}</div>`;
   for (const { cat, fams } of rows) {
     h += `<div class="tcat" style="grid-column:1 / -1"><span>${esc(cat.name)}</span></div>`;
     for (const fam of fams) {
-      const F = FAMILIES[fam]; h += `<div class="tfam" data-tfam="${fam}"><span class="pjicon">${F.icon}</span><b>${esc(F.name)}</b></div>`;
+      const F = FAMILIES[fam], hint = hasAvenues(fam) && avHint(S, c.fields, fam);   // the fields it leans on are strong: something may come of it (never what)
+      h += `<div class="tfam" data-tfam="${fam}"><span class="pjicon">${F.icon}</span><b>${esc(F.name)}</b>${hint ? '<span class="thint" title="the fields this family leans on are strong — a breakthrough may come of it">✦</span>' : ''}</div>`;
       for (let g = 1; g <= n; g++) {
+        if (hasAvenues(fam)) {
+          const list = avOf(fam).filter(av => AVENUES[fam][av].tier === g);
+          h += `<div class="tcell">${list.map(av => { const p = plans.find(x => x.fam === fam && x.av === av); return p ? (mini ? nodeMini(p, S, c) : nodeHtml(p, S, c)) : heldOf(S, fam, av) ? avTreeCard(S, c, fam, av, mini) : avOfferCard(S, fam, av, mini); }).join('')}</div>`;
+          continue;
+        }
         const t = techs.find(x => x.fam === fam && x.gen === g), p = plans.find(x => x.fam === fam && x.gen === g);
         h += `<div class="tcell">${t ? techCard(S, t, mini) : p ? (mini ? nodeMini(p, S, c) : nodeHtml(p, S, c)) : ''}</div>`;
       }
@@ -197,12 +285,16 @@ function treeHtml(S, c) {
 function popupHtml(S, c) {
   if (!popup) return '';
   if (popup.node != null) { const pl = (c.projects || []).find(p => p.i === popup.node); return pl ? `<button class="x tclose" data-tclose title="close (Esc)">✕</button>${nodeHtml(pl, S, c, true)}` : ''; }
+  if (popup.av || popup.avo) { const [fam, av] = (popup.av || popup.avo).split('.'), ok = AVENUES[fam] && AVENUES[fam][av];   // an avenue held, or one found
+    const body = !ok ? '' : popup.av && heldOf(S, fam, av) ? avTreeCard(S, c, fam, av, false, true) : offered(S, fam, av) ? avOfferCard(S, fam, av, false) : '';
+    return body ? `<button class="x tclose" data-tclose title="close (Esc)">✕</button>${body}` : ''; }
   const [fam, g] = popup.tech.split(':'), t = techTree(S).find(x => x.fam === fam && x.gen === +g);
   return t ? `<button class="x tclose" data-tclose title="close (Esc)">✕</button>${techCard(S, t, false, true)}` : '';
 }
 // THE PICKER: the advisors' suggestions first, then your own pick — a category, then the thing
 // top: the advisors' pick in this goal ({ fam, q }) — a way that would come out clearly worse says so (his call: "you can, but it will be less good")
-function famCard(S, c, fam, why = null, star = false, top = null) {
+function famCard(S, c, fam, why = null, star = false, top = null, av = null) {
+  if (hasAvenues(fam)) return avCard(S, c, fam, av || defaultAv(S, fam), why, star);   // an avenue family: its avenue's card (avenues.js)
   const F = FAMILIES[fam], { q, ch, boosts } = qualityOf(S, c.fields, fam);
   if (F.module) {                                    // a component: what we expect of it, why, where to look to do better — not its numbers
     const ex = expectOf(S, c.fields, fam), [gw] = GRADE(q);
@@ -225,13 +317,17 @@ function pickerHtml(S, c) {
   let h = `<div class="pjpick"><div class="pjpickhead"><b>New research project</b><span style="flex:1"></span><button class="x" data-pjclose title="close (Esc)">✕</button></div>
     <h3>What do you want?</h3><div class="pjcats">${GOALS.map(g => `<button class="${g === goal ? 'on' : ''}" data-pjgoal="${g.id}">${esc(g.name)}</button>`).join('')}</div>`;
   if (goal) {                                        // the ways to it, the best with what you have first (his call: you may still pick another — it comes out less good)
-    const free = goal.fams.filter(f => FAMILIES[f] && !busy.has(f)).sort((a, b) => qualityOf(S, c.fields, b).q - qualityOf(S, c.fields, a).q), top = free[0];
-    if (top) h += `<div class="pjsay">Your advisors: “With the research you have, ${FAMILIES[top].module ? `a new ${esc(FAMILIES[top].name.toLowerCase())}` : esc(FAMILIES[top].name.toLowerCase())} is the best way to go.”</div>`;
-    const tq = top ? { fam: top, q: qualityOf(S, c.fields, top).q } : null;
-    h += `<div class="pjcards">${free.map((f, i) => famCard(S, c, f, null, i === 0, tq)).join('')}${goal.fams.filter(f => busy.has(f)).map(f => `<div class="pjcard busy"><div class="pjhead"><span class="pjicon">${FAMILIES[f].icon}</span><div><b>${esc(FAMILIES[f].name)}</b><div class="tiny">under way</div></div></div></div>`).join('')}</div>`;
+    // an AVENUE family offers each of its avenues (avenues.js): the found ones, the held ones, the basics — each its own card
+    const items = goal.fams.filter(f => FAMILIES[f]).flatMap(f => hasAvenues(f) ? avChoices(S, f).map(av => ({ fam: f, av })) : busy.has(f) ? [] : [{ fam: f, av: null }]);
+    const qOf = x => qualityOf(S, c.fields, x.fam, x.av).q, free = items.sort((a, b) => (offered(S, b.fam, b.av) ? 1 : 0) - (offered(S, a.fam, a.av) ? 1 : 0) || qOf(b) - qOf(a)), top = free[0];
+    const word = x => hasAvenues(x.fam) ? esc(AVENUES[x.fam][x.av].name.toLowerCase()) : FAMILIES[x.fam].module ? `a new ${esc(FAMILIES[x.fam].name.toLowerCase())}` : esc(FAMILIES[x.fam].name.toLowerCase());
+    if (top) h += `<div class="pjsay">Your advisors: “With the research you have, ${word(top)} is the best way to go.”</div>`;
+    const tq = top ? { fam: top.fam, q: qOf(top) } : null;
+    const under = (S.projects || []).filter(p => goal.fams.includes(p.fam));
+    h += `<div class="pjcards">${free.map((x, i) => famCard(S, c, x.fam, null, i === 0, tq, x.av)).join('')}${under.map(p => `<div class="pjcard busy"><div class="pjhead"><span class="pjicon">${FAMILIES[p.fam].icon}</span><div><b>${esc(p.av ? AVENUES[p.fam][p.av].name : FAMILIES[p.fam].name)}</b><div class="tiny">under way</div></div></div></div>`).join('')}</div>`;
   } else {
     const adv = advisors(S, c);
-    h += `<h3>Or what presses — your advisors suggest</h3>${adv.length ? `<div class="pjcards">${adv.map(a => famCard(S, c, a.fam, a.why)).join('')}</div>` : '<div class="tiny">Nothing presses — say what you want above.</div>'}`;
+    h += `<h3>Or what presses — your advisors suggest</h3>${adv.length ? `<div class="pjcards">${adv.map(a => famCard(S, c, a.fam, a.why, false, null, a.av)).join('')}</div>` : '<div class="tiny">Nothing presses — say what you want above.</div>'}`;
   }
   return h + '</div>';
 }
@@ -292,16 +388,16 @@ document.addEventListener('pointerdown', e => { const tree = e.button === 0 && e
 document.addEventListener('pointermove', e => { if (!pan) return; const dx = e.clientX - pan.x, dy = e.clientY - pan.y; if (!pan.moved && Math.hypot(dx, dy) < 5) return; pan.moved = true; pan.tree.classList.add('pan'); pan.tree.scrollLeft = pan.sl - dx; pan.tree.scrollTop = pan.st - dy; });
 document.addEventListener('pointerup', () => { if (pan) { pan.tree.classList.remove('pan'); if (pan.moved) pan.justMoved = true; setTimeout(() => { pan = null; }, 0); } });
 document.addEventListener('contextmenu', e => {
-  const im = e.target.closest?.('img.tart[data-devfam]'); if (!im || !ctx) return; e.preventDefault(); e.stopPropagation();
-  reseed(ctx.S, im.dataset.devfam, +im.dataset.devgen); hooks.save(); renderResearch(ctx.c, ctx.S);
+  const im = e.target.closest?.('img.tart[data-seedkey]'); if (!im || !ctx) return; e.preventDefault(); e.stopPropagation();
+  reseed(ctx.S, im.dataset.seedkey); hooks.save(); renderResearch(ctx.c, ctx.S);
 }, true);
 document.addEventListener('click', e => {
   if (!ctx) return;
   if (e.target.closest('[data-tclose]')) { popup = null; return renderResearch(ctx.c, ctx.S); }
   if (pan && pan.justMoved) return;                                                // the end of a drag, not a click
   if (e.target.closest('#rTree') && !e.target.closest('input, button, label, select')) {
-    const k = zoom < ZOOM.mini ? e.target.closest('[data-tech], [data-pjnode]') : null;
-    if (k) { popup = k.dataset.tech ? { tech: k.dataset.tech } : { node: +k.dataset.pjnode }; return renderResearch(ctx.c, ctx.S); }
+    const k = zoom < ZOOM.mini ? e.target.closest('[data-tech], [data-pjnode], [data-av], [data-avo]') : null;
+    if (k) { const d = k.dataset; popup = d.tech ? { tech: d.tech } : d.av ? { av: d.av } : d.avo ? { avo: d.avo } : { node: +d.pjnode }; return renderResearch(ctx.c, ctx.S); }
     if (popup) { popup = null; return renderResearch(ctx.c, ctx.S); }
   }
   const t = e.target.closest('[data-pjnew], [data-pjclose], [data-pjcat], [data-pjgoal], [data-pjstart], [data-pjdrop]'); if (!t) return;
@@ -309,12 +405,17 @@ document.addEventListener('click', e => {
   if (t.dataset.pjgoal) { pick.goal = pick.goal === t.dataset.pjgoal ? null : t.dataset.pjgoal; return renderResearch(ctx.c, ctx.S); }
   if (t.hasAttribute('data-pjclose')) { pick = null; hiFam = null; return renderResearch(ctx.c, ctx.S); }
   if (t.dataset.pjcat) { pick.cat = t.dataset.pjcat; return renderResearch(ctx.c, ctx.S); }
-  if (t.dataset.pjstart) { const fam = t.dataset.pjstart; pick = null; hiFam = null; return act(S => startProject(S, fam)); }
+  if (t.dataset.pjstart) { const fam = t.dataset.pjstart, av = t.dataset.pjav || null; pick = null; hiFam = null; popup = null; return act(S => startProject(S, fam, null, av)); }   // av: which avenue (avenues.js)
   if (t.dataset.pjdrop) { const i = +t.dataset.pjdrop, p = (ctx.c.projects || []).find(x => x.i === i); if (p && !confirm(`Drop ${p.name}? What it has done (${Math.round(p.p.prog || 0)} of ${p.need}) is lost.`)) return; return act(S => dropProject(S, i)); }
 });
 document.addEventListener('input', e => { const t = e.target; if (t.dataset?.pjinf == null) return; for (const v of document.querySelectorAll(`[data-pjinfv="${t.dataset.pjinf}"]`)) v.textContent = `${t.value} %`; });
 document.addEventListener('change', e => { const t = e.target; if (t.dataset?.pjinf == null) return; const i = +t.dataset.pjinf, v = +t.value; act(S => setInfluence(S, i, v)); });
-document.addEventListener('mouseover', e => { if (!ctx) return; const t = e.target.closest?.('[data-pjsel], [data-pjnode], [data-pjnodep], [data-tech], [data-techp], [data-tfam]'); const d = t ? t.dataset : {}, node = d.pjnode ?? d.pjnodep, fam = t ? (d.pjsel || d.tfam || (d.tech || d.techp || '').split(':')[0] || ctx.c.projects?.find(p => p.i === +node)?.fam || null) : null; if (fam !== hiFam) { hiFam = fam; decorate(); drawFlow(); } });
+document.addEventListener('mouseover', e => { if (!ctx) return; const t = e.target.closest?.('[data-pjsel], [data-pjnode], [data-pjnodep], [data-tech], [data-techp], [data-tfam], [data-av], [data-avp], [data-avo]'); const d = t ? t.dataset : {}, node = d.pjnode ?? d.pjnodep, fam = t ? (d.pjsel || d.tfam || (d.tech || d.techp || '').split(':')[0] || (d.av || d.avp || d.avo || '').split('.')[0] || ctx.c.projects?.find(p => p.i === +node)?.fam || null) : null; if (fam !== hiFam) { hiFam = fam; decorate(); drawFlow(); } });
+// A BREAKTHROUGH OFFERED in the report or the notes ("would you like to research it?"): start it — the report lives outside the tab
+document.addEventListener('click', e => {
+  const b = e.target.closest?.('[data-pjoffer]'), S = (ctx && ctx.S) || (hooks.state && hooks.state()); if (!b || !S) return;
+  const [fam, av] = b.dataset.pjoffer.split(':'), err = startProject(S, fam, null, av); if (err) return alert(err); hooks.save(); hooks.refresh();
+});
 document.addEventListener('keydown', e => { if (e.key !== 'Escape' || !ctx) return; if (pick) { pick = null; hiFam = null; renderResearch(ctx.c, ctx.S); } else if (popup) { popup = null; renderResearch(ctx.c, ctx.S); } });
 document.addEventListener('scroll', e => { if (e.target && (e.target.id === 'rFieldsSec' || e.target.id === 'rTree' || e.target.id === 'rCard')) drawFlow(); }, true);
 window.addEventListener('resize', () => drawFlow());

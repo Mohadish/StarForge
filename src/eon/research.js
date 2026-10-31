@@ -14,7 +14,8 @@
 import { DOMAINS, CHANNEL_X } from '../data/properties.js';
 import { counts } from './colony.js';
 import { CLIMATE } from './districts.js';
-import { traitsFrom, makeup, lookOf, nameFor, traitWords, rareChance, rollRare, rareFx, rareWords } from './traits.js';
+import { traitsFrom, makeup, lookOf, nameFor, traitWords, rareChance, rollRare, rareFx, rareWords, die } from './traits.js';
+import { AVENUES, REFINE, BT, AV_NEED, hasAvenues, baseAvenue, refineGain, qFactor, gunShares, candidates } from './avenues.js';
 
 export const FIELD_IDS = Object.keys(DOMAINS);
 export const FIELD_COL = { materials: '#c9a27a', fabrication: '#ffb347', energy: '#ffd84f', electrics: '#7fd8ff', optics: '#c79bff', thermal: '#ff7a59', motion: '#5fe0b4', life: '#8fd16a', information: '#4fa3ff' };
@@ -38,7 +39,7 @@ export const CATEGORIES = [
   { id: 'energy', name: 'Energy', fams: ['shield', 'reactor', 'fab'] },
   { id: 'propulsion', name: 'Propulsion', fams: ['drive', 'thruster'] },
   { id: 'information', name: 'Information', fams: ['computer', 'sensors'] },
-  { id: 'civil', name: 'Civil', fams: ['farms', 'farms_cold', 'farms_hot', 'farms_rad', 'homes', 'works', 'labs'] },
+  { id: 'civil', name: 'Civil', fams: ['farms', 'homes', 'works', 'labs'] },   // the climate's crops are avenues of the farms now (avenues.js, 2026-10-31)
 ];
 export const FAMILIES = {
   beam:     { module: 'weapon_energy', name: 'Energy weapon',    icon: '⚡', base: 'Lance',   recipe: { energy: 0.4, optics: 0.35, thermal: 0.25 }, channels: { beam_power: 1, weapon_range: 0.6, rate_of_fire: 0.6 } },
@@ -54,10 +55,8 @@ export const FAMILIES = {
   fab:      { module: 'works', name: 'Fabricator',       icon: '⚒', base: 'Forge',   recipe: { fabrication: 0.5, materials: 0.25, energy: 0.25 }, channels: { manufacturing: 1, labor_efficiency: 0.6, power_efficiency: 0.4 } },   // the ship's fabricator (his call, 2026-10-30) — the WORKS family is the colony's districts
   sensors:  { name: 'Sensors',          icon: '◉', base: 'Argus',   recipe: { optics: 0.45, information: 0.35, electrics: 0.2 }, channels: { sensor_range: 1, sensor_resolution: 0.6 } },
   farms:    { name: 'Farms',            icon: '🌾', base: 'Harvest', recipe: { life: 0.6, thermal: 0.2, materials: 0.2 }, level: 'food' },
-  // THE CLIMATE'S CROPS (his call 2026-10-23): each generation ADAPTS the farms to one hazard (districts.js CLIMATE) — the cut it makes shrinks
-  farms_cold: { name: 'Frost-hardy crops', icon: '❄', base: 'Rime',   recipe: { life: 0.5, thermal: 0.3, materials: 0.2 }, adapt: 'cold' },
-  farms_hot:  { name: 'Heat-proof crops',  icon: '☀', base: 'Ember',  recipe: { life: 0.45, thermal: 0.35, fabrication: 0.2 }, adapt: 'heat' },
-  farms_rad:  { name: 'Shielded farms',    icon: '☢', base: 'Mantle', recipe: { life: 0.4, materials: 0.3, motion: 0.3 }, adapt: 'radiation' },
+  // THE CLIMATE'S CROPS (his call 2026-10-23) were families of their own (farms_cold / _hot / _rad); since 2026-10-31 they are the farms'
+  // tier-2 AVENUES (avenues.js) — an older game's generations move there (ensureAvenues)
   homes:    { name: 'Homes',            icon: '⌂', base: 'Hearth',  recipe: { materials: 0.4, life: 0.3, information: 0.3 }, level: 'housing' },
   works:    { name: 'Works',            icon: '⚙', base: 'Foundry', recipe: { fabrication: 0.5, electrics: 0.3, materials: 0.2 }, level: 'industry' },
   labs:     { name: 'Labs',             icon: '🔬', base: 'Lyceum',  recipe: { information: 0.5, electrics: 0.3, optics: 0.2 }, level: 'science' },
@@ -120,8 +119,10 @@ export const textOf = (fam, gen) => { const t = TEXT[fam] || ['{0}']; return t[(
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 export const roman = n => { let s = '', v = Math.max(1, Math.floor(n)); for (const [a, r] of [[1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'], [100, 'C'], [90, 'XC'], [50, 'L'], [40, 'XL'], [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']]) while (v >= a) { s += r; v -= a; } return s; };
 export const generationOf = (S, fam) => ((S.gens || {})[fam] || 0) + 1;
-// THE COMPONENTS (2026-10-24): every model of a module kind the empire has developed, the newest last
-export const modelsOf = (S, kind) => (S.models || []).filter(m => m.kind === kind);
+// THE COMPONENTS (2026-10-24): every model of a module kind the empire has developed, the newest last — of an AVENUE's models only its
+// newest refinement (his ask, 2026-10-31: "they stack on each other as the same weapon's variant — less clutter"); the older ones stay
+// in S.models for the designs and ships built with them
+export const modelsOf = (S, kind) => { const l = (S.models || []).filter(m => m.kind === kind), last = new Map(); for (const m of l) if (m.av) last.set(m.fam + ':' + m.av, m); return l.filter(m => !m.av || last.get(m.fam + ':' + m.av) === m); };
 export const newestModel = (S, kind) => { const l = modelsOf(S, kind); return l.length ? l[l.length - 1] : null; };
 export const needOf = (S, fam) => Math.round(RESEARCH.need * Math.pow(RESEARCH.growth, generationOf(S, fam) - 1));
 // a component's project has no name yet — the name comes with what it turns out to be (traits.js nameFor)
@@ -161,25 +162,135 @@ export function boostersFor(S, fam) {
   const F = FAMILIES[fam], used = new Set(S.usedBoost || []);
   return S.breakthroughs.filter(b => !b.project && F.recipe[b.field] && !used.has(b.id)).sort((a, b) => (b.eon || 0) - (a.eon || 0)).slice(0, RESEARCH.strength.boosters);
 }
-// how good a project of this family would come out with the fields as they are (fields: compute()'s, with their potential)
-export function qualityOf(S, fields, fam) {
-  const F = FAMILIES[fam], byId = new Map(fields.map(f => [f.id, f])), boosts = boostersFor(S, fam);
-  const ch = Object.entries(F.recipe).map(([id, w]) => { const f = byId.get(id), nb = boosts.filter(b => b.field === id).length; return { id, w, nb, potential: f ? f.potential : 0, found: S.found[id] || 0, strength: strengthOf(f ? f.potential : 0, S.found[id] || 0, nb) }; });
+// how good a project of this family would come out with the fields as they are (fields: compute()'s, with their potential). av: an
+// AVENUE of the family (avenues.js) — its own recipe, and no finds boosting it (his call: the finds stay out of the research)
+export function qualityOf(S, fields, fam, av = null) {
+  const F = FAMILIES[fam], A = av && AVENUES[fam] ? AVENUES[fam][av] : null, recipe = A ? A.recipe : F.recipe, byId = new Map(fields.map(f => [f.id, f])), boosts = A || hasAvenues(fam) ? [] : boostersFor(S, fam);
+  const ch = Object.entries(recipe).map(([id, w]) => { const f = byId.get(id), nb = boosts.filter(b => b.field === id).length; return { id, w, nb, potential: f ? f.potential : 0, found: S.found[id] || 0, strength: strengthOf(f ? f.potential : 0, S.found[id] || 0, nb) }; });
   return { q: ch.reduce((a, x) => a + x.w * x.strength, 0), ch, boosts };
 }
+// ---------------------------------------------------------------- THE AVENUES (avenues.js, his design 2026-10-31, stage 1: farms, guns)
+// an older game: its generations of the farms, the climate's crops and the guns become refinements of their avenues; a project on a
+// climate family becomes a project on its avenue. Breakthrough gains already in S.slotLevels / S.adapt stay where they are
+export function ensureAvenues(S) {
+  if (S.avV === 1) return; S.av = S.av || {}; S.offers = S.offers || []; S.refine = S.refine || {}; S.adaptR = S.adaptR || {};
+  const g = S.gens || {}, put = (fam, id, n) => { if (!n) return; const h = (S.av[fam] = S.av[fam] || {}); if (!h[id]) h[id] = { n, gain: {}, eon: S.eon, old: true }; };
+  put('farms', 'farming', g.farms); put('farms', 'cold', g.farms_cold); put('farms', 'heat', g.farms_hot); put('farms', 'rad', g.farms_rad); put('gun', 'driver', g.gun);
+  const OLD = { farms_cold: 'cold', farms_hot: 'heat', farms_rad: 'rad' };
+  for (const p of S.projects || []) { if (OLD[p.fam]) { p.av = OLD[p.fam]; p.fam = 'farms'; } else if (hasAvenues(p.fam) && !p.av) p.av = baseAvenue(p.fam); }
+  S.avV = 1;
+}
+export const heldOf = (S, fam, av) => ((S.av || {})[fam] || {})[av] || null;
+// the avenue a project of the family takes when none is named: an offer first (the oldest), else the highest tier held, else the base
+export function defaultAv(S, fam) {
+  const o = (S.offers || []).find(x => x.fam === fam); if (o) return o.av;
+  const held = Object.keys((S.av || {})[fam] || {}).sort((a, b) => AVENUES[fam][b].tier - AVENUES[fam][a].tier); return held[0] || baseAvenue(fam);
+}
+export const offered = (S, fam, av) => (S.offers || []).some(o => o.fam === fam && o.av === av);
+// what it is called: the base avenue by its refinements (Driver III), any other by its name, then II, III… as it is refined
+export const avName = (fam, av, n) => { const A = AVENUES[fam][av]; return A.tier === 1 ? `${A.name} ${roman(Math.max(1, n))}` : n <= 1 ? A.name : `${A.name} ${roman(n)}`; };
+export const avNeed = (S, fam, av) => { const A = AVENUES[fam][av], h = heldOf(S, fam, av); return Math.round(AV_NEED.base * Math.pow(AV_NEED.tier, A.tier - 1) * (1 + AV_NEED.per * ((h && h.n) || 0))); };
+// is the next research on it a breakthrough (the avenue's first) or a refinement (the r-th, 0 the first)?
+export function nextStep(S, fam, av) { const A = AVENUES[fam][av], h = heldOf(S, fam, av), n = (h && h.n) || 0; return A.tier > 1 && !n ? { jump: true, r: 0, n } : { jump: false, r: A.tier === 1 ? n : n - 1, n }; }
+// WHAT IT WOULD GIVE (the cards): [{ key, icon, icon2, pct, word }] — a breakthrough its leap, a refinement its share of the small gain
+// (a gun's over damage / reach / rate by the fields: strengths { field: strength })
+export function avGains(S, fam, av, q, strengths = {}) {
+  const A = AVENUES[fam][av], st = nextStep(S, fam, av), k = qFactor(q), out = [], hz = { cold: 'cold', heat: 'heat', radiation: 'radiation' };
+  if (st.jump && A.jump) {
+    if (A.jump.food) out.push({ key: 'food', icon: 'food', pct: Math.round(A.jump.food * k), word: 'food from every farm' });
+    for (const [h, v] of Object.entries(A.jump.adapt || {})) out.push({ key: 'adapt:' + h, icon: 'food', icon2: hz[h], pct: Math.round(v * k * 100), word: `adapted to the ${h === 'heat' ? 'heat' : h}` });
+    if (A.jump.water) out.push({ key: 'water', icon: 'water', pct: Math.round(A.jump.water * k * 100), word: 'less water needed' });
+    for (const [s, v] of Object.entries(A.mul || {})) if (Math.abs(v - 1) > 0.01) out.push({ key: s, icon: s === 'damage' ? 'damage' : s === 'range' ? 'range' : 'rate', pct: Math.round((v - 1) * 100), word: s });
+    return out;
+  }
+  const g = refineGain(st.r, q), step = A.step || '';
+  if (step === 'food') out.push({ key: 'food', icon: 'food', pct: +g.toFixed(1), word: 'food from every farm' });
+  else if (step.startsWith('adapt:')) { const h = step.slice(6); out.push({ key: step, icon: 'food', icon2: hz[h], pct: +(g * REFINE.adaptK).toFixed(1), word: `adapted to the ${h}` }); }
+  else if (step === 'water') out.push({ key: 'water', icon: 'water', pct: +(g * REFINE.waterK).toFixed(1), word: 'less water needed' });
+  else if (step === 'gun') { const sh = gunShares(A, strengths); for (const [s, w] of Object.entries(sh)) out.push({ key: s, icon: s === 'damage' ? 'damage' : s === 'range' ? 'range' : 'rate', pct: +(g * REFINE.gunK * w).toFixed(1), word: s === 'rate' ? 'rate of fire' : s }); }
+  return out;
+}
+// a gun avenue's component: its avenue's own character (mul, fx) and every refinement's gain on top — a new version each time (no
+// retrofit: the designs and ships built keep the version they have)
+function avModel(S, fam, av, q) {
+  const A = AVENUES[fam][av], h = heldOf(S, fam, av), F = FAMILIES[fam], mul = { ...(A.mul || {}) };
+  for (const s of Object.keys(h.gain || {})) mul[s] = +((mul[s] || 1) * (1 + h.gain[s] / 100)).toFixed(4);
+  const id = `av${S.eon}${fam}${av}${h.n}`, look = lookOf(fam, [], mul, id); look.trait = A.look || null;
+  return { id, fam, av, kind: F.module, name: avName(fam, av, h.n), gen: A.tier, n: h.n, traits: [], mul, fx: { ...(A.fx || {}) }, look, eon: S.eon, q: +q.toFixed(2) };
+}
+// a project on an avenue is through: its breakthrough or its refinement, into the empire
+function applyAvenue(S, pl, rep) {
+  const fam = pl.fam, av = pl.av, A = AVENUES[fam][av], st = nextStep(S, fam, av), k = qFactor(pl.q), fams = (S.av[fam] = S.av[fam] || {});
+  const strengths = Object.fromEntries(pl.ch.map(x => [x.id, x.strength])), gains = avGains(S, fam, av, pl.q, strengths), h = fams[av] || (fams[av] = { n: 0, gain: {}, eon: S.eon });
+  if (st.jump) {
+    if (A.jump && A.jump.food) { S.slotLevels = S.slotLevels || {}; S.slotLevels.food = (S.slotLevels.food || 1) + A.jump.food * k / 25; }   // a level = +25 % (colony.js UNIT.levelGain): new technology, refitted into the districts
+    for (const [hz, v] of Object.entries((A.jump && A.jump.adapt) || {})) { S.adapt = S.adapt || {}; S.adapt[hz] = Math.min(1, (S.adapt[hz] || 0) + v * k); }
+    if (A.jump && A.jump.water) S.water = Math.min(0.8, (S.water || 0) + A.jump.water * k);
+    S.offers = (S.offers || []).filter(o => !(o.fam === fam && o.av === av));
+  } else {
+    const g = refineGain(st.r, pl.q), step = A.step || '';
+    if (step === 'food') S.refine.food = (S.refine.food || 0) + g / 100;
+    else if (step.startsWith('adapt:')) { const hz = step.slice(6); S.adaptR[hz] = Math.min(0.6, (S.adaptR[hz] || 0) + g * REFINE.adaptK / 100); }
+    else if (step === 'water') S.waterR = Math.min(0.5, (S.waterR || 0) + g * REFINE.waterK / 100);
+    else if (step === 'gun') for (const x of gains) h.gain[x.key] = +((h.gain[x.key] || 0) + x.pct).toFixed(2);
+  }
+  if (st.jump) h.jumpGains = gains; else if (A.step !== 'gun' && gains[0]) h.sum = +((h.sum || 0) + gains[0].pct).toFixed(2);   // what it has given, for its card in the tree
+  h.n = (h.n || 0) + 1; h.eon = S.eon; h.q = +pl.q.toFixed(2);
+  let model = null; if (FAMILIES[fam].module) { model = avModel(S, fam, av, pl.q); S.models = S.models || []; S.models.push(model); }
+  const name = avName(fam, av, h.n), research = { fam, gen: A.tier, av, n: h.n, jump: st.jump, name, gains, model: model ? model.id : null };
+  rep.push({ kind: 'breakthrough', research, text: `Research done: ${name} — ${st.jump ? 'a breakthrough: ' : 'refined: '}${gains.map(x => `${x.word} +${x.pct} %`).join(', ')}${model ? ' — fit it on new designs' : ''}` });
+  S.techs = S.techs || []; S.techs.push({ fam, gen: A.tier, av, n: h.n, name, eon: S.eon, q: +pl.q.toFixed(2), pcts: gains.map(x => x.pct), model: model ? model.id : null });
+}
+// THE DISCOVERY (his rule: "it just happens"): every eon, for each avenue that could come (avenues.js candidates), a chance — when the
+// fields it leans on are strong (quality ≥ BT.at) by how far past it they are, plus while you research what it grows from, by how far
+// that went this eon × its quality² (effort with weak fields gets there, slowly); at most BT.cap, one a family an eon. Its own dice
+export function avChance(S, fields, fam, av, plans = []) {
+  const A = AVENUES[fam][av], q = qualityOf(S, fields, fam, av).q;
+  let p = q >= BT.at ? BT.passive * (q - BT.at + 0.1) : 0;
+  for (const pl of plans) if (pl.fam === fam && pl.av && A.from.includes(pl.av) && pl.gain > 0) p += BT.effort * (pl.gain / pl.need) * q * q;
+  return { p: Math.min(BT.cap, p), q };
+}
+export function discoverAvenues(S, fields, plans, rep) {
+  if (!fields) return [];
+  const found = [];
+  for (const fam of Object.keys(AVENUES)) {
+    const list = candidates(S, fam).map(av => ({ av, ...avChance(S, fields, fam, av, plans) })).filter(x => x.p > 0).sort((a, b) => b.p - a.p);
+    for (const x of list) {
+      if (die(`${S.seed}|${S.eon}|bt|${fam}|${x.av}`) >= x.p) continue;
+      const A = AVENUES[fam][x.av]; S.offers = S.offers || []; S.offers.push({ fam, av: x.av, eon: S.eon }); found.push({ fam, av: x.av });
+      rep.push({ kind: 'breakthrough', offer: { fam, av: x.av }, text: `A breakthrough in ${FAMILIES[fam].name.toLowerCase()}: your scientists found ${A.name} — ${A.text} Research it whenever you like.` });
+      break;
+    }
+  }
+  return found;
+}
+// is any breakthrough within reach in this family (its fields strong enough)? — a hint, never which one
+export const avHint = (S, fields, fam) => !!fields && candidates(S, fam).some(av => qualityOf(S, fields, fam, av).q >= BT.at);
 // every project this eon: its research, its quality, how far, how long
 export function projectPlans(S, fields, research) {
+  ensureAvenues(S);
   return (S.projects || []).map((p, i) => {
-    const F = FAMILIES[p.fam]; if (!F) return null; const { q, ch, boosts } = qualityOf(S, fields, p.fam), flow = research * (p.inf || 0) / 100, gain = flow * q, need = needOf(S, p.fam), left = Math.max(0, need - (p.prog || 0));
+    const F = FAMILIES[p.fam]; if (!F) return null;
+    if (hasAvenues(p.fam)) {                                                         // an avenue: its own recipe, its own price, its own name
+      if (!p.av || !AVENUES[p.fam][p.av]) p.av = defaultAv(S, p.fam);
+      const A = AVENUES[p.fam][p.av], { q, ch } = qualityOf(S, fields, p.fam, p.av), flow = research * (p.inf || 0) / 100, gain = flow * q, need = avNeed(S, p.fam, p.av), left = Math.max(0, need - (p.prog || 0)), st = nextStep(S, p.fam, p.av);
+      return { i, p, fam: p.fam, av: p.av, A, F, jump: st.jump, name: avName(p.fam, p.av, st.n + 1), gen: A.tier, q, ch, boosts: [], flow, gain, need, done: (p.prog || 0) / need, eons: gain > 1e-9 ? Math.ceil(left / gain - 1e-9) : Infinity };
+    }
+    const { q, ch, boosts } = qualityOf(S, fields, p.fam), flow = research * (p.inf || 0) / 100, gain = flow * q, need = needOf(S, p.fam), left = Math.max(0, need - (p.prog || 0));
     return { i, p, fam: p.fam, F, name: nameOf(S, p.fam), gen: generationOf(S, p.fam), q, ch, boosts, flow, gain, need, done: (p.prog || 0) / need, eons: gain > 1e-9 ? Math.ceil(left / gain - 1e-9) : Infinity };
   }).filter(Boolean);
 }
-// the orders: start one, set its influence (the others give way if the total would pass 100 %), drop one
-export function startProject(S, fam, inf = null) {
-  if (!FAMILIES[fam]) return 'No such research'; S.projects = S.projects || [];
-  if (S.projects.some(p => p.fam === fam)) return 'That is already under way';
+// the orders: start one, set its influence (the others give way if the total would pass 100 %), drop one. av: which avenue (an
+// avenue family: one held, the base, or one offered) — two projects may run in one family on different avenues
+export function startProject(S, fam, inf = null, av = null) {
+  if (!FAMILIES[fam]) return 'No such research'; S.projects = S.projects || []; ensureAvenues(S);
+  if (hasAvenues(fam)) {
+    av = av || defaultAv(S, fam); const A = AVENUES[fam][av]; if (!A) return 'No such avenue';
+    if (A.tier > 1 && !heldOf(S, fam, av) && !offered(S, fam, av)) return 'That has not been discovered';
+    if (S.projects.some(p => p.fam === fam && p.av === av)) return 'That is already under way';
+  } else if (S.projects.some(p => p.fam === fam)) return 'That is already under way';
   const free = 100 - S.projects.reduce((a, p) => a + (p.inf || 0), 0);
-  S.projects.push({ fam, inf: 0, prog: 0, eon: S.eon }); return setInfluence(S, S.projects.length - 1, inf ?? (free >= 20 ? free : 50));
+  S.projects.push({ fam, ...(hasAvenues(fam) ? { av } : {}), inf: 0, prog: 0, eon: S.eon }); return setInfluence(S, S.projects.length - 1, inf ?? (free >= 20 ? free : 50));
 }
 export function setInfluence(S, i, inf) {
   const P = S.projects || [], p = P[i]; if (!p) return 'No such project'; p.inf = Math.round(clamp(+inf || 0, 0, 100));
@@ -188,15 +299,18 @@ export function setInfluence(S, i, inf) {
   return null;
 }
 export function dropProject(S, i) { const P = S.projects || []; if (!P[i]) return 'No such project'; P.splice(i, 1); return null; }
-// ONE EON: every project takes its research; one that is through becomes its family's next generation
-export function advanceProjects(S, plans, rep) {
+// ONE EON: every project takes its research; one that is through becomes its family's next generation — an AVENUE's project its
+// breakthrough or its refinement (applyAvenue); then the avenues that may come are rolled for (discoverAvenues; fields: compute()'s)
+export function advanceProjects(S, plans, rep, fields = null) {
+  ensureAvenues(S);
   const finished = [];
   for (const pl of plans) {
     pl.p.prog = (pl.p.prog || 0) + pl.gain;
-    if (pl.F.module && pl.flow > 0) { pl.p.fed = (pl.p.fed || 0) + pl.flow; pl.p.feed = pl.p.feed || {}; for (const x of pl.ch) pl.p.feed[x.id] = (pl.p.feed[x.id] || 0) + pl.flow * x.w * x.strength; }   // what each field gave it, as strong as it was then (its traits come from this)
+    if (pl.F.module && !pl.av && pl.flow > 0) { pl.p.fed = (pl.p.fed || 0) + pl.flow; pl.p.feed = pl.p.feed || {}; for (const x of pl.ch) pl.p.feed[x.id] = (pl.p.feed[x.id] || 0) + pl.flow * x.w * x.strength; }   // what each field gave it, as strong as it was then (its traits come from this)
     if (pl.p.prog >= pl.need - 1e-6) finished.push(pl);
   }
-  for (const pl of finished) {
+  for (const pl of finished.filter(x => x.av)) { applyAvenue(S, pl, rep); S.gens = S.gens || {}; S.gens[pl.fam] = Math.max(S.gens[pl.fam] || 0, pl.gen); }
+  for (const pl of finished.filter(x => !x.av)) {
     S.gens = S.gens || {}; S.gens[pl.fam] = pl.gen; S.usedBoost = [...(S.usedBoost || []), ...pl.boosts.map(b => b.id)];
     const F = pl.F, top = Object.entries(F.recipe).sort((a, b) => b[1] - a[1])[0][0], ben = benefitsOf(S, null, pl.fam, pl.q);
     const gift = giftOf(S), giftProp = gift.length ? { name: 'Focus gift', rarity: 'common', what: "what the empire's focus brought with it", channels: gift.map(g => ({ channel: g.channel, pct: g.pct, x: CHANNEL_X[g.channel], how: `${pl.name}: ${g.word}`, prog: 100 })) } : null;
@@ -228,6 +342,7 @@ export function advanceProjects(S, plans, rep) {
     S.techs = S.techs || []; S.techs.push({ fam: pl.fam, gen: pl.gen, name: research.name, eon: S.eon, q: +pl.q.toFixed(2), pcts: research.pcts, model: research.model || null });   // the tree (techTree)
   }
   if (finished.length) S.projects = (S.projects || []).filter(p => !finished.some(f => f.p === p));
+  discoverAvenues(S, fields, plans, rep);
   return finished;
 }
 // THE TREE (his ask, 2026-10-31: "the tech tree evolving from left to right, tiers in columns"): every technology the empire has
@@ -247,15 +362,24 @@ export function techTree(S) {
 }
 // THE ADVISORS: what the empire needs, read from the game — each with its reason, and how it would come out with the fields you have
 export function advisors(S, c) {
-  const out = [], q = fam => qualityOf(S, c.fields, fam).q, busy = new Set((S.projects || []).map(p => p.fam));
+  ensureAvenues(S);
+  // an AVENUE family is suggested avenue by avenue (avenues.js): `av` names which — one held, the base, or one offered
+  const busy = new Set((S.projects || []).map(p => p.fam + ':' + (p.av || ''))), out = [];
+  const pickAv = fam => { if (!hasAvenues(fam)) return ''; const o = (S.offers || []).find(x => x.fam === fam && !busy.has(fam + ':' + x.av)); if (o) return o.av; const d = defaultAv(S, fam); return busy.has(fam + ':' + d) ? baseAvenue(fam) : d; };
+  const q = (fam, av = pickAv(fam)) => qualityOf(S, c.fields, fam, av || null).q;
   const lean = fam => 0.7 + 1.2 * focusAffinity(S, fam);   // the focus's own families weigh more (2026-10-23)
-  const dup = fam => FAMILIES[fam].module && !!sameAs(S, fam, traitsFrom(fam, qualityOf(S, c.fields, fam).ch));   // it would only make one more of what you have
-  const add = (fam, why, score0) => { if (busy.has(fam)) return; const score = score0 * lean(fam) * (dup(fam) ? 0.35 : 1); const o = out.find(x => x.fam === fam); if (o) { if (score > o.score) { o.why = why; o.score = score; } return; } out.push({ fam, why, score, q: q(fam) }); };
+  const dup = fam => FAMILIES[fam].module && !hasAvenues(fam) && !!sameAs(S, fam, traitsFrom(fam, qualityOf(S, c.fields, fam).ch));   // it would only make one more of what you have
+  const add = (fam, why, score0, av = null) => {
+    av = hasAvenues(fam) ? (av || pickAv(fam)) : ''; if (busy.has(fam + ':' + av)) return;
+    const score = score0 * lean(fam) * (dup(fam) ? 0.35 : 1), o = out.find(x => x.fam === fam && (x.av || '') === av);
+    if (o) { if (score > o.score) { o.why = why; o.score = score; } return; } out.push({ fam, ...(av ? { av } : {}), why, score, q: q(fam, av) });
+  };
   const names = list => list.slice(0, 2).map(p => p.pl.name).join(', ') + (list.length > 2 ? ` and ${list.length - 2} more` : '');
-  const hungry = c.colonies.filter(p => p.water && p.fed < 0.98); if (hungry.length) add('farms', `${names(hungry)} ${hungry.length > 1 ? 'are' : 'is'} hungry — food feeds ${Math.round(Math.min(...hungry.map(p => p.fed)) * 100)} %`, 3);
-  for (const [hazard, fam, word] of [['cold', 'farms_cold', 'cold'], ['heat', 'farms_hot', 'hot'], ['radiation', 'farms_rad', 'open to radiation (thin or no air)']]) {   // the climate cuts the farms (districts.js)
-    if (((S.adapt || {})[hazard] || 0) >= 0.999) continue; const hit = c.colonies.filter(p => p.climate && p.climate.parts.some(x => x.hazard === hazard && x.cut > 0.02) && p.cap.food > 0);
-    if (hit.length) add(fam, `${names(hit)} ${hit.length > 1 ? 'are' : 'is'} ${word} — ${hit.length > 1 ? 'their' : 'its'} farms give ${Math.round(Math.min(...hit.map(p => p.climate.mul)) * 100)} % of what they would`, hit.some(p => p.water ? p.fed < 0.98 : p.waterNeed > 0) ? 2.8 : 1.9 + (1 - Math.min(...hit.map(p => p.climate.mul))));   // hungry: urgent; else as much as the climate cuts
+  for (const o of S.offers || []) add(o.fam, `your scientists found ${AVENUES[o.fam][o.av].name} — research it`, 3.2, o.av);   // a breakthrough waiting for you
+  const hungry = c.colonies.filter(p => p.water && p.fed < 0.98); if (hungry.length) add('farms', `${names(hungry)} ${hungry.length > 1 ? 'are' : 'is'} hungry — food feeds ${Math.round(Math.min(...hungry.map(p => p.fed)) * 100)} %`, 3, heldOf(S, 'farms', 'hydro') ? 'hydro' : 'farming');
+  for (const [hazard, av, word] of [['cold', 'cold', 'cold'], ['heat', 'heat', 'hot'], ['radiation', 'rad', 'open to radiation (thin or no air)']]) {   // the climate cuts the farms (districts.js) — only an avenue you have can be refined
+    if (!heldOf(S, 'farms', av) || ((S.adapt || {})[hazard] || 0) + ((S.adaptR || {})[hazard] || 0) >= 0.999) continue; const hit = c.colonies.filter(p => p.climate && p.climate.parts.some(x => x.hazard === hazard && x.cut > 0.02) && p.cap.food > 0);
+    if (hit.length) add('farms', `${names(hit)} ${hit.length > 1 ? 'are' : 'is'} ${word} — ${hit.length > 1 ? 'their' : 'its'} farms give ${Math.round(Math.min(...hit.map(p => p.climate.mul)) * 100)} % of what they would`, hit.some(p => p.water ? p.fed < 0.98 : p.waterNeed > 0) ? 2.8 : 1.9 + (1 - Math.min(...hit.map(p => p.climate.mul))), av);   // hungry: urgent; else as much as the climate cuts
   }
   const crowded = c.colonies.filter(p => p.P.people > 0.9 * p.housing); if (crowded.length) add('homes', `${names(crowded)} ${crowded.length > 1 ? 'are' : 'is'} crowded — ${Math.round(crowded[0].P.people)} of ${Math.round(crowded[0].housing)} M homes taken`, 2.6);
   const idle = c.colonies.filter(p => p.people.industry > p.cap.industry * 1.1); if (idle.length) add('works', `${Math.round(idle.reduce((a, p) => a + p.people.industry - p.cap.industry, 0))} M hands have no works to work in (${names(idle)})`, 2.2);
@@ -271,8 +395,9 @@ export function advisors(S, c) {
     const fam = Object.keys(FAMILIES).filter(k => FAMILIES[k].recipe[b.field]).sort((a, b2) => FAMILIES[b2].recipe[b.field] - FAMILIES[a].recipe[b.field] || q(b2) - q(a))[0];
     if (fam) add(fam, `a new find in ${b.fieldName} — ${b.name} — would carry it`, 2.1);
   }
-  const best = Object.keys(FAMILIES).filter(k => !busy.has(k)).sort((a, b) => q(b) - q(a))[0]; if (best) add(best, `your fields favour it most: it would come out at ${Math.round(q(best) * 100)} %`, 1);
+  const free = Object.keys(FAMILIES).filter(k => !busy.has(k + ':' + pickAv(k)));
+  const best = free.slice().sort((a, b) => q(b) - q(a))[0]; if (best) add(best, `your fields favour it most: it would come out at ${Math.round(q(best) * 100)} %`, 1);
   const fx = (S.focus || []).indexOf(Math.max(...(S.focus || [0.25]))), fName = ['Expansion', 'Exploitation', 'Exploration', 'Extermination'][fx];
-  const mine = Object.keys(FAMILIES).filter(k => !busy.has(k)).sort((a, b) => focusAffinity(S, b) - focusAffinity(S, a) || q(b) - q(a))[0]; if (mine && (S.focus || [])[fx] > 0.3) add(mine, `your focus is ${fName} — it leans that way`, 1.4);
+  const mine = free.slice().sort((a, b) => focusAffinity(S, b) - focusAffinity(S, a) || q(b) - q(a))[0]; if (mine && (S.focus || [])[fx] > 0.3) add(mine, `your focus is ${fName} — it leans that way`, 1.4);
   return out.sort((a, b) => b.score - a.score).slice(0, 5);
 }

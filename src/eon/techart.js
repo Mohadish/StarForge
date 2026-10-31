@@ -20,8 +20,8 @@ let STOCK = null, STOCK_ID = null, loading = false, busy = false;
 // the colour of a technology at this tier and quality (null: past violet — black with white outlines)
 export const techColor = (gen, q = 1) => tierColor(tierLevel(gen, q));
 // its seed: the one you chose (right-click), else its own
-export const seedOf = (S, fam, gen) => { const k = fam + ':' + gen, own = (S.iconSeeds || {})[k]; return own ?? hash(k) % 100000; };
-export function reseed(S, fam, gen) { S.iconSeeds = { ...(S.iconSeeds || {}), [fam + ':' + gen]: Math.floor(Math.random() * 1e9) }; }
+export const seedOf = (S, fam, gen, sk = null) => { const k = sk || fam + ':' + gen, own = (S.iconSeeds || {})[k]; return own ?? hash(k) % 100000; };
+export function reseed(S, sk) { S.iconSeeds = { ...(S.iconSeeds || {}), [sk]: Math.floor(Math.random() * 1e9) }; }   // sk: the picture's seed key (fam:gen, or fam.avenue)
 const styleOf = S => (S.look && S.look.style) || 'greeble1';
 function ensureStock(style) {
   if (STOCK && STOCK_ID === style) return true; if (loading && STOCK_ID === style) return false;
@@ -45,10 +45,11 @@ function pump() {
   };
   setTimeout(step, 0);
 }
-// a technology's picture: fam, its tier (gen) and quality (q: the colour), its form (look: a component's barrels and trait), the width shown
-export function techArt(S, { fam, gen, q = 1, look = null, w = 110, cls = '' }) {
-  const dev = FAM_DEVICE[fam] || 'reactor', color = techColor(gen, q), seed = seedOf(S, fam, gen), style = styleOf(S);
+// a technology's picture: fam, its tier (gen) and quality (q: the colour), its form (look: a component's barrels and trait), the width shown;
+// an AVENUE's (avenues.js) its own device (dev) and its own seed (sk: 'fam.avenue')
+export function techArt(S, { fam, gen, q = 1, look = null, w = 110, cls = '', dev: dev0 = null, sk = null }) {
+  const dev = dev0 || FAM_DEVICE[fam] || 'reactor', color = techColor(gen, q), seed = seedOf(S, fam, gen, sk), style = styleOf(S);
   const key = [dev, seed, color ?? 'black', style, look ? [look.trait, look.len, look.thick, look.barrels, look.tubes].join(',') : ''].join('|'), url = IMG.get(key);
   if (url == null && !queue.some(j => j.key === key)) { queue.push({ key, dev, seed, color, look }); if (ensureStock(style)) pump(); }
-  return `<img class="tart${url ? ' ready' : ''}${cls ? ' ' + cls : ''}" data-devk="${key.replace(/"/g, '&quot;')}" data-devfam="${fam}" data-devgen="${gen}" src="${url || BLANK}" style="width:${w}px" alt="" title="right-click: another shape" draggable="false">`;
+  return `<img class="tart${url ? ' ready' : ''}${cls ? ' ' + cls : ''}" data-devk="${key.replace(/"/g, '&quot;')}" data-seedkey="${sk || fam + ':' + gen}" src="${url || BLANK}" style="width:${w}px" alt="" title="right-click: another shape" draggable="false">`;
 }

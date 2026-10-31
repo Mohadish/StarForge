@@ -153,7 +153,7 @@ export function rareChance(fam, chs, feed = null, fed = 0) {
   return +Math.min(RARE.cap, RARE.base + RARE.k * x).toFixed(3);
 }
 // a die that does not touch the game's own dice (the same key, the same throw — replays stay true)
-const die = key => { let h = 2166136261; for (let i = 0; i < key.length; i++) { h ^= key.charCodeAt(i); h = Math.imul(h, 16777619); } h ^= h >>> 13; h = Math.imul(h, 0x5bd1e995); h ^= h >>> 15; return (h >>> 0) / 4294967296; };
+export const die = key => { let h = 2166136261; for (let i = 0; i < key.length; i++) { h ^= key.charCodeAt(i); h = Math.imul(h, 16777619); } h ^= h >>> 13; h = Math.imul(h, 0x5bd1e995); h ^= h >>> 15; return (h >>> 0) / 4294967296; };
 export function rollRare(fam, chs, feed, fed, key) {
   const p = rareChance(fam, chs, feed, fed); if (!p || die(String(key)) >= p) return null;
   const rows = fieldS(chs, feed, fed).sort((a, b) => b.st - a.st || b.w - a.w || (a.field < b.field ? -1 : 1)), L = EXTRA[fam], D = L.find(e => e.field === rows[0].field) || L[0];

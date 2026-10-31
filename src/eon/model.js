@@ -200,10 +200,13 @@ function migrateColony(S, pl) {
 const adaptOf = (S, pl) => { const h = hazardsOf(pl), out = {}; for (const k in (S.adapt || {})) if (h[k]) out[k] = S.adapt[k]; return out; };
 const surfaceOf = (S, pl) => { const G = migrateColony(S, pl); if (G) ensureStamps(G, S.slotLevels || LEVEL1, adaptOf(S, pl)); return G; };   // an older surface's districts count as up to date (2026-10-23)
 // A COLONY'S CAPACITIES: every district at the tech it was built or refitted at, every farm under the climate ITS crops are adapted to
+// THE AVENUES' REFINEMENTS (avenues.js, 2026-10-31) are practice, not technology: they count in every district at once, no refit —
+// S.refine.food × every farm, S.adaptR on top of each farm's own adaptation
 function colonyCaps(S, pl, G) {
-  const climate = farmClimate(pl, S.adapt || {}), memo = new Map();
-  const climFor = k => { const ad = G.ad && G.ad[k]; if (!ad) return climate.mul; const key = JSON.stringify(ad); if (!memo.has(key)) memo.set(key, farmClimate(pl, ad).mul); return memo.get(key); };
-  return { climate, ...capsOf(G, { levels: S.slotLevels || LEVEL1, unitMul: (k, kind) => kind === 'food' ? climFor(k) : 1 }) };
+  const R = S.adaptR || {}, plus = ad => { const ks = Object.keys(R); if (!ks.length) return ad; const o = { ...ad }; for (const h of ks) o[h] = Math.min(1, (o[h] || 0) + R[h]); return o; };
+  const climate = farmClimate(pl, plus(S.adapt || {})), memo = new Map(), rf = 1 + ((S.refine && S.refine.food) || 0);
+  const climFor = k => { const ad = G.ad && G.ad[k]; if (!ad) return climate.mul; const a2 = plus(ad), key = JSON.stringify(a2); if (!memo.has(key)) memo.set(key, farmClimate(pl, a2).mul); return memo.get(key); };
+  return { climate, ...capsOf(G, { levels: S.slotLevels || LEVEL1, unitMul: (k, kind) => kind === 'food' ? climFor(k) * rf : 1 }) };
 }    // a world snapshot from before the slots meets the engine here (upgrade() does it for a save)
 
 // a starting design: a silhouette and a list of modules ({ kind, n?, w/h for a gantry, k for a reactor })
@@ -480,7 +483,8 @@ function waterSupply(S, ships, caps, shock) {
     src.push({ id: u.id, name: u.name, at: pl.id, sys: pl.sys, kind: 'harvest', left: t.industry * WATER.perIndustry });
   }
   for (const pl of dry) {
-    const G = surfaceOf(S, pl), need = G ? Math.min(colonyCaps(S, pl, G).cap.food, pl.colony.people * WATER.margin) : 0;   // by the MOUTHS (his rule, 2026-10-20), not by the farms' size
+    const dry = clamp((S.water || 0) + (S.waterR || 0), 0, 0.85);                  // DROUGHT-PROOF CROPS (avenues.js): they need that much less
+    const G = surfaceOf(S, pl), need = G ? Math.min(colonyCaps(S, pl, G).cap.food, pl.colony.people * WATER.margin) * (1 - dry) : 0;   // by the MOUTHS (his rule, 2026-10-20), not by the farms' size
     const options = src.filter(s => s.left > 1e-9).map(s => {
       const ly = s.sys === pl.sys ? 0 : lyBetween(S, s.sys, pl.sys), chance = ly ? clamp(chanceAt(effectiveLy(S, s.sys, pl.sys), VOY.range * warp), 0, 1) : 1, per = ly ? WATER.perLy * ly : WATER.inSystem;
       return { s, ly, chance, per, unit: per / Math.max(chance, 1e-6) };
@@ -820,7 +824,7 @@ export function endEon(S) {
   if (c.setback > 0) for (const f of FIELD_IDS) S.steps[f] = Math.max(0, S.steps[f] - c.setback);
 
   // the PROJECTS take their research; one that is through becomes its family's next generation (research.js)
-  advanceProjects(S, c.projects, rep);
+  advanceProjects(S, c.projects, rep, c.fields);   // …and the avenues that may come of strong fields (avenues.js)
   // research: every field the research flows through may take one hidden step
   if (S.lastFind == null) S.lastFind = S.eon;
   let foundNow = false;

@@ -156,8 +156,10 @@ export function strike(o, dmg, kind, rng, onShield, brk = 0, pierce = null, fx =
   }
   let h = soft + through;
   if (fx && fx.burn && h > 0) o.burn = (o.burn || 0) + h * fx.burn;                // a burn: eaten into armour and hull over BURN seconds (the ships' loop)
+  const by = fx && fx.bypass && o.ar > 0 ? h * fx.bypass : 0; h -= by;            // a PIERCING CORE (avenues.js): that share skips the armour, straight into the hull
   if (o.rx > 0 && h > 0) { const kr = EXOTIC.rx[kind] ?? 1, ab = Math.min(o.rx, h * kr); o.rx -= ab; h -= ab / kr; }   // a Reactive layer first
-  if (o.ar > 0) { h = Math.max(0, h - (fx && fx.nod ? 0 : o.deflect)) * ka; const ab = Math.min(o.ar, h); o.ar -= ab; h = (h - ab) / ka; }
+  if (o.ar > 0) { h = Math.max(0, h - (fx && fx.nod ? 0 : o.deflect)) * ka; const ab = Math.min(o.ar, h); o.ar -= ab; h = (h - ab) / ka; if (fx && fx.shock) h += ab / ka * fx.shock; }   // a CONCUSSION SHELL: part of what the plate stopped still reaches the hull
+  h += by;
   if (h > 0) { o.hp -= h; if (fx && fx.surg && o.en !== undefined) o.en = Math.max(0, o.en - fx.surg * h / o.hpMax); }   // a Surgical hit wears the crew too
   return { h, where: shielded ? 'shield' : 'hull' };
 }
@@ -391,7 +393,7 @@ export function createBattle(a0, b0, rng = rng32(1), { record = B.record } = {})
         if (g.role === 'pd') tgt = near(missiles)?.[0] || near(drones)?.[0] || o;
         else if (inc) { tgt = inc[0]; pdk = Math.min(1, (beam ? PD.beamIdle : PD.gunIdle) * s.autoPD); }
         else if (o) tgt = o;
-        else if (!missile) { tgt = near(drones)?.[0] || near(missiles)?.[0]; pdk = beam ? PD.beamIdle : PD.gunIdle; }
+        else if (!missile) { tgt = near(drones)?.[0] || near(missiles)?.[0]; pdk = (beam ? PD.beamIdle : PD.gunIdle) * ((g.fx && g.fx.flak) || 1); }   // FLAK (avenues.js): an idle gun shreds drones and missiles far better
         if (!tgt) continue;
         const [gx, gy] = gunAt(s, g), kch = g.kind.slice(7, 8);                 // the shot leaves the hard point
         // a turret must be LAID on its target before it fires: it slews there at its rate, and a target crossing
