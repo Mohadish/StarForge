@@ -9,7 +9,7 @@
 //   in the report, in the picker, in the tree — until you research it.
 // · Breakthrough gains are TECHNOLOGY (a level or an adaptation stamped on the districts: the builders refit them, colony.js); refinements
 //   are PRACTICE — they count everywhere at once (S.refine, S.adaptR, S.waterR).
-export const REFINE = { first: 3.5, decay: 0.85, qMin: 0.5, qMax: 1.6, gunK: 1.5, adaptK: 2, waterK: 2, shipK: 2, btK: 3, xenoK: 3, cheapK: 1, fieldK: 1 };
+export const REFINE = { first: 3.5, decay: 0.85, qMin: 0.5, qMax: 1.6, gunK: 1.5, adaptK: 2, waterK: 2, shipK: 2, btK: 3, xenoK: 3, cheapK: 1, fieldK: 1, flatK: 0.3 };   // flatK: a theory's refinement adds this share of its breakthrough's flat boosts (× how much the refinement gives against the first)
 export const CAPS = { cheap: 0.5, water: 0.85 };   // research can make projects at most half as dear
 export const BT = { at: 1.15, passive: 0.25, effort: 0.4, cap: 0.35 };
 export const AV_NEED = { base: 900, tier: 1.5, per: 0.15 };   // research an avenue takes: base × tier^(t−1) × (1 + per × refinements done)
@@ -44,15 +44,37 @@ export const AVENUES = {
       text: 'Everything ever found, kept and catalogued: breakthroughs come more often, in every family.' },
     simulation:    { tier: 3, from: ['academy'], needs: ['computer'], name: 'Simulation Labs', recipe: { information: 0.6, electrics: 0.3, energy: 0.1 }, jump: { cheap: 0.15 }, step: 'cheap', dev: 'computer',
       text: 'Experiments run in the machine first: every research project costs less. (needs a weapons-computer project done)' },
-    collider:      { tier: 3, from: ['fieldstations'], name: 'Particle Collider', recipe: { energy: 0.45, motion: 0.35, electrics: 0.2 }, jump: { fields: { energy: 0.1, motion: 0.1, electrics: 0.1 } }, step: 'fields:energy,motion,electrics', dev: 'reactor',
-      text: 'Matter smashed to see inside it: energy, fields & motion and electrics are stronger for every project.' },
     genelab:       { tier: 3, from: ['archive'], name: 'Gene Sequencing Labs', recipe: { life: 0.55, information: 0.35, electrics: 0.1 }, jump: { fields: { life: 0.15 } }, step: 'fields:life', dev: 'labs',
       text: 'Life read at speed: life & chemistry is stronger for every project.' },
     observatory:   { tier: 4, from: ['fieldstations'], min: 2, name: 'Orbital Observatory', recipe: { optics: 0.55, information: 0.3, motion: 0.15 }, jump: { fields: { optics: 0.15 } }, step: 'fields:optics', dev: 'sensors',
       text: 'Telescopes above every world: optics is stronger for every project.' },
     xenobio:       { tier: 4, from: ['genelab'], name: 'Xenobiology Institute', recipe: { life: 0.45, information: 0.35, optics: 0.2 }, jump: { xeno: 0.5 }, step: 'xeno', dev: 'labs',
       text: 'Studies whatever lives and happens elsewhere: anomalies teach far more to the labs that study them.' },
-    fusiontest:    { tier: 4, from: ['collider'], needs: ['reactor'], name: 'Fusion Test Facility', recipe: { energy: 0.5, thermal: 0.35, materials: 0.15 }, jump: { fields: { energy: 0.12, thermal: 0.12 } }, step: 'fields:energy,thermal', dev: 'reactor',
+  },
+  // SCIENCE — the hard sciences, physics without the name (his call, 2026-10-31: "gravity shouldn't start as gravity — it should start
+  // as the science path, out of energy, fields & motion and materials"): tiers I–II the physics laboratories (the fields stronger for
+  // every project), tiers III–IV the THEORIES — a small flat boost to everything (`flat`: channel → %, the whole empire's know-how, as a
+  // finished breakthrough), and in the tech web tier V collapses into Graviton Theory (the door to gravitics — not in the game yet)
+  science: {
+    physlab:     { tier: 1, name: 'Physics Laboratory', recipe: { energy: 0.4, motion: 0.35, materials: 0.25 }, step: 'fields:energy,motion,materials', dev: 'labs',
+      text: 'Benches for the hard sciences: every refinement, energy, fields & motion and materials a little stronger for every project.' },
+    collider:    { tier: 2, from: ['physlab'], name: 'Particle Collider', recipe: { energy: 0.45, motion: 0.35, electrics: 0.2 }, jump: { fields: { energy: 0.1, motion: 0.1, electrics: 0.1 } }, step: 'fields:energy,motion,electrics', dev: 'reactor',
+      text: 'Matter smashed to see inside it: energy, fields & motion and electrics are stronger for every project.' },
+    materialslab: { tier: 2, from: ['physlab'], name: 'Materials Science Lab', recipe: { materials: 0.5, thermal: 0.3, fabrication: 0.2 }, jump: { fields: { materials: 0.12, thermal: 0.08 } }, step: 'fields:materials,thermal', dev: 'works',
+      text: 'New alloys studied before they are made: materials and thermal are stronger for every project.' },
+    fieldlab:    { tier: 2, from: ['physlab'], name: 'Field Dynamics Lab', recipe: { motion: 0.5, energy: 0.3, electrics: 0.2 }, jump: { fields: { motion: 0.15 } }, step: 'fields:motion', dev: 'shield',
+      text: 'Fields and forces mapped: fields & motion is stronger for every project — the road to gravity starts here.' },
+    thermo:      { tier: 3, from: ['collider', 'materialslab'], name: 'Unified Thermodynamics', recipe: { thermal: 0.4, energy: 0.4, materials: 0.2 }, jump: { flat: { power_efficiency: 4, reactor_output: 3 } }, step: 'flat', dev: 'reactor',
+      text: 'Less waste everywhere: everything aboard draws a little less power, every reactor gives a little more.' },
+    mechanics:   { tier: 3, from: ['materialslab'], name: 'Continuum Mechanics', recipe: { materials: 0.5, motion: 0.3, fabrication: 0.2 }, jump: { flat: { affordability: 4, hull_integrity: 3 } }, step: 'flat', dev: 'works',
+      text: 'How things bend and break: everything built a little cheaper and a little tougher.' },
+    electro:     { tier: 3, from: ['fieldlab', 'collider'], name: 'Advanced Electrodynamics', recipe: { electrics: 0.45, energy: 0.35, motion: 0.2 }, jump: { flat: { thrust: 4, shield_capacity: 3, computing: 3 } }, step: 'flat', dev: 'shield',
+      text: 'Currents and fields mastered: engines, shields and computers all a little better.' },
+    relativity:  { tier: 4, from: ['electro', 'fieldlab'], name: 'Relativistic Physics', recipe: { motion: 0.5, energy: 0.35, information: 0.15 }, jump: { flat: { drive_efficiency: 5, weapon_range: 3, sensor_range: 3 } }, step: 'flat', dev: 'drive',
+      text: 'Space and time understood: further between the stars, further on the field of battle.' },
+    quantum:     { tier: 4, from: ['thermo', 'mechanics'], name: 'Quantum Mechanics', recipe: { energy: 0.4, information: 0.35, materials: 0.25 }, jump: { flat: { miniaturization: 4, research_ease: 4, weapon_efficiency: 3 } }, step: 'flat', dev: 'computer',
+      text: 'The small made plain: everything a little smaller, research a little easier, weapons a little more efficient.' },
+    fusiontest:  { tier: 4, from: ['collider'], needs: ['reactor'], name: 'Fusion Test Facility', recipe: { energy: 0.5, thermal: 0.35, materials: 0.15 }, jump: { fields: { energy: 0.12, thermal: 0.12 } }, step: 'fields:energy,thermal', dev: 'reactor',
       text: 'A star in a cage to study: energy and thermal are stronger for every project. (needs a reactor project done)' },
   },
   gun: {

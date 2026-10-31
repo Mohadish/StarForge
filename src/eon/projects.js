@@ -82,7 +82,7 @@ const GOALS = [
   { id: 'weapon', name: 'A new weapon', fams: ['beam', 'gun', 'missile', 'drones'] },
   { id: 'defence', name: 'Protection & repair', fams: ['shield', 'armor', 'fab'] },
   { id: 'motion', name: 'Engines & power', fams: ['drive', 'thruster', 'reactor'] },
-  { id: 'info', name: 'Computers & sensors', fams: ['computer', 'sensors'] },
+  { id: 'info', name: 'Computers, sensors & science', fams: ['computer', 'sensors', 'science'] },
   { id: 'civil', name: 'For the colonies', fams: ['farms', 'homes', 'works', 'labs'] },   // the climate's crops: avenues of the farms (avenues.js)
 ];
 const fieldName = (c, id) => (c.fields.find(f => f.id === id) || {}).name || id;
@@ -188,7 +188,12 @@ function avSoFar(S, fam, av, compact) {
     return old.length ? `<div class="tiny">your earlier guns, still in Design: ${old.map(x => `<b>${esc(x.name)}</b>`).join(', ')}</div>` : '';
   }
   const ic = A.step === 'water' ? 'water' : A.step === 'food' || A.step.startsWith('adapt:') ? 'food' : A.step === 'cheap' ? 'cost' : A.step.startsWith('fields:') ? 'computing' : 'labs', ic2 = A.step.startsWith('adapt:') ? A.step.slice(6) : null;
-  const j = h.jumpGains ? gainTokens(h.jumpGains) : '', s = h.sum ? token(ic, +h.sum.toFixed(1), ic2) : '';
+  if (A.step === 'flat') {   // a theory: what it has added to everything so far (its breakthrough's channels)
+    const b = (S.breakthroughs || []).find(x => x.id === `sci_${fam}_${av}`), chs = b ? b.props[0].channels : [];
+    return `<div class="tcaps">${chs.map(c => `<span class="bnf" style="--bc:${ICON_COLOR[CHANNEL_ICON[c.channel]] || '#ccc'}">${icon(CHANNEL_ICON[c.channel] || 'power', { size: 15 })}<b>+${+c.pct.toFixed(1)} %</b> ${esc(c.channel.replace(/_/g, ' '))}</span>`).join('')}</div>`;
+  }
+  const many = A.step.startsWith('fields:') ? A.step.slice(7).split(',') : null;   // every field it strengthens, by as much
+  const j = h.jumpGains ? gainTokens(h.jumpGains) : '', s = h.sum ? (many ? many.map(f => `<span class="bnf" style="--bc:#4fa3ff">${icon('computing', { size: 15 })}<b>+${+h.sum.toFixed(1)} %</b> ${esc(f)}</span>`).join('') : token(ic, +h.sum.toFixed(1), ic2)) : '';
   return `<div class="tcaps">${j}${s}${h.old && !j && !s ? '<span class="tiny">developed before the avenues — its gains are in your colonies</span>' : ''}</div>`;
 }
 // the battle effects of a gun avenue, in words (the same as the designer's)

@@ -9,8 +9,8 @@ import { tierColor, tierLevel } from './techicons.js';
 
 // which device draws each research family, and the small icon (techicons.js) that names it on the card
 export const FAM_DEVICE = { beam: 'beam', gun: 'gun', missile: 'missile', drones: 'drones', armor: 'armor', shield: 'shield', reactor: 'reactor', drive: 'drive', thruster: 'thruster', computer: 'computer', sensors: 'sensors',
-  fab: 'labor', farms: 'farms', farms_cold: 'farms_cold', farms_hot: 'farms_hot', farms_rad: 'farms_rad', homes: 'homes', works: 'works', labs: 'labs' };
-export const FAM_ICON = { beam: 'damage', gun: 'pierce', missile: 'damage', drones: 'evasion', armor: 'armor', shield: 'shield', reactor: 'power', drive: 'reach', thruster: 'speed', computer: 'computing', sensors: 'sensors',
+  fab: 'labor', farms: 'farms', farms_cold: 'farms_cold', farms_hot: 'farms_hot', farms_rad: 'farms_rad', homes: 'homes', works: 'works', labs: 'labs', science: 'reactor' };
+export const FAM_ICON = { science: 'power', beam: 'damage', gun: 'pierce', missile: 'damage', drones: 'evasion', armor: 'armor', shield: 'shield', reactor: 'power', drive: 'reach', thruster: 'speed', computer: 'computing', sensors: 'sensors',
   fab: 'factory', farms: 'food', farms_cold: 'cold', farms_hot: 'heat', farms_rad: 'radiation', homes: 'homes', works: 'works', labs: 'labs' };
 const hash = s => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; };
 const BLANK = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';

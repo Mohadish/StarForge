@@ -38,7 +38,7 @@ export const CATEGORIES = [
   { id: 'military', name: 'Military', fams: ['beam', 'gun', 'missile', 'drones', 'armor'] },
   { id: 'energy', name: 'Energy', fams: ['shield', 'reactor', 'fab'] },
   { id: 'propulsion', name: 'Propulsion', fams: ['drive', 'thruster'] },
-  { id: 'information', name: 'Information', fams: ['computer', 'sensors'] },
+  { id: 'information', name: 'Information & science', fams: ['computer', 'sensors', 'science'] },
   { id: 'civil', name: 'Civil', fams: ['farms', 'homes', 'works', 'labs'] },   // the climate's crops are avenues of the farms now (avenues.js, 2026-10-31)
 ];
 export const FAMILIES = {
@@ -52,6 +52,7 @@ export const FAMILIES = {
   drive:    { module: 'stardrive', name: 'Star drive',       icon: '➶', base: 'Strider', recipe: { motion: 0.4, energy: 0.35, thermal: 0.25 }, channels: { drive_efficiency: 1, thrust: 0.4 } },
   thruster: { module: 'thruster', name: 'Thrusters',        icon: '⇶', base: 'Swift',   recipe: { motion: 0.5, fabrication: 0.25, electrics: 0.25 }, channels: { thrust: 1, agility: 0.6, evasion: 0.4 } },
   computer: { module: 'weapon_system', name: 'Weapons computer', icon: '▣', base: 'Oracle',  recipe: { electrics: 0.4, information: 0.4, optics: 0.2 }, channels: { targeting: 1, computing: 0.6, synthetic_neural: 0.4 } },
+  science:  { name: 'Science', icon: '⚛', base: 'Theory', recipe: { energy: 0.4, motion: 0.35, materials: 0.25 } },   // the hard sciences: its avenues are all it is (avenues.js science, 2026-10-31)
   fab:      { module: 'works', name: 'Fabricator',       icon: '⚒', base: 'Forge',   recipe: { fabrication: 0.5, materials: 0.25, energy: 0.25 }, channels: { manufacturing: 1, labor_efficiency: 0.6, power_efficiency: 0.4 } },   // the ship's fabricator (his call, 2026-10-30) — the WORKS family is the colony's districts
   sensors:  { name: 'Sensors',          icon: '◉', base: 'Argus',   recipe: { optics: 0.45, information: 0.35, electrics: 0.2 }, channels: { sensor_range: 1, sensor_resolution: 0.6 } },
   farms:    { name: 'Farms',            icon: '🌾', base: 'Harvest', recipe: { life: 0.6, thermal: 0.2, materials: 0.2 }, level: 'food' },
@@ -89,7 +90,7 @@ const TEXT = {
 export const CHANNEL_ICON = { beam_power: 'damage', kinetic_penetration: 'pierce', warhead_yield: 'damage', weapon_range: 'range', rate_of_fire: 'rate', accuracy: 'accuracy', targeting: 'accuracy',
   armor_integrity: 'armor', armor_deflection: 'armor', hull_integrity: 'hull', shield_capacity: 'shield', shield_recovery: 'recovery', shield_reach: 'shield',
   reactor_output: 'power', energy_storage: 'storage', power_efficiency: 'power', drive_efficiency: 'reach', thrust: 'speed', agility: 'evasion', evasion: 'evasion',
-  computing: 'computing', synthetic_neural: 'computing', manufacturing: 'works', labor_efficiency: 'works', sensor_range: 'sensors', sensor_resolution: 'sensors', food: 'food', housing: 'homes', industry: 'works', science: 'labs',
+  computing: 'computing', synthetic_neural: 'computing', manufacturing: 'works', labor_efficiency: 'works', sensor_range: 'sensors', miniaturization: 'cost', research_ease: 'labs', weapon_efficiency: 'power', sensor_resolution: 'sensors', food: 'food', housing: 'homes', industry: 'works', science: 'labs',
   cold: 'cold', heat: 'heat', radiation: 'radiation', affordability: 'cost' };
 // THE FOCUS AND THE PROJECTS (his call, 2026-10-23 — the sweep: the focus bent the chance finds but never the projects). A family's
 // AFFINITY: how much its channels lean the focus's way (a civil family by the channel it stands for — farms food yield, homes
@@ -211,6 +212,7 @@ export function avGains(S, fam, av, q, strengths = {}) {
     if (A.jump.cheap) out.push({ key: 'cheap', icon: 'cost', pct: Math.round(A.jump.cheap * k * 100), word: 'less research for every project' });
     if (A.jump.xeno) out.push({ key: 'xeno', icon: 'labs', pct: Math.round(A.jump.xeno * k * 100), word: 'research from anomalies' });
     for (const [f, v] of Object.entries(A.jump.fields || {})) out.push({ key: 'field:' + f, icon: 'computing', pct: Math.round(v * k * 100), word: `${fieldWord(f)} stronger` });
+    for (const [ch, v] of Object.entries(A.jump.flat || {})) out.push({ key: 'flat:' + ch, icon: CHANNEL_ICON[ch] || 'power', pct: +(v * k).toFixed(1), word: ch.replace(/_/g, ' ') });   // a theory: a small boost to everything
     for (const [h, v] of Object.entries(A.jump.adapt || {})) out.push({ key: 'adapt:' + h, icon: 'food', icon2: hz[h], pct: Math.round(v * k * 100), word: `adapted to the ${h === 'heat' ? 'heat' : h}` });
     if (A.jump.water) out.push({ key: 'water', icon: 'water', pct: Math.round(A.jump.water * k * 100), word: 'less water needed' });
     for (const [s, v] of Object.entries(A.mul || {})) if (Math.abs(v - 1) > 0.01) out.push({ key: s, icon: s === 'damage' ? 'damage' : s === 'range' ? 'range' : 'rate', pct: Math.round((v - 1) * 100), word: s });
@@ -227,7 +229,15 @@ export function avGains(S, fam, av, q, strengths = {}) {
   else if (step === 'cheap') out.push({ key: 'cheap', icon: 'cost', pct: +(g * REFINE.cheapK).toFixed(1), word: 'less research for every project' });
   else if (step === 'xeno') out.push({ key: 'xeno', icon: 'labs', pct: +(g * REFINE.xenoK).toFixed(1), word: 'research from anomalies' });
   else if (step.startsWith('fields:')) for (const f of step.slice(7).split(',')) out.push({ key: 'field:' + f, icon: 'computing', pct: +(g * REFINE.fieldK).toFixed(1), word: `${fieldWord(f)} stronger` });
+  else if (step === 'flat') for (const [ch, v] of Object.entries((A.jump && A.jump.flat) || {})) out.push({ key: 'flat:' + ch, icon: CHANNEL_ICON[ch] || 'power', pct: +(v * REFINE.flatK * g / REFINE.first).toFixed(2), word: ch.replace(/_/g, ' ') });
   return out;
+}
+// A THEORY's flat boosts live as ONE finished breakthrough per avenue (its channels at 100 %: every module and colony reads them as the
+// empire's know-how — modules.js allCapsules / passiveOf), grown by every refinement
+function addFlat(S, fam, av, adds) {
+  const A = AVENUES[fam][av], id = `sci_${fam}_${av}`; let b = S.breakthroughs.find(x => x.id === id);
+  if (!b) { b = { id, name: A.name, field: Object.keys(A.recipe)[0], fieldName: (DOMAINS[Object.keys(A.recipe)[0]] || {}).name || '', eon: S.eon, origin: 'a theory', under: null, project: fam, props: [{ name: A.name, rarity: 'common', what: 'a theory: a small boost to everything', channels: [] }] }; S.breakthroughs.unshift(b); }
+  for (const [ch, pct] of Object.entries(adds)) { const c = b.props[0].channels.find(x => x.channel === ch); if (c) c.pct = +(c.pct + pct).toFixed(3); else b.props[0].channels.push({ channel: ch, pct: +pct.toFixed(3), x: CHANNEL_X[ch], how: `${A.name}: everything a little better`, prog: 100 }); }
 }
 // a gun avenue's component: its avenue's own character (mul, fx) and every refinement's gain on top — a new version each time (no
 // retrofit: the designs and ships built keep the version they have)
@@ -252,6 +262,7 @@ function applyAvenue(S, pl, rep) {
     if (J.cheap) S.projCheap = Math.min(CAPS.cheap, (S.projCheap || 0) + J.cheap * k);
     if (J.xeno) S.xeno = (S.xeno || 0) + J.xeno * k;
     for (const [f, v] of Object.entries(J.fields || {})) { S.fieldBoost = S.fieldBoost || {}; S.fieldBoost[f] = +((S.fieldBoost[f] || 0) + v * k).toFixed(4); }
+    if (J.flat) addFlat(S, fam, av, Object.fromEntries(Object.entries(J.flat).map(([ch, v]) => [ch, v * k])));   // a theory (avenues.js science)
     S.offers = (S.offers || []).filter(o => !(o.fam === fam && o.av === av));
   } else {
     const g = refineGain(st.r, pl.q), step = A.step || '';
@@ -265,6 +276,7 @@ function applyAvenue(S, pl, rep) {
     else if (step === 'cheap') S.projCheap = Math.min(CAPS.cheap, (S.projCheap || 0) + g * REFINE.cheapK / 100);
     else if (step === 'xeno') S.xeno = (S.xeno || 0) + g * REFINE.xenoK / 100;
     else if (step.startsWith('fields:')) for (const f of step.slice(7).split(',')) { S.fieldBoost = S.fieldBoost || {}; S.fieldBoost[f] = +((S.fieldBoost[f] || 0) + g * REFINE.fieldK / 100).toFixed(4); }
+    else if (step === 'flat') addFlat(S, fam, av, Object.fromEntries(gains.map(x => [x.key.slice(5), x.pct])));
   }
   if (st.jump) h.jumpGains = gains; else if (A.step !== 'gun' && gains[0]) h.sum = +((h.sum || 0) + gains[0].pct).toFixed(2);   // what it has given, for its card in the tree
   h.n = (h.n || 0) + 1; h.eon = S.eon; h.q = +pl.q.toFixed(2);
