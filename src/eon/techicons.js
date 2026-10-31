@@ -124,6 +124,15 @@ export const LEVEL_COLORS = ['#ff4a3d', '#ff9a1f', '#ffe14a', '#4fe36b', '#3f8bf
 export const levelColor = n => LEVEL_COLORS[Math.max(0, (n || 1) - 1)] || null;
 export const BEAM_COLORS = LEVEL_COLORS;
 export const beamColor = levelColor;
+// THE TIER COLOUR (his ask, 2026-10-31: "not a set of eight colours — a gradient, a fluent hue"): a technology's LEVEL is its TIER (its
+// family's generation) nudged by how well it came out — quality q 1 is on the tier, an excellent result (q 1.5) `q` × 0.5 of a tier
+// ahead, a poor one (q 0.6) behind. The hue runs smoothly with the level: red at tier 1, through orange, yellow, green, cyan, blue and
+// purple to violet (`hueTop`) at tier 1 + `span`; from `black` on, black with white outlines (the ladder's last step, as before)
+export const TIER = { hueTop: 285, span: 7, q: 0.6, black: 8.5 };
+export const tierLevel = (gen, q = 1) => Math.max(1, (gen || 1) + TIER.q * ((q ?? 1) - 1));
+export const tierHue = lv => Math.max(0, Math.min(TIER.hueTop, (lv - 1) / TIER.span * TIER.hueTop));
+const hsl2hex = (h, s, l) => { const k = n => (n + h / 30) % 12, a = s * Math.min(l, 1 - l), f = n => l - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1)); return '#' + [f(0), f(8), f(4)].map(v => Math.round(v * 255).toString(16).padStart(2, '0')).join(''); };
+export const tierColor = lv => lv >= TIER.black ? null : hsl2hex(tierHue(lv), 0.92, 0.6);   // null: black (the drawings handle it)
 const seedOf = str => { let h = 2166136261; for (const ch of String(str)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; };
 const rng = seed => () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 export function componentIcon(model, { kind = model ? model.kind : '', color = '#9eb3d8', size = 22, title = '' } = {}) {

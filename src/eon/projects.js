@@ -4,8 +4,9 @@
 // to give); "＋ New research project" in its corner opens the picker: what the ADVISORS suggest, or your own pick by category. A
 // project's INFLUENCE (the share of the empire's research it takes) is set on its node; what no project takes flows by itself.
 // The breakthroughs found stay in the background (their capsules still work); a new one shows up as an advisor's suggestion.
-import { FAMILIES, CATEGORIES, FIELD_COL, advisors, qualityOf, needOf, nameOf, generationOf, startProject, setInfluence, dropProject, benefitsOf, textOf, CHANNEL_ICON, giftOf, expectOf, sameAs } from './research.js';
-import { weaponSvg, plainLook, isWeaponLook } from './weaponart.js';
+import { FAMILIES, CATEGORIES, FIELD_COL, advisors, qualityOf, needOf, nameOf, generationOf, startProject, setInfluence, dropProject, benefitsOf, textOf, CHANNEL_ICON, giftOf, expectOf, sameAs, techTree, roman } from './research.js';
+import { techArt, reseed, techColor, FAM_ICON } from './techart.js';
+import { weaponSvg, isWeaponLook } from './weaponart.js';
 import { traitWords, sWord, chanceWord, rareWords } from './traits.js';
 import { explored } from './model.js';
 import { icon, ICON_COLOR, componentIcon } from './techicons.js';
@@ -14,6 +15,10 @@ import { KINDS } from './modules.js';   // placeholder icons (his call 2026-10-2
 const esc = s => String(s ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 const $ = id => document.getElementById(id);
 let ctx = null, hooks = { save: () => {}, refresh: () => {} }, pick = null, hiFam = null;   // pick: the picker's state { goal, fam } or null (closed)
+// THE TREE's view (his ask, 2026-10-31): how far it is zoomed (the wheel), and the card opened in full (a click, at any scale) —
+// { tech: 'fam:gen' } or { node: i }. Under MINI the cards are the simple ones: the picture, the name, the capsules, the icon
+let zoom = 1, popup = null;
+const ZOOM = { min: 0.35, max: 1.6, mini: 0.8 };
 export function initResearch(h) { hooks = { ...hooks, ...h }; }
 const pct = v => Math.round(v * 100) + ' %';
 const eonWord = e => !isFinite(e) ? 'never' : `${e} eon${e === 1 ? '' : 's'}`;
@@ -30,9 +35,11 @@ export function paragraph(fam, gen, ben, boosts = [], gift = []) {   // gift: th
 // the designer's chip for each kind of component ([its name, true when it is a system the design sizes itself])
 const CHIP_WORD = { weapon_energy: ['Beam'], weapon_kinetic: ['Gun'], weapon_missile: ['Missile'], hangar: ['Drones'], armor: ['Armoured'], shield: ['Shielded'], thruster: ['Thrusters'], reactor: ['Reactor', true], stardrive: ['Star drive', true], weapon_system: ['Weapons computer', true] };
 // a finished project in the eon's report: its name and its paragraph with the numbers it came out with
+// the benefits a finished project came out with, as the paragraph's icons and numbers
+const benOf = (F, pcts) => F.adapt ? [{ icon: 'food', icon2: CHANNEL_ICON[F.adapt], pct: pcts[0] }] : F.level ? [{ icon: CHANNEL_ICON[F.level], pct: pcts[0] }] : Object.keys(F.channels).map((ch, i) => ({ icon: CHANNEL_ICON[ch], pct: pcts[i] }));
 export function researchDoneHtml(r) {
   const F = FAMILIES[r.fam]; if (!F) return esc(r.name || '');
-  const ben = F.adapt ? [{ icon: 'food', icon2: CHANNEL_ICON[F.adapt], pct: r.pcts[0] }] : F.level ? [{ icon: CHANNEL_ICON[F.level], pct: r.pcts[0] }] : Object.keys(F.channels).map((ch, i) => ({ icon: CHANNEL_ICON[ch], pct: r.pcts[i] }));
+  const ben = benOf(F, r.pcts);
   // a ship family makes a COMPONENT (2026-10-24): where to find it — the designer's chip — and that the built ships keep theirs
   const where = `in Design, ${CHIP_WORD[F.module] && CHIP_WORD[F.module][1] ? `click the <b>${CHIP_WORD[F.module][0]}</b> chip in the ship's tray` : `tap the <b>${(CHIP_WORD[F.module] || [F.name])[0]}</b> chip`} and pick it. New ships only: the ones already built keep theirs.`;
   // THE REVEAL (his ask, 2026-10-24): a component is its own thing — its name, its physical form, its character
@@ -86,8 +93,6 @@ function dupHtml(S, c, fam, traits) {
   const others = Object.keys(FAMILIES[fam].recipe).filter(f => !traits.some(t => t.field === f)).map(f => `<b>${esc(fieldName(c, f).toLowerCase())}</b>`);
   return `<div class="pjwhere" style="color:#ffb347">Much like your <b>${esc(m.name)}</b> — the same research makes the same thing.${others.length ? ` For something different, study ${others.join(' or ')}.` : ''}</div>`;
 }
-// the ghost of a form not found yet (weapons), or the family's mark
-const ghostArt = (F, w = 96, h = 51) => { const L = plainLook(F.module); return L ? weaponSvg(L, { w, h, unknown: true }) : `<span class="pjicon" style="font-size:30px;opacity:.6">${F.icon}</span>`; };
 
 // THE FIELDS: the research flowing through each, where it comes from, what there is to find
 function fieldsHtml(c) {
@@ -101,15 +106,78 @@ function fieldsHtml(c) {
         <div class="tiny">to find where you look: ${richWord(f.potential)}${c.fields && f.found ? '' : ''}</div></div>`;
     }).join('');
 }
-// THE NODES: one per project — what it is, how far, how long, how good, its influence
-function nodeHtml(pl, S, c) {
+// THE CARDS OF THE TREE (his ask, 2026-10-31): a technology's colour is its tier's (techart.js techColor — past violet, black: a white
+// rim); its picture the 3D device; the small icon in the corner names what it is
+const tcol = (gen, q) => techColor(gen, q) || '#f2f4fa';
+const coin = fam => `<span class="tcoin" title="${esc(FAMILIES[fam].name)}">${icon(FAM_ICON[fam] || 'power', { size: 15 })}</span>`;
+const tierWord = gen => `tier ${roman(gen)}`;
+const modelOf = (S, t) => t.model ? (S.models || []).find(m => m.id === t.model) || null : null;
+// the CAPSULES: what it gives — a component its character (its traits' words, ★ the extraordinary first), the rest their numbers
+function capsHtml(S, fam, t, expect = null) {
+  const F = FAMILIES[fam];
+  if (F.module) {
+    const m = expect ? null : modelOf(S, t), traits = expect ? expect.traits : m ? m.traits || [] : [], rw = m && m.rare ? rareWords(fam, m.rare) : null;
+    const caps = traits.map(tr => { const w = traitWords(fam, tr); return w ? `<span class="tcap" style="--bc:${w.col || '#ffd26a'}" title="${esc(w.good)} — but ${esc(w.bad)}">${expect ? '~' : ''}${esc(w.adj)}</span>` : ''; }).join('');
+    return (rw ? `<span class="tcap rare" style="--bc:${rw.col}" title="${esc(rw.good)}">★ ${esc(rw.adj)}</span>` : '') + caps;
+  }
+  const ben = t.pcts ? benOf(F, t.pcts) : benefitsOf(S, null, fam, t.q ?? 1);
+  return ben.map(b => token(b.icon, b.pct, b.icon2)).join('');
+}
+// a finished technology in the tree: the simple card (mini), the card, or the whole of it (the opened card)
+function techCard(S, t, mini, full = false) {
+  const F = FAMILIES[t.fam], m = modelOf(S, t), key = t.fam + ':' + t.gen, look = m && m.look ? m.look : null;
+  const head = `${coin(t.fam)}<div class="ttop">${techArt(S, { fam: t.fam, gen: t.gen, q: t.q ?? 1, look, w: full ? 170 : mini ? 64 : 104 })}<div><div class="tname">${esc(t.name)}</div><div class="tiny">${mini ? tierWord(t.gen) : `${esc(F.name)} · ${tierWord(t.gen)}${t.eon != null ? ` · eon ${t.eon}` : ''}`}</div></div></div>`;
+  const caps = `<div class="tcaps">${capsHtml(S, t.fam, t)}</div>`;
+  if (mini) return `<div class="tcard done mini" data-tech="${key}" style="--tc:${tcol(t.gen, t.q)}">${head}${caps}</div>`;
+  const rw = m && m.rare ? rareWords(t.fam, m.rare) : null;
+  const body = F.module ? `${rw ? `<div class="pjrare">★ Something extraordinary — <b style="color:${rw.col}">${esc(rw.adj)}</b>: it ${esc(rw.good)}</div>` : ''}<div class="pjexpect">${m ? traitLines(t.fam, m.traits || []) : ''}</div>`
+    : paragraph(t.fam, t.gen, t.pcts ? benOf(F, t.pcts) : benefitsOf(S, null, t.fam, t.q ?? 1));
+  const more = full ? `<div class="tiny">${t.q != null ? `came out ${gradeHtml(t.q)} · ` : ''}${F.module ? `fitted on new designs — in Design, the <b>${esc((CHIP_WORD[F.module] || [F.name])[0])}</b> chip` : F.level || F.adapt ? 'in every colony' : `built into every ${esc(F.name.toLowerCase())}`}</div><div class="tiny muted">Right-click the picture: another shape of it.</div>` : '';
+  return `<div class="tcard done${full ? ' full' : ''}" ${full ? 'data-techp' : 'data-tech'}="${key}" style="--tc:${tcol(t.gen, t.q)}">${head}${caps}${body}${more}</div>`;
+}
+// THE NODES: one per project under way — what it is, how far, how long, how good, its influence (pop: the opened copy)
+function nodeHtml(pl, S, c, pop = false) {
   const ex = pl.F.module ? expectOf(S, c.fields, pl.fam, pl.p) : null;   // a component: what we expect of it — its form is found when it is done
-  return `<div class="pjnode" data-pjnode="${pl.i}" style="--fc:${FIELD_COL[Object.keys(pl.F.recipe)[0]]}">
-    <div class="pjhead"><span class="pjicon">${pl.F.icon}</span><div><b>${esc(pl.name)}</b><div class="tiny">${ex ? 'taking shape' : `${esc(pl.F.name)}${pl.gen > 1 ? ` · generation ${pl.gen}` : ''}`}</div></div><button class="x" data-pjdrop="${pl.i}" title="drop it — what it has done is lost">✕</button></div>
-    ${ex ? `<div class="pjform">${ghostArt(pl.F, 84, 45)}<div class="pjexpect"><div class="tiny">We expect:</div>${traitLines(pl.fam, ex.traits, true)}${rareHint(ex)}<div class="tiny">Its physical form is still unknown — the engineers are shaping it.</div>${dupHtml(S, c, pl.fam, ex.traits)}</div></div>` : paragraph(pl.fam, pl.gen, benefitsOf(S, null, pl.fam, pl.q), pl.boosts.map(b => b.name), giftOf(S))}
+  return `<div class="pjnode tcard going${pop ? ' full' : ''}" ${pop ? 'data-pjnodep' : 'data-pjnode'}="${pl.i}" style="--tc:${tcol(pl.gen, pl.q)}">${coin(pl.fam)}
+    <div class="pjhead">${techArt(S, { fam: pl.fam, gen: pl.gen, q: pl.q, w: pop ? 150 : 96 })}<div><b class="tname">${esc(pl.name)}</b><div class="tiny">${esc(pl.F.name)} · ${tierWord(pl.gen)} · ${ex ? 'taking shape' : 'under way'}</div></div>${pop ? '' : `<button class="x" data-pjdrop="${pl.i}" title="drop it — what it has done is lost">✕</button>`}</div>
+    ${ex ? `<div class="pjexpect"><div class="tiny">We expect:</div>${traitLines(pl.fam, ex.traits, true)}${rareHint(ex)}<div class="tiny">Its physical form is still unknown — the engineers are shaping it.</div>${dupHtml(S, c, pl.fam, ex.traits)}</div>` : paragraph(pl.fam, pl.gen, benefitsOf(S, null, pl.fam, pl.q), pl.boosts.map(b => b.name), giftOf(S))}
     <div class="pjbar"><i style="width:${Math.min(100, Math.round(pl.done * 100))}%"></i></div>
     <div class="tiny">${Math.round(pl.p.prog || 0)} of ${pl.need} · ${pl.gain > 0 ? `done in <b>${eonWord(pl.eons)}</b>` : '<b class="up">no research reaches it</b>'} · coming out ${gradeHtml(pl.q)}${pl.boosts.length ? ` · ${pl.boosts.length} find${pl.boosts.length > 1 ? 's' : ''} help` : ''}</div>
-    <label class="pjinf"><span>influence</span><input type="range" min="0" max="100" step="5" value="${pl.p.inf || 0}" data-pjinf="${pl.i}"><b data-pjinfv="${pl.i}">${pl.p.inf || 0} %</b></label></div>`;
+    <label class="pjinf"><span>influence</span><input type="range" min="0" max="100" step="5" value="${pl.p.inf || 0}" data-pjinf="${pl.i}"><b data-pjinfv="${pl.i}">${pl.p.inf || 0} %</b></label>${pop ? `<button class="tdrop" data-pjdrop="${pl.i}" title="what it has done is lost">Drop this project</button>` : ''}</div>`;
+}
+// a project under way, simple: the picture, the name, how far, what we expect
+function nodeMini(pl, S, c) {
+  const ex = pl.F.module ? expectOf(S, c.fields, pl.fam, pl.p) : null;
+  return `<div class="pjnode tcard going mini" data-pjnode="${pl.i}" style="--tc:${tcol(pl.gen, pl.q)}">${coin(pl.fam)}<div class="ttop">${techArt(S, { fam: pl.fam, gen: pl.gen, q: pl.q, w: 64 })}<div><div class="tname">${esc(pl.name)}</div><div class="tiny">${tierWord(pl.gen)} · ${pl.gain > 0 ? eonWord(pl.eons) : 'stalled'}</div></div></div>
+    <div class="pjbar"><i style="width:${Math.min(100, Math.round(pl.done * 100))}%"></i></div><div class="tcaps">${capsHtml(S, pl.fam, { q: pl.q }, ex)}</div></div>`;
+}
+// THE TREE (his ask, 2026-10-31: "the tree evolves from left to right… on top, columns of tiers"): a row per family that has something
+// (developed, or under way), grouped by category; a column per tier — a family's generation; at least three
+function treeHtml(S, c) {
+  const techs = techTree(S), plans = c.projects || [], mini = zoom < ZOOM.mini, rows = [];
+  for (const cat of CATEGORIES) { const fams = cat.fams.filter(f => FAMILIES[f] && (techs.some(t => t.fam === f) || plans.some(p => p.fam === f))); if (fams.length) rows.push({ cat, fams }); }
+  if (!rows.length) return '';
+  const n = Math.max(3, ...techs.map(t => t.gen), ...plans.map(p => p.gen));
+  let h = `<div class="tgrid${mini ? ' mini' : ''}" style="grid-template-columns:var(--lab) repeat(${n},var(--col))"><div class="thead tl"></div>`;
+  for (let g = 1; g <= n; g++) h += `<div class="thead" style="--tc:${tcol(g, 1)}">Tier ${roman(g)}</div>`;
+  for (const { cat, fams } of rows) {
+    h += `<div class="tcat" style="grid-column:1 / -1"><span>${esc(cat.name)}</span></div>`;
+    for (const fam of fams) {
+      const F = FAMILIES[fam]; h += `<div class="tfam" data-tfam="${fam}"><span class="pjicon">${F.icon}</span><b>${esc(F.name)}</b></div>`;
+      for (let g = 1; g <= n; g++) {
+        const t = techs.find(x => x.fam === fam && x.gen === g), p = plans.find(x => x.fam === fam && x.gen === g);
+        h += `<div class="tcell">${t ? techCard(S, t, mini) : p ? (mini ? nodeMini(p, S, c) : nodeHtml(p, S, c)) : ''}</div>`;
+      }
+    }
+  }
+  return h + '</div>';
+}
+// the card opened in full, whatever the zoom
+function popupHtml(S, c) {
+  if (!popup) return '';
+  if (popup.node != null) { const pl = (c.projects || []).find(p => p.i === popup.node); return pl ? `<button class="x tclose" data-tclose title="close (Esc)">✕</button>${nodeHtml(pl, S, c, true)}` : ''; }
+  const [fam, g] = popup.tech.split(':'), t = techTree(S).find(x => x.fam === fam && x.gen === +g);
+  return t ? `<button class="x tclose" data-tclose title="close (Esc)">✕</button>${techCard(S, t, false, true)}` : '';
 }
 // THE PICKER: the advisors' suggestions first, then your own pick — a category, then the thing
 // top: the advisors' pick in this goal ({ fam, q }) — a way that would come out clearly worse says so (his call: "you can, but it will be less good")
@@ -117,14 +185,14 @@ function famCard(S, c, fam, why = null, star = false, top = null) {
   const F = FAMILIES[fam], { q, ch, boosts } = qualityOf(S, c.fields, fam);
   if (F.module) {                                    // a component: what we expect of it, why, where to look to do better — not its numbers
     const ex = expectOf(S, c.fields, fam), [gw] = GRADE(q);
-    return `<div class="pjcard ${star ? 'star' : ''} ${pick && pick.fam === fam ? 'on' : ''}" data-pjsel="${fam}">${star ? '<span class="pjstar">★ Your advisors\' pick — the best way with what you have</span>' : ''}<div class="pjhead"><span class="pjicon">${F.icon}</span><div><b>A new ${esc(F.name.toLowerCase())}</b><div class="tiny">would come out ${gradeHtml(q)}</div></div></div>
+    return `<div class="pjcard ${star ? 'star' : ''} ${pick && pick.fam === fam ? 'on' : ''}" data-pjsel="${fam}" style="--tc:${tcol(generationOf(S, fam), q)}">${star ? '<span class="pjstar">★ Your advisors\' pick — the best way with what you have</span>' : ''}<div class="pjhead"><span class="pjicon">${F.icon}</span><div><b>A new ${esc(F.name.toLowerCase())}</b><div class="tiny">${tierWord(generationOf(S, fam))} · would come out ${gradeHtml(q)}</div></div></div>
       ${why ? `<div class="tiny pjwhy">${esc(why)}</div>` : ''}
-      <div class="pjform">${ghostArt(F)}<div class="pjexpect"><div class="tiny">We expect:</div>${traitLines(fam, ex.traits, true)}${rareHint(ex)}</div></div>
+      <div class="pjform">${techArt(S, { fam, gen: generationOf(S, fam), q, w: 96 })}<div class="pjexpect"><div class="tiny">We expect:</div>${traitLines(fam, ex.traits, true)}${rareHint(ex)}</div></div>
       ${dupHtml(S, c, fam, ex.traits)}${whyHtml(S, c, fam)}${!star && top && q < top.q * 0.93 ? `<div class="pjwhere" style="color:#ffb347">Possible — but it would come out less well than a new ${esc(FAMILIES[top.fam].name.toLowerCase())}.</div>` : ''}
       <div class="tiny">${needOf(S, fam)} research · its physical form is found when it is done</div>
       <button class="go" data-pjstart="${fam}">Start</button></div>`;
   }
-  return `<div class="pjcard ${star ? 'star' : ''} ${pick && pick.fam === fam ? 'on' : ''}" data-pjsel="${fam}">${star ? '<span class="pjstar">★ Your advisors\' pick</span>' : ''}<div class="pjhead"><span class="pjicon">${F.icon}</span><div><b>${esc(nameOf(S, fam))}</b><div class="tiny">${esc(F.name)} · would come out ${gradeHtml(q)}</div></div></div>
+  return `<div class="pjcard ${star ? 'star' : ''} ${pick && pick.fam === fam ? 'on' : ''}" data-pjsel="${fam}" style="--tc:${tcol(generationOf(S, fam), q)}">${star ? '<span class="pjstar">★ Your advisors\' pick</span>' : ''}<div class="pjhead">${techArt(S, { fam, gen: generationOf(S, fam), q, w: 72 })}<div><b>${esc(nameOf(S, fam))}</b><div class="tiny">${esc(F.name)} · ${tierWord(generationOf(S, fam))} · would come out ${gradeHtml(q)}</div></div></div>
     ${why ? `<div class="tiny pjwhy">${esc(why)}</div>` : ''}
     <div class="pjrecipe">${ch.map(x => `<span title="strength ${x.strength.toFixed(2)} — to find where you look ${Math.round(x.potential * 100)} %, ${x.found} found${x.nb ? `, ${x.nb} new find${x.nb > 1 ? 's' : ''}` : ''}"><i class="fdot" style="background:${FIELD_COL[x.id]}"></i>${esc(c.fields.find(f => f.id === x.id)?.name || x.id)} ${Math.round(x.w * 100)} %</span>`).join('')}</div>
     ${paragraph(fam, generationOf(S, fam), benefitsOf(S, c.fields, fam, q), boosts.map(b => b.name), giftOf(S))}
@@ -158,9 +226,10 @@ function drawFlow() {
   const B = board.getBoundingClientRect(), W = B.width, H = B.height, sec = $('rFieldsSec').getBoundingClientRect(); svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
   const rows = new Map([...document.querySelectorAll('#eFields .frow[data-field]')].map(row => { const r = row.getBoundingClientRect(); return [row.dataset.field, { y: Math.max(8, Math.min(H - 8, r.top + r.height / 2 - B.top)), off: r.bottom < sec.top + 30 || r.top > sec.bottom - 10 }]; }));
   let out = '';
+  const T = ($('rTree') || board).getBoundingClientRect(), tx0 = T.left - B.left + 8, tx1 = T.right - B.left - 8, ty0 = T.top - B.top + 8, ty1 = T.bottom - B.top - 8;   // a node scrolled out of the tree's view: the channel ends at its edge
   for (const [id, r] of rows) if (!(ctx.c.projects || []).some(p => p.F.recipe[id])) out += `<path d="M0 ${r.y} L22 ${r.y}" stroke="#5b6a8a" stroke-width="2" opacity="${r.off ? 0.1 : 0.3}" stroke-linecap="round"/>`;
   for (const pl of ctx.c.projects || []) {
-    const node = document.querySelector(`[data-pjnode="${pl.i}"]`); if (!node) continue; const N = node.getBoundingClientRect(), nx = N.left - B.left, ny = N.top - B.top, nh = N.height;
+    const node = document.querySelector(`#rTree [data-pjnode="${pl.i}"]`); if (!node) continue; const N = node.getBoundingClientRect(), nh = Math.min(N.height, Math.max(24, ty1 - ty0)), nx = Math.max(tx0, Math.min(tx1, N.left - B.left)), ny = Math.max(ty0, Math.min(ty1 - nh, N.top - B.top));
     const ids = Object.keys(pl.F.recipe).sort((a, b) => (rows.get(a)?.y ?? 0) - (rows.get(b)?.y ?? 0)), dim = hiFam && hiFam !== pl.fam;
     ids.forEach((id, k) => {
       const r = rows.get(id); if (!r) return; const x = pl.ch.find(c => c.id === id), w = pl.F.recipe[id], py = ny + 14 + (k + 0.5) * (nh - 28) / ids.length, col = FIELD_COL[id];
@@ -174,17 +243,43 @@ function drawFlow() {
   svg.innerHTML = out;
 }
 export function renderResearch(c, S) {
-  ctx = { c, S }; const fl = $('eFields'), nodes = $('rNodes'), pk = $('rPick'); if (!fl || !nodes) return;
+  ctx = { c, S }; const fl = $('eFields'), tree = $('rTreeIn'), pk = $('rPick'), card = $('rCard'); if (!fl || !tree) return;
   fl.innerHTML = fieldsHtml(c);
-  const plans = c.projects || [];
-  nodes.innerHTML = plans.length ? plans.map(pl => nodeHtml(pl, S, c)).join('') : '';
-  $('rEmpty').hidden = !!plans.length || !!pick;
+  const html = treeHtml(S, c); tree.innerHTML = html; tree.style.zoom = zoom;
+  $('rEmpty').hidden = !!html || !!pick;
+  if (card) { const ph = popupHtml(S, c); if (!ph) popup = null; card.hidden = !ph || !!pick; card.innerHTML = ph; }
   if (pk) { pk.hidden = !pick; if (pick) pk.innerHTML = pickerHtml(S, c); }
   decorate(); requestAnimationFrame(drawFlow);
 }
 const act = fn => { if (!ctx) return; const err = fn(ctx.S); if (err) return alert(err); hooks.save(); hooks.refresh(); };
+// THE TREE's hands (his ask, 2026-10-31): the WHEEL zooms (round the pointer; past ZOOM.mini the cards turn simple), a DRAG on the tree
+// moves it, a CLICK on a card opens all of it (any zoom), a RIGHT-CLICK on a picture draws another shape of it
+let pan = null;
+document.addEventListener('wheel', e => {
+  const tree = e.target.closest?.('#rTree'); if (!tree || !ctx) return; e.preventDefault();
+  const notch = Math.sign(e.deltaY) * Math.min(1, Math.abs(e.deltaY) / 100);   // a mouse notch = 12 %, a touchpad's small strokes less
+  const z0 = zoom, z1 = Math.max(ZOOM.min, Math.min(ZOOM.max, z0 * Math.exp(-notch * 0.12))); if (Math.abs(z1 - z0) < 1e-4) return;
+  const R = tree.getBoundingClientRect(), mx = e.clientX - R.left, my = e.clientY - R.top, ax = (tree.scrollLeft + mx) / z0, ay = (tree.scrollTop + my) / z0;
+  zoom = z1; if ((z0 < ZOOM.mini) !== (z1 < ZOOM.mini)) renderResearch(ctx.c, ctx.S); else $('rTreeIn').style.zoom = z1;
+  tree.scrollLeft = ax * z1 - mx; tree.scrollTop = ay * z1 - my; drawFlow();
+}, { passive: false });
+document.addEventListener('pointerdown', e => { const tree = e.button === 0 && e.target.closest?.('#rTree'); if (!tree || e.target.closest('input, button, label, select')) return; pan = { tree, x: e.clientX, y: e.clientY, sl: tree.scrollLeft, st: tree.scrollTop, moved: false }; });
+document.addEventListener('pointermove', e => { if (!pan) return; const dx = e.clientX - pan.x, dy = e.clientY - pan.y; if (!pan.moved && Math.hypot(dx, dy) < 5) return; pan.moved = true; pan.tree.classList.add('pan'); pan.tree.scrollLeft = pan.sl - dx; pan.tree.scrollTop = pan.st - dy; });
+document.addEventListener('pointerup', () => { if (pan) { pan.tree.classList.remove('pan'); if (pan.moved) pan.justMoved = true; setTimeout(() => { pan = null; }, 0); } });
+document.addEventListener('contextmenu', e => {
+  const im = e.target.closest?.('img.tart[data-devfam]'); if (!im || !ctx) return; e.preventDefault(); e.stopPropagation();
+  reseed(ctx.S, im.dataset.devfam, +im.dataset.devgen); hooks.save(); renderResearch(ctx.c, ctx.S);
+}, true);
 document.addEventListener('click', e => {
-  if (!ctx) return; const t = e.target.closest('[data-pjnew], [data-pjclose], [data-pjcat], [data-pjgoal], [data-pjstart], [data-pjdrop]'); if (!t) return;
+  if (!ctx) return;
+  if (e.target.closest('[data-tclose]')) { popup = null; return renderResearch(ctx.c, ctx.S); }
+  if (pan && pan.justMoved) return;                                                // the end of a drag, not a click
+  if (e.target.closest('#rTree') && !e.target.closest('input, button, label, select')) {
+    const k = e.target.closest('[data-tech], [data-pjnode]');
+    if (k) { popup = k.dataset.tech ? { tech: k.dataset.tech } : { node: +k.dataset.pjnode }; return renderResearch(ctx.c, ctx.S); }
+    if (popup) { popup = null; return renderResearch(ctx.c, ctx.S); }
+  }
+  const t = e.target.closest('[data-pjnew], [data-pjclose], [data-pjcat], [data-pjgoal], [data-pjstart], [data-pjdrop]'); if (!t) return;
   if (t.hasAttribute('data-pjnew')) { pick = { goal: null, fam: null }; return renderResearch(ctx.c, ctx.S); }
   if (t.dataset.pjgoal) { pick.goal = pick.goal === t.dataset.pjgoal ? null : t.dataset.pjgoal; return renderResearch(ctx.c, ctx.S); }
   if (t.hasAttribute('data-pjclose')) { pick = null; hiFam = null; return renderResearch(ctx.c, ctx.S); }
@@ -192,9 +287,9 @@ document.addEventListener('click', e => {
   if (t.dataset.pjstart) { const fam = t.dataset.pjstart; pick = null; hiFam = null; return act(S => startProject(S, fam)); }
   if (t.dataset.pjdrop) { const i = +t.dataset.pjdrop, p = (ctx.c.projects || []).find(x => x.i === i); if (p && !confirm(`Drop ${p.name}? What it has done (${Math.round(p.p.prog || 0)} of ${p.need}) is lost.`)) return; return act(S => dropProject(S, i)); }
 });
-document.addEventListener('input', e => { const t = e.target; if (t.dataset?.pjinf == null) return; const v = document.querySelector(`[data-pjinfv="${t.dataset.pjinf}"]`); if (v) v.textContent = `${t.value} %`; });
+document.addEventListener('input', e => { const t = e.target; if (t.dataset?.pjinf == null) return; for (const v of document.querySelectorAll(`[data-pjinfv="${t.dataset.pjinf}"]`)) v.textContent = `${t.value} %`; });
 document.addEventListener('change', e => { const t = e.target; if (t.dataset?.pjinf == null) return; const i = +t.dataset.pjinf, v = +t.value; act(S => setInfluence(S, i, v)); });
-document.addEventListener('mouseover', e => { if (!ctx) return; const t = e.target.closest?.('[data-pjsel], [data-pjnode]'); const fam = t ? (t.dataset.pjsel || ctx.c.projects?.find(p => p.i === +t.dataset.pjnode)?.fam || null) : null; if (fam !== hiFam) { hiFam = fam; decorate(); drawFlow(); } });
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && pick && ctx) { pick = null; hiFam = null; renderResearch(ctx.c, ctx.S); } });
-document.addEventListener('scroll', e => { if (e.target && (e.target.id === 'rFieldsSec' || e.target.id === 'rNodes')) drawFlow(); }, true);
+document.addEventListener('mouseover', e => { if (!ctx) return; const t = e.target.closest?.('[data-pjsel], [data-pjnode], [data-pjnodep], [data-tech], [data-techp], [data-tfam]'); const d = t ? t.dataset : {}, node = d.pjnode ?? d.pjnodep, fam = t ? (d.pjsel || d.tfam || (d.tech || d.techp || '').split(':')[0] || ctx.c.projects?.find(p => p.i === +node)?.fam || null) : null; if (fam !== hiFam) { hiFam = fam; decorate(); drawFlow(); } });
+document.addEventListener('keydown', e => { if (e.key !== 'Escape' || !ctx) return; if (pick) { pick = null; hiFam = null; renderResearch(ctx.c, ctx.S); } else if (popup) { popup = null; renderResearch(ctx.c, ctx.S); } });
+document.addEventListener('scroll', e => { if (e.target && (e.target.id === 'rFieldsSec' || e.target.id === 'rTree' || e.target.id === 'rCard')) drawFlow(); }, true);
 window.addEventListener('resize', () => drawFlow());

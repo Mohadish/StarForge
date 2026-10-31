@@ -549,6 +549,8 @@ export const DEVICES = {
   farms_cold: { name: 'Frost-hardy crops', icon: 'cold', farm: true },
   farms_hot:  { name: 'Heat-proof crops', icon: 'heat', farm: true },
   farms_rad:  { name: 'Shielded farms', icon: 'radiation', farm: true },
+  homes:    { name: 'Homes', icon: 'homes', building: 'homes' },   // the colonies' own (2026-10-31, the research tree): the buildings out of the same parts
+  labs:     { name: 'Research lab', icon: 'labs', building: 'lab' },
 };
 // THE PARTS (the grammar): a BASE, a BODY on it, a TOP on that — each picked by the technology's leanings, each sized off the one below.
 // ctx = { z: the height reached, r: the room on top }. Flanges, fins, plates, pillars and discs are CARDS of the style's whole greebles
@@ -737,6 +739,7 @@ function deviceRecipe(fam, f, look) {
   const { box, cyl, dome, core, light, v, R } = f, D = DEVICES[fam] || {}, P = PLAN[fam];
   if (fam === 'armor') { armorRecipe(f); return; }
   if (D.farm) { buildingRecipe('farm', f); centre(f.B); f.B.recipe = 'fields, glasshouses, a silo'; return; }   // the building's farm (his call: "way, way nicer")
+  if (D.building) { buildingRecipe(D.building, f); centre(f.B); f.B.recipe = D.building; return; }
   if (P) {
     const pick = l => l[Math.floor(R() * l.length)], b = pick(P.base), y = pick(P.body), t = pick(P.top);
     let x = PARTS.base[b](f); x = PARTS.body[y](f, x); PARTS.top[t](f, x);
@@ -750,11 +753,12 @@ function deviceRecipe(fam, f, look) {
     for (const [x, y] of [[-0.85, -0.85], [-0.9, 0.7], [0.8, -0.9]]) if (R() < 0.8) { const h = v(0.8, 1.3); f.cross(x, y, 0.35 + h / 2, h, rotq(f.fit(), 1), { byH: true, a: R() * Math.PI }); }
   }
 }
-export function drawDevice(fam, styleStock, { seed = 1, level = 3, yaw = 0, U = null, width = 250, look = null } = {}) {
-  const f = builder(rnd(fam + ':' + seed + ':' + styleStock.style), stockSet(styleStock)); f.glow = levelColor(level);
+// color: the level's colour given outright (the research tree's smooth tier hue, techicons.js tierColor; null = black) — else the ladder's
+export function drawDevice(fam, styleStock, { seed = 1, level = 3, yaw = 0, U = null, width = 250, look = null, color } = {}) {
+  const glow = color !== undefined ? color : levelColor(level), f = builder(rnd(fam + ':' + seed + ':' + styleStock.style), stockSet(styleStock)); f.glow = glow;
   deviceRecipe(fam, f, look);
   if (!U) U = Math.min(64, width / (2 * bounds(f.B).rho * Math.SQRT2 * C30));   // every device as wide as the frame (a long gun is not a speck)
-  const glow = levelColor(level), farm = DEVICES[fam] && DEVICES[fam].farm;
+  const farm = DEVICES[fam] && DEVICES[fam].farm;
   if (DEVICES[fam] && DEVICES[fam].weapon) yaw -= 0.6;
   if (fam === 'armor') yaw -= 0.5;   // armour from the side at three quarters: the bend of its profile and the layers stepping back under it   // a weapon from three quarters: its side, the greebles round the barrels
   const cv = renderSolids(f.B, { U, yaw, glow, light: glow || '#ffffff', glass: farm ? '#b6f08a' : glow || '#e6f0ff', wash: glow && !farm ? glow : null, washA: 0.12, seed });

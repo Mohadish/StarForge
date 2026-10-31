@@ -336,8 +336,43 @@
 .pjflow{animation:pjflow 1.4s linear infinite}
 @keyframes pjflow{to{stroke-dashoffset:-0.05}}
 .pjnew{position:absolute;left:12px;top:12px;z-index:2;font-size:14px;padding:9px 14px}
-#rNodes{position:absolute;right:14px;top:12px;bottom:12px;width:min(320px,52%);overflow-y:auto;display:flex;flex-direction:column;justify-content:safe center;gap:10px;z-index:1}
-.pjnode{border:2px solid var(--fc);border-radius:12px;padding:10px;background:linear-gradient(#162543,#0b1426);box-shadow:0 0 22px rgba(79,163,255,.18)}
+/* THE TREE (projects.js, 2026-10-31): a row per family, a column per tier; the wheel zooms (CSS zoom on #rTreeIn), a drag moves it */
+#rTree{position:absolute;inset:54px 0 0 0;overflow:auto;z-index:1;cursor:grab}
+#rTree.pan{cursor:grabbing;user-select:none}
+#rTreeIn{width:max-content;padding:0 18px 28px 0}
+.zhint{position:absolute;left:236px;top:22px;z-index:2;font-size:11px;color:var(--muted)}
+.tgrid{display:grid;--lab:150px;--col:300px;gap:10px 16px;align-items:start}
+.tgrid.mini{--lab:132px;--col:178px;gap:6px 10px}
+.thead{position:sticky;top:0;z-index:3;text-align:center;font-weight:800;letter-spacing:.16em;text-transform:uppercase;font-size:12px;color:var(--tc);padding:7px 0 5px;background:rgba(7,11,22,.92);border-bottom:2px solid color-mix(in srgb,var(--tc) 65%,transparent)}
+.thead.tl{left:0;z-index:4;border-bottom-color:transparent}
+.tcat{padding:10px 0 0;border-top:1px solid #1d2a45}
+.tcat span{position:sticky;left:8px;font-size:11px;text-transform:uppercase;letter-spacing:.14em;color:var(--muted)}
+.tfam{position:sticky;left:0;z-index:2;display:flex;gap:6px;align-items:center;font-size:12px;padding:6px 8px 6px 6px;background:rgba(8,13,26,.9);border-radius:0 10px 10px 0;border:1px solid #1d2a45;border-left:0;align-self:center}
+.tfam .pjicon{font-size:18px;width:22px}
+.tcell{min-height:30px}
+.tcard{position:relative;border:2px solid var(--tc);border-radius:12px;padding:9px;background:linear-gradient(#152340,#0b1426);box-shadow:0 0 18px color-mix(in srgb,var(--tc) 20%,transparent);cursor:pointer}
+.tcard:hover{box-shadow:0 0 26px color-mix(in srgb,var(--tc) 48%,transparent)}
+.tcard.going{border-style:dashed}
+.tcard.full{cursor:default}
+.tcard.mini{padding:6px 7px}
+.ttop{display:flex;gap:8px;align-items:center;padding-right:22px}
+.ttop > div{min-width:0}
+.tname{font-weight:800;text-transform:uppercase;letter-spacing:.05em;font-size:12.5px;line-height:1.2;color:#fff}
+.tcard.mini .tname{font-size:11px}
+.tcoin{position:absolute;top:6px;right:6px;width:24px;height:24px;border-radius:50%;background:rgba(6,10,20,.88);border:1.5px solid var(--tc);display:grid;place-items:center}
+.tcaps{display:flex;flex-wrap:wrap;gap:3px;margin-top:5px}
+.tcap{font-size:10.5px;font-weight:700;padding:0 6px;border-radius:7px;color:var(--bc);background:color-mix(in srgb,var(--bc) 15%,transparent);border:1px solid color-mix(in srgb,var(--bc) 42%,transparent);white-space:nowrap;line-height:1.5}
+.tcap.rare{color:#ffd26a;border-color:rgba(255,210,106,.6);box-shadow:0 0 8px rgba(255,210,106,.3)}
+.tart{display:block;flex:none;aspect-ratio:5/4;object-fit:contain;opacity:.2;transition:opacity .3s;filter:drop-shadow(0 3px 6px rgba(0,0,0,.5))}
+.tart.ready{opacity:1}
+.tcard .pjhead{padding-right:22px}
+.tcard.full .ttop,.tcard.full .pjhead{flex-direction:column;align-items:flex-start}
+#rCard{position:absolute;left:50%;top:62px;transform:translateX(-50%);width:min(440px,92%);max-height:calc(100% - 78px);overflow-y:auto;z-index:4;border-radius:14px;box-shadow:0 18px 60px rgba(0,0,0,.75)}
+#rCard[hidden]{display:none}
+#rCard .tcard{background:linear-gradient(#18284a,#0b1426 60%);padding:14px}
+#rCard .tclose{position:absolute;right:38px;top:9px;z-index:2}
+#rCard .tdrop{margin-top:10px;font-size:11px;color:#ff9b8a;border-color:rgba(255,121,121,.35)}
+.pjnode{border:2px solid var(--tc,#4fa3ff);border-radius:12px;padding:10px;background:linear-gradient(#162543,#0b1426);box-shadow:0 0 22px rgba(79,163,255,.18)}
 .pjhead{display:flex;gap:8px;align-items:center}
 .pjhead > div{flex:1;min-width:0}
 .pjicon{font-size:24px;width:30px;text-align:center}

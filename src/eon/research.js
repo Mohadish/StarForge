@@ -118,7 +118,7 @@ export function benefitsOf(S, fields, fam, q = null) {
 // the paragraph's text for a generation: the template with {i} still in it (the UI fills them)
 export const textOf = (fam, gen) => { const t = TEXT[fam] || ['{0}']; return t[(Math.max(1, gen) - 1) % t.length]; };
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-const roman = n => { let s = '', v = Math.max(1, Math.floor(n)); for (const [a, r] of [[1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'], [100, 'C'], [90, 'XC'], [50, 'L'], [40, 'XL'], [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']]) while (v >= a) { s += r; v -= a; } return s; };
+export const roman = n => { let s = '', v = Math.max(1, Math.floor(n)); for (const [a, r] of [[1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'], [100, 'C'], [90, 'XC'], [50, 'L'], [40, 'XL'], [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']]) while (v >= a) { s += r; v -= a; } return s; };
 export const generationOf = (S, fam) => ((S.gens || {})[fam] || 0) + 1;
 // THE COMPONENTS (2026-10-24): every model of a module kind the empire has developed, the newest last
 export const modelsOf = (S, kind) => (S.models || []).filter(m => m.kind === kind);
@@ -225,9 +225,25 @@ export function advanceProjects(S, plans, rep) {
         props: [{ name: `${F.name}, generation ${pl.gen}`, rarity: 'common', what: 'developed on purpose', channels: chans }, ...(giftProp ? [giftProp] : [])] });
       rep.push({ kind: 'breakthrough', research, text: `Research done: ${pl.name} — ${chans.map(c => `${c.channel.replace(/_/g, ' ')} +${c.pct} %`).join(', ')} on every ${F.name.toLowerCase()} (quality ${Math.round(pl.q * 100)} %)` });
     }
+    S.techs = S.techs || []; S.techs.push({ fam: pl.fam, gen: pl.gen, name: research.name, eon: S.eon, q: +pl.q.toFixed(2), pcts: research.pcts, model: research.model || null });   // the tree (techTree)
   }
   if (finished.length) S.projects = (S.projects || []).filter(p => !finished.some(f => f.p === p));
   return finished;
+}
+// THE TREE (his ask, 2026-10-31: "the tech tree evolving from left to right, tiers in columns"): every technology the empire has
+// developed — a family's generation is its TIER. S.techs keeps each as it came out (advanceProjects); an older game has only its
+// generation counts (S.gens) and its components (S.models): those fill in, a plain one with no numbers kept
+export function techTree(S) {
+  const out = [], have = new Set();
+  for (const t of S.techs || []) { if (!FAMILIES[t.fam]) continue; out.push(t); have.add(t.fam + ':' + t.gen); }
+  for (const [fam, n] of Object.entries(S.gens || {})) {
+    const F = FAMILIES[fam]; if (!F) continue;
+    for (let g = 1; g <= n; g++) {
+      if (have.has(fam + ':' + g)) continue; const m = F.module ? (S.models || []).find(x => x.fam === fam && x.gen === g) : null;
+      out.push({ fam, gen: g, name: m ? m.name : `${F.base} Mk ${roman(g)}`, eon: m ? m.eon : null, q: m ? m.q : null, pcts: null, model: m ? m.id : null });
+    }
+  }
+  return out.sort((a, b) => a.gen - b.gen);
 }
 // THE ADVISORS: what the empire needs, read from the game — each with its reason, and how it would come out with the fields you have
 export function advisors(S, c) {
