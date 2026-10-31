@@ -24,7 +24,7 @@ import { buildPlan, planCode } from './fleetplan.js';
 import { applyEon } from './replay.js';
 import { WORLD, MAX_EMPIRES, createWorld, worldEndEon, worldSnapshot, worldRestore, worldPlayEon, applyWorldEon, ownerOf, invade, invasionOdds, newLog, campaignEon, finishLog, HIGHLIGHT } from './world.js';
 import { makeBrain } from './ai.js';
-import { designSpecHtml, modulesLine, chipStripHtml } from './spec.js';
+import { designSpecHtml, modulesLine, chipStripHtml, exoticBoxes } from './spec.js';
 import { FACTORS, FACTOR_COLOR, SIZES, sizeClassOf, gridOf, habitabilityOf, habWord } from './districts.js';
 import { DEV, LEVEL1, KIND_WORD as SLOT_WORD, filletWhy, isFull, counts, planetOf, unitCap, districtInfo, jobsOf, bOf } from './colony.js';
 import { renderResearch, initResearch, researchDoneHtml } from './projects.js';
@@ -1650,6 +1650,18 @@ function fxWords(fx) {
   if (fx.heal) o.push(`<span class="tg">the hull knits itself: ${(fx.heal * 100).toFixed(1)} % of it a second, free</span>`);
   if (fx.drink) o.push(`<span class="tg">beams cool the ship instead of heating it, and ${pc(fx.drink)} of what they take returns to the field</span>`);
   if (fx.autopd) o.push(`<span class="tg">every gun turns on missiles coming at the ship, ×${fx.autopd.toFixed(1)} as likely to hit them</span>`);
+  if (fx.mirv) o.push(`<span class="tg">splits into ${Math.round(fx.mirv)} warheads ${EXOTIC.mirvAt} u from its target, ${Math.round(EXOTIC.mirvK * 100)} % of the charge between them</span>`);
+  if (fx.tend) o.push(`<span class="tg">repair drones: each mends ${(EXOTIC.tendRate * fx.tend).toFixed(1)} hull a second on a friend within ${EXOTIC.tendR} u of the carrier, from its stock</span>`);
+  if (fx.reactive) o.push(`<span class="tg">a reactive layer of ${pc(fx.reactive)} of the armour on top of it: a shell or missile costs it ${pc(EXOTIC.rx.weapon_kinetic)} / ${pc(EXOTIC.rx.weapon_missile)} of what it stops, a beam ${pc(EXOTIC.rx.weapon_energy)} — a fabricator builds it back</span>`);
+  if (fx.hard) o.push(`<span class="tg">shrugs off ${pc(fx.hard)} of ion drains; the field holds when the reactor goes dark</span>`);
+  if (fx.jam) o.push(`<span class="tg">guns and beams aimed at the ship hit ${pc(fx.jam)} less often</span>`);
+  if (fx.cloak) o.push(`<span class="tg">unseen beyond ${EXOTIC.cloakR} u until ${EXOTIC.cloakFired} s after it fires</span>`);
+  if (fx.decoy) o.push(`<span class="tg">fools ${pc(fx.decoy)} of the missiles and drone volleys at the ship</span>`);
+  if (fx.surg) o.push(`<span class="tg">every hit that reaches the hull wears the enemy crew: ×${fx.surg.toFixed(1)} of its share of the hull off their blue bar</span>`);
+  if (fx.reach) o.push(`<span class="tg">every gun aboard reaches ${pc(fx.reach)} further</span>`);
+  if (fx.nanite) o.push(`<span class="tg">mends the hull ×${(1 + fx.nanite).toFixed(1)} as fast, making no heat</span>`);
+  if (fx.synth) o.push(`<span class="tg">its stock goes ×${(1 + fx.synth).toFixed(2)} as far</span>`);
+  if (fx.mgen) o.push(`<span class="tg">turns ${(fx.mgen * 100).toFixed(1)} % of the reactor's output into material a second</span>`);
   return o.map(x => `<div>${x}</div>`).join('');
 }
 // SOMETHING EXTRAORDINARY (traits.js EXTRA): its line, gold, above the rest
@@ -1661,10 +1673,11 @@ function modelDetail(kind, m, c, L = null) {
   const rows = c.rows.map(r => { const g = gain(r), d = m && Math.abs(g) > 0.004; return `<div class="r"><span class="muted">${esc(r.label)}</span><span>${d ? `<s class="muted">${statTxt(r, r.plain)}</s> → ` : ''}<b>${statTxt(r, r.val)}</b>${d ? ` <b style="color:${g > 0 ? '#7ef3b0' : '#ff7979'}">${g > 0 ? '+' : ''}${Math.round(g * 100)} %</b>` : ''}</span></div>`; }).join('');
   const spill = c.spill.map(x => `<div>${ticon(CHANNEL_ICON[x.channel] || 'power', { size: 14 })} everything aboard: <b>+${x.pct} %</b> ${x.channel.replace(/_/g, ' ')}</div>`).join('');
   const drive = c.drive > 1.004 ? `<div>${ticon('reach', { size: 14 })} between the stars: <b>×${c.drive.toFixed(2)}</b> the plain drive's pace and reach</div>` : '';
+  const stock = m && m.mul && m.mul.stock && Math.abs(m.mul.stock - 1) > 0.004 ? `<div><span class="${m.mul.stock > 1 ? 'tg' : 'tb'}">material stock ×${m.mul.stock.toFixed(2)}</span></div>` : '';   // a fabricator's (traits.js fab)
   const dc = m ? Math.round((c.cost[1] / Math.max(1e-9, c.cost[0]) - 1) * 100) : 0, dv = m && c.volume ? Math.round((c.volume[1] / Math.max(1e-9, c.volume[0]) - 1) * 100) : 0;
   const cost = m && (dc || dv) ? `<div class="muted">${dc ? `cost ${dc > 0 ? '+' : ''}${dc} %` : ''}${dc && dv ? ' · ' : ''}${dv ? `bulk ${dv > 0 ? '+' : ''}${dv} %` : ''} against the standard one</div>` : '';
   const head = m ? `<div><b>${esc(m.name)}</b> <span class="muted">— developed in eon ${m.eon}</span></div>` : `<div><b>The standard ${esc(K.name.toLowerCase())}</b> — what every yard builds, with what your empire knows in it</div>`;
-  return art + head + rareHtml(m) + traits + rows + fxWords(m && m.fx ? m.fx : {}) + spill + drive + cost + '<div class="muted" style="margin-top:3px">New ships only: the ones already built keep what they were built with.</div>';
+  return art + head + rareHtml(m) + traits + rows + stock + fxWords(m && m.fx ? m.fx : {}) + spill + drive + cost + '<div class="muted" style="margin-top:3px">New ships only: the ones already built keep what they were built with.</div>';
 }
 const newestSys = () => Object.fromEntries(MODEL_SYS.map(k => [k, newestModel(S, k)?.id]).filter(x => x[1]));
 // the model of a system the design sizes itself (the reactor, the star drive, the weapons computer): the design's choice
@@ -1879,7 +1892,7 @@ function renderDesign(c) {
   let hull = box(ICON.volume, 'Volume', `${fmt(t.volume)} · ${plural(t.squares, 'square')}`) + box(ICON.hp, 'Hull', `${fmt(t.hp)} HP`);
   if (t.armor) hull += box('▣', 'Armour', `${fmt(t.armor)} HP · shrugs ${t.deflect.toFixed(1)}/hit`);
   if (t.hullRepair) hull += box(ICON.upkeep, 'Repairs in battle', `${t.hullRepair.toFixed(1)} hull/s`);
-  if (t.selfHeal) hull += box(ICON.upkeep, '★ Knits itself', `${(t.selfHeal * t.hp).toFixed(1)} hull/s, free`);
+  hull += exoticBoxes(t);
   if (hasShield) hull += box(ICON.shield, 'Shield', `${fmt(t.shield)} · +${fmt(t.shieldRec)}/s`) + box(ICON.cover, 'Shield covers', pct(t.cover) + ' of the hull', t.cover < 0.999);
   let power = box(ICON.power, 'Power', `${fmt(t.powerOut)} made / ${fmt(t.powerUse)} used`, t.powerFactor < 1);
   if (t.powerFactor < 1) power += box(ICON.runs, 'Runs at', pct(t.powerFactor), true);

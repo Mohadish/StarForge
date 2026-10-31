@@ -502,6 +502,10 @@ function draw() {
       g.globalAlpha = 0.3 * f; g.fillStyle = '#ff9a3c'; g.beginPath(); g.arc(fx, fy, R, 0, 7); g.fill();
       g.globalAlpha = f; g.strokeStyle = '#ffe2a8'; g.lineWidth = 2; g.beginPath(); g.arc(fx, fy, R, 0, 7); g.stroke(); return;
     }
+    if (kind === 't') {                                                              // a Tender drone mending a friend (battle.js): a green dashed tether and a soft glow on the hull
+      const f = 1 - p / 0.5; if (f <= 0) return; g.globalAlpha = 0.8 * f; g.strokeStyle = '#7ef3b0'; g.lineWidth = 1.5; g.setLineDash([3, 3]); g.beginPath(); g.moveTo(fx, fy); g.lineTo(tx, ty); g.stroke(); g.setLineDash([]);
+      g.globalAlpha = 0.35 * f; g.fillStyle = '#7ef3b0'; g.beginPath(); g.arc(tx, ty, 5 + 4 * f, 0, 7); g.fill(); return;
+    }
     if (kind === 'm') {                                                              // a missile arriving: on the hull an orange blast, on a shield a purple flash at the shield's edge, a miss fizzles past
       const f = 1 - p / 0.6; if (f <= 0) return; g.globalAlpha = f;
       if (out === 4) { g.fillStyle = 'rgba(207,137,255,.55)'; g.beginPath(); g.arc(tx, ty, 5 + 9 * f, 0, 7); g.fill(); g.strokeStyle = '#cf89ff'; g.lineWidth = 1.5; g.beginPath(); g.arc(tx, ty, 8 + 16 * (1 - f), 0, 7); g.stroke(); }

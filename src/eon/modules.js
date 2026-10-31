@@ -252,7 +252,7 @@ export function designStats(S, design, caps = allCapsules(S)) {
     if (m.kind === 'shield') { t.shieldRaw += v.capacity * n; t.shieldRec += v.recovery * n; for (let i = 0; i < n; i++) radii.push(v.radius); }
     if (g.engine) { t.engines[g.engine] += n; t.thrust += v.thrust * n; t.evasionRaw += v.evasion * n; if (v.lift) t.lift += v.lift * n; }
     if (g.mount) { t.mountsUsed += m.load * n; guns.push({ modId: m.mod.id, kind: m.kind, n, pos: m.mod.pos, size: m.volume / g.volume, load: m.load, role: roleOf(m.mod) }); if (g.charges) { t.missiles += Math.round(v.charges) * n; t.missileVol += m.volume * n; } if (g.hangar) { t.drones += Math.round(v.craft) * n; t.droneVol += m.volume * n; } }
-    if (m.kind === 'works') t.fabStock += m.volume * n * FAB.stockPerVolume;
+    if (m.kind === 'works') t.fabStock += m.volume * n * FAB.stockPerVolume * ((m.model && m.model.mul && m.model.mul.stock) || 1);   // a Deep fabricator carries more (traits.js fab)
     if (m.kind === 'weapon_energy' || m.kind === 'weapon_kinetic' || m.kind === 'shield' || m.kind === 'works') t.heatLoad += (v.power || 0) * n;   // HEAT: what makes heat sets the heat budget
     if (g.orbital) t.ground += v.damage * v.rate * v.accuracy / 100 * n;
     else if (g.mount && !g.hangar) { t.weapons += n; t.dpsRaw += v.damage * v.rate * v.accuracy / 100 * n; t.range = Math.max(t.range, v.range); t.accSum += v.accuracy * n; }
@@ -276,7 +276,10 @@ export function designStats(S, design, caps = allCapsules(S)) {
   t.fireFactor = t.mountsUsed <= 0 ? 1 : clamp(t.mounts / t.mountsUsed, 0.25, 1);   // short of mounts = the guns fire slower, none falls silent
   t.airCap = t.drones ? Math.floor(Math.max(0, t.mounts - t.mountsUsed) / DRONE_CONTROL) : 0;   // drones that can be in the air at once: what the computer has left over
   t.hp += t.volume * 2;                                        // the hull itself: the ship's structure, under the armour
-  t.hullRepair = t.industry * HULL.fabRepairPerIndustry;        // what a fabricator aboard can patch per second
+  // SOMETHING EXTRAORDINARY aboard (traits.js EXTRA): the best one of each aboard, never stacked
+  const ex = (kind, key) => Math.max(0, ...mods.filter(m => m.kind === kind && m.model && m.model.fx && m.model.fx[key]).map(m => m.model.fx[key]));
+  t.nanite = ex('works', 'nanite');
+  t.hullRepair = t.industry * HULL.fabRepairPerIndustry * (1 + t.nanite);        // what a fabricator aboard can patch per second (a Nanite one far more)
   // MASS: a star drive fitted to its hull gives every ship the same thrust per volume, so without this
   // a 50-square ship would run, turn and dodge like a corvette. Speed, turning and evasion therefore
   // fall with bulk against a corvette-sized reference (MASS.ref volume): speed mildly, turning as a
@@ -292,7 +295,8 @@ export function designStats(S, design, caps = allCapsules(S)) {
   t.industry *= t.powerFactor; t.research *= t.powerFactor; t.social *= t.powerFactor;
   t.reload = t.missiles ? t.industry * FAB.missilesPerIndustry * 60 : 0;        // missiles a fabricator aboard builds per minute
   // what the stock buys: a missile costs its share of the magazine's volume, a drone sortie its share of the hangar's
-  t.synth = FAB.synth * (1 + (passive.synthesis || 0) / 100); t.massGen = FAB.massGen + (passive.mass_generation || 0) / 100 * 0.01;   // the breakthrough hooks (see FAB)
+  t.synth = FAB.synth * (1 + (passive.synthesis || 0) / 100) * (1 + ex('works', 'synth')); t.massGen = FAB.massGen + (passive.mass_generation || 0) / 100 * 0.01;   // the breakthrough hooks (see FAB); a Synthesis fabricator
+  t.energyFab = t.industry > 0 ? ex('works', 'mgen') : 0;                                                                                // an Energy fabricator: material from the reactor's output, a share a second
   t.missileCost = t.missiles ? t.missileVol / t.missiles / t.synth : 0; t.droneCost = t.drones ? t.droneVol / t.drones / t.synth : 0;
   t.hullPerStock = FAB.hullPerStock * t.synth; t.armorPerStock = FAB.armorPerStock * t.synth;                                          // repairs, paid from the same stock
   t.heatRatio = t.reactorVol ? t.volume / t.reactorVol : 0;                                                                              // HEAT (see HEAT): ship round the reactor
@@ -306,10 +310,11 @@ export function designStats(S, design, caps = allCapsules(S)) {
   // its own pace (the slowest drive aboard sets it); a fleet goes at its slowest ship's (model.js fleetPace)
   const drives = mods.filter(m => m.kind === 'stardrive'); t.driveMul = drives.length ? Math.min(...drives.map(m => !m.model ? 1 : m.model.mul ? m.model.mul.pace || 1 : 1 + ((m.model.boost && m.model.boost.drive_efficiency) || 0) / 100)) : 1;
   t.models = [...new Set(mods.filter(m => m.model).map(m => m.model.id))];
-  // SOMETHING EXTRAORDINARY aboard (traits.js EXTRA): a Living armour's hull that knits itself (share of the hull a second), a Thirsting
-  // shield that drinks beams, a Sentinel computer that turns every gun on incoming missiles — the best one aboard, never stacked
-  const ex = (kind, key) => Math.max(0, ...mods.filter(m => m.kind === kind && m.model && m.model.fx && m.model.fx[key]).map(m => m.model.fx[key]));
-  t.selfHeal = ex('armor', 'heal'); t.drink = ex('shield', 'drink'); t.autoPD = ex('weapon_system', 'autopd');
+  // (EXTRA, cont.) a Living armour's hull that knits itself (share of the hull a second), a Reactive layer (share of the armour, on top),
+  // a Thirsting shield that drinks beams, a Hardened one, a Jamming / Cloaking one, Decoy thrusters, and the computers: Sentinel (every gun
+  // on incoming missiles), Surgical (hits wear the crew), Farsight (× the reach)
+  t.selfHeal = ex('armor', 'heal'); t.reactive = ex('armor', 'reactive'); t.drink = ex('shield', 'drink'); t.hardened = ex('shield', 'hard'); t.jam = ex('shield', 'jam'); t.cloak = ex('shield', 'cloak');
+  t.decoy = ex('thruster', 'decoy'); t.autoPD = ex('weapon_system', 'autopd'); t.surgical = ex('weapon_system', 'surg'); t.reachX = 1 + ex('weapon_system', 'reach');
   // where the guns sit; the ones beyond what the weapons computer can run are marked
   const mounts = hardPoints(hull, guns);
   let left = t.mounts;                                       // the computer serves the guns in the order they were added: the newest go short

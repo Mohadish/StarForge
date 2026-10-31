@@ -58,7 +58,7 @@ const gradeHtml = q => { const [w, c] = GRADE(q); return `<span class="pjgrade" 
 // good research on these topics"): what you want, then the ways to it ranked by your research, the advisors' pick first
 const GOALS = [
   { id: 'weapon', name: 'A new weapon', fams: ['beam', 'gun', 'missile', 'drones'] },
-  { id: 'defence', name: 'Better protection', fams: ['shield', 'armor'] },
+  { id: 'defence', name: 'Protection & repair', fams: ['shield', 'armor', 'fab'] },
   { id: 'motion', name: 'Engines & power', fams: ['drive', 'thruster', 'reactor'] },
   { id: 'info', name: 'Computers & sensors', fams: ['computer', 'sensors'] },
   { id: 'civil', name: 'For the colonies', fams: ['farms', 'farms_cold', 'farms_hot', 'farms_rad', 'homes', 'works', 'labs'] },

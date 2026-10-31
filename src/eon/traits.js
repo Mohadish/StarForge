@@ -63,11 +63,18 @@ export const TRAITS = {
     information: { id: 'predictive', adj: 'Predictive', good: 'a truer aim', bad: 'runs fewer guns', mul: { bonus: [1.5, 2.5], mounts: 0.9 } },
     optics:      { id: 'quiet', adj: 'Quiet', good: 'draws far less power', bad: 'dearer', mul: { power: [0.7, 0.45], cost: 1.15 } },
   },
+  // THE FABRICATOR (his call, 2026-10-30: a research family of its own): `stock` × the material it carries (modules.js designStats)
+  fab: {
+    fabrication: { id: 'swift', adj: 'Swift', good: 'builds and mends much faster', bad: 'a smaller stock', mul: { industry: [1.3, 1.8], stock: 0.8 } },
+    materials:   { id: 'deep', adj: 'Deep', good: 'a far bigger stock of material', bad: 'works a little slower', mul: { stock: [1.5, 2.4], industry: 0.85 } },
+    energy:      { id: 'lean', adj: 'Lean', good: 'draws far less power', bad: 'dearer', mul: { power: [0.7, 0.45], cost: 1.15 } },
+  },
 };
 // the names: the main trait's word and a noun of the family's, the first one free
 const NOUNS = { beam: ['Lance', 'Ray', 'Spear', 'Needle', 'Torch', 'Halo', 'Lash', 'Arc', 'Glaive', 'Pike'], gun: ['Driver', 'Cannon', 'Hammer', 'Bolt', 'Repeater', 'Maul', 'Rifle', 'Slug'],
   missile: ['Viper', 'Dart', 'Hornet', 'Javelin', 'Shrike', 'Kestrel', 'Harrier', 'Wyrm'], drones: ['Wasp', 'Gnat', 'Moth', 'Midge', 'Hornet'], armor: ['Plate', 'Mail', 'Shell', 'Hide', 'Bulwark'],
-  shield: ['Aegis', 'Veil', 'Ward', 'Screen', 'Mantle'], reactor: ['Heart', 'Core', 'Kiln', 'Furnace'], drive: ['Strider', 'Fold', 'Leap', 'Wake'], thruster: ['Swift', 'Kick', 'Vane', 'Fin'], computer: ['Oracle', 'Mind', 'Eye', 'Loom'] };
+  shield: ['Aegis', 'Veil', 'Ward', 'Screen', 'Mantle'], reactor: ['Heart', 'Core', 'Kiln', 'Furnace'], drive: ['Strider', 'Fold', 'Leap', 'Wake'], thruster: ['Swift', 'Kick', 'Vane', 'Fin'], computer: ['Oracle', 'Mind', 'Eye', 'Loom'],
+  fab: ['Forge', 'Crucible', 'Anvil', 'Mill', 'Kiln'] };
 export const SECOND = { k: 0.6, min: 0.4, share: 0.6 };      // a second trait: at k of its strength, its price at half; only when its field is at least min strong and fed share of the first
 export const BURN = 4;                                        // seconds a burn takes to eat its share (battle.js)
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v)), lerp = (a, b, t) => a + (b - a) * t;
@@ -114,16 +121,29 @@ export function lookOf(fam, traits, mul, seed) {
 // SOMETHING EXTRAORDINARY (his rule, 2026-10-30: "a game of chance — excellent in two or three of its fields and there is a very good
 // chance of something unique"): a finished component may come out EXTRAORDINARY — one effect no plain research gives. The chance grows
 // with how strong the recipe's fields were while they fed it (every field past `from` adds k × the excess, from `base` up to `cap`); the
-// forecast tells only how likely, never what — a surprise. Which one: the family's list, by the field that fed it best; how strong: the
-// best field's. fx go into the model's fx (battle.js; armour heal / shield drink / computer autopd reach the ship through modules.js).
+// forecast tells only how likely, never what — a surprise. Which one: the family's list, by the field that fed it STRONGEST (each entry
+// names its `field`; none of them → the first); how strong: that field's. A `top` entry is what it becomes at the very top (s ≥ top.s: a
+// jammer that strong is a cloak, his call). fx go into the model's fx (battle.js; the ship-wide ones reach the ship through modules.js).
 export const RARE = { base: 0.05, from: 0.4, k: 0.7, cap: 0.85 };
 export const EXTRA = {
   beam:     [{ id: 'emp', adj: 'Ion', good: 'drains shields and holds them down: a field it hits does not recover for a long while', fx: { emp: [0.4, 0.8] }, col: '#9fd8ff' }],
   gun:      [{ id: 'delam', adj: 'Shear', good: 'tears armour by its size: the heavier the plating, the more each hit strips away', fx: { delam: [0.5, 1] }, col: '#ffcf7a' }],
-  missile:  [{ id: 'volatile', adj: 'Nova', good: 'a ship it finishes blows apart and hurts everything around it', fx: { blast: [0.2, 0.4] }, col: '#ff9a3c' }],
-  armor:    [{ id: 'living', adj: 'Living', good: 'the hull under it knits itself back, free, all through the battle', fx: { heal: [0.003, 0.006] } }],
-  shield:   [{ id: 'thirst', adj: 'Thirsting', good: 'drinks the beams that hit it: they cool the ship instead of heating it, and top the field back up', fx: { drink: [0.2, 0.4] } }],
-  computer: [{ id: 'sentinel', adj: 'Sentinel', good: 'every gun turns on the missiles coming at the ship, and hits them far more often', fx: { autopd: [1.4, 2] } }],
+  missile:  [{ id: 'volatile', field: 'materials', adj: 'Nova', good: 'a ship it finishes blows apart and hurts everything around it', fx: { blast: [0.2, 0.4] }, col: '#ff9a3c' },
+             { id: 'mirv', field: 'fabrication', adj: 'Hydra', good: 'splits into several warheads as it closes in: point defence has to catch every one', fx: { mirv: [3, 5] }, col: '#ffe36b' }],
+  drones:   [{ id: 'tender', adj: 'Tender', good: 'repair drones: they fly to the most battered ship nearby and mend its hull from the carrier\'s stock', fx: { tend: [0.6, 1] }, col: '#7ef3b0' }],
+  armor:    [{ id: 'reactive', field: 'materials', adj: 'Reactive', good: 'an outer layer that blows the shells and missiles off — weak against beams, and a fabricator builds it back', fx: { reactive: [0.3, 0.6] } },
+             { id: 'living', field: 'fabrication', adj: 'Living', good: 'the hull under it knits itself back, free, all through the battle', fx: { heal: [0.003, 0.006] } }],
+  shield:   [{ id: 'thirst', field: 'energy', adj: 'Thirsting', good: 'drinks the beams that hit it: they cool the ship instead of heating it, and top the field back up', fx: { drink: [0.2, 0.4] } },
+             { id: 'hardened', field: 'electrics', adj: 'Hardened', good: 'often shrugs off an ion drain, and the field still holds when the reactor goes dark', fx: { hard: [0.4, 0.75] } },
+             { id: 'veil', field: 'motion', adj: 'Jamming', good: 'scrambles the aim of every gun and beam fired at the ship', fx: { jam: [0.15, 0.35] },
+               top: { s: 0.8, adj: 'Cloaking', good: 'bends the light round the ship: far off nobody can see it until it fires — and up close they aim badly', fx: { cloak: 1 } } }],
+  thruster: [{ id: 'decoy', adj: 'Decoy', good: 'throws out decoys: missiles and drones coming at the ship are often fooled', fx: { decoy: [0.25, 0.5] } }],
+  computer: [{ id: 'sentinel', field: 'electrics', adj: 'Sentinel', good: 'every gun turns on the missiles coming at the ship, and hits them far more often', fx: { autopd: [1.4, 2] } },
+             { id: 'surgical', field: 'information', adj: 'Surgical', good: 'aims for the crucial systems: every hit that gets through wears the enemy crew down', fx: { surg: [0.6, 1.2] } },
+             { id: 'farsight', field: 'optics', adj: 'Farsight', good: 'every gun aboard reaches much further', fx: { reach: [0.2, 0.45] } }],
+  fab:      [{ id: 'nanite', field: 'fabrication', adj: 'Nanite', good: 'mends the hull far faster — and the mending makes no heat', fx: { nanite: [1, 2] } },
+             { id: 'synth', field: 'materials', adj: 'Synthesis', good: 'every unit of stock goes much further: missiles, drones and repairs all cost less of it', fx: { synth: [0.4, 0.8] } },
+             { id: 'energyfab', field: 'energy', adj: 'Energy', good: 'turns reactor power into material: its stock refills all through the battle', fx: { mgen: [0.0015, 0.003] } }],
 };
 // a field's strength as it fed the project (its average while feeding), else as it is now
 const fieldS = (chs, feed, fed) => chs.map(c => { const st = fed > 0 && feed && feed[c.id] > 0 ? feed[c.id] / (fed * c.w) : c.strength; return { field: c.id, w: c.w, st, s: sOf(st) }; });
@@ -136,12 +156,13 @@ export function rareChance(fam, chs, feed = null, fed = 0) {
 const die = key => { let h = 2166136261; for (let i = 0; i < key.length; i++) { h ^= key.charCodeAt(i); h = Math.imul(h, 16777619); } h ^= h >>> 13; h = Math.imul(h, 0x5bd1e995); h ^= h >>> 15; return (h >>> 0) / 4294967296; };
 export function rollRare(fam, chs, feed, fed, key) {
   const p = rareChance(fam, chs, feed, fed); if (!p || die(String(key)) >= p) return null;
-  const rows = fieldS(chs, feed, fed).sort((a, b) => b.w * b.st - a.w * a.st || (a.field < b.field ? -1 : 1)), L = EXTRA[fam], D = L.find(e => e.field === rows[0].field) || L[0];
+  const rows = fieldS(chs, feed, fed).sort((a, b) => b.st - a.st || b.w - a.w || (a.field < b.field ? -1 : 1)), L = EXTRA[fam], D = L.find(e => e.field === rows[0].field) || L[0];
   return { id: D.id, field: rows[0].field, s: +Math.max(...rows.map(r => r.s)).toFixed(3) };
 }
 const rareDef = (fam, rare) => rare && EXTRA[fam] ? EXTRA[fam].find(e => e.id === rare.id) || null : null;
-export const rareFx = (fam, rare) => { const D = rareDef(fam, rare), out = {}; if (D) for (const [k, v] of Object.entries(D.fx)) out[k] = +(Array.isArray(v) ? lerp(v[0], v[1], rare.s) : v).toFixed(4); return out; };
-export const rareWords = (fam, rare) => { const D = rareDef(fam, rare); return D ? { adj: D.adj, good: D.good, col: D.col || '#ffd26a' } : null; };
+const topOf = (D, rare) => D && D.top && rare.s >= D.top.s ? D.top : null;
+export const rareFx = (fam, rare) => { const D = rareDef(fam, rare), T = topOf(D, rare), out = {}; if (D) for (const [k, v] of Object.entries({ ...D.fx, ...(T ? T.fx : {}) })) out[k] = +(Array.isArray(v) ? lerp(v[0], v[1], rare.s) : v).toFixed(4); return out; };
+export const rareWords = (fam, rare) => { const D = rareDef(fam, rare), T = topOf(D, rare); return D ? { adj: (T || D).adj, good: (T || D).good, col: D.col || '#ffd26a' } : null; };
 // the forecast in words: how likely, never what
 export const chanceWord = p => p >= 0.6 ? 'a very good chance' : p >= 0.3 ? 'a good chance' : p >= 0.12 ? 'some chance' : null;
 // a name nobody in the empire has given yet (an extraordinary one takes its own word)

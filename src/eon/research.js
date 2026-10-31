@@ -35,7 +35,7 @@ const CHARACTER = { industry: { fabrication: 0.6, materials: 0.4 }, science: { i
 // what a generation improves: CHANNELS (properties.js, every module of that kind gets them) or a district LEVEL
 export const CATEGORIES = [
   { id: 'military', name: 'Military', fams: ['beam', 'gun', 'missile', 'drones', 'armor'] },
-  { id: 'energy', name: 'Energy', fams: ['shield', 'reactor'] },
+  { id: 'energy', name: 'Energy', fams: ['shield', 'reactor', 'fab'] },
   { id: 'propulsion', name: 'Propulsion', fams: ['drive', 'thruster'] },
   { id: 'information', name: 'Information', fams: ['computer', 'sensors'] },
   { id: 'civil', name: 'Civil', fams: ['farms', 'farms_cold', 'farms_hot', 'farms_rad', 'homes', 'works', 'labs'] },
@@ -51,6 +51,7 @@ export const FAMILIES = {
   drive:    { module: 'stardrive', name: 'Star drive',       icon: '➶', base: 'Strider', recipe: { motion: 0.4, energy: 0.35, thermal: 0.25 }, channels: { drive_efficiency: 1, thrust: 0.4 } },
   thruster: { module: 'thruster', name: 'Thrusters',        icon: '⇶', base: 'Swift',   recipe: { motion: 0.5, fabrication: 0.25, electrics: 0.25 }, channels: { thrust: 1, agility: 0.6, evasion: 0.4 } },
   computer: { module: 'weapon_system', name: 'Weapons computer', icon: '▣', base: 'Oracle',  recipe: { electrics: 0.4, information: 0.4, optics: 0.2 }, channels: { targeting: 1, computing: 0.6, synthetic_neural: 0.4 } },
+  fab:      { module: 'works', name: 'Fabricator',       icon: '⚒', base: 'Forge',   recipe: { fabrication: 0.5, materials: 0.25, energy: 0.25 }, channels: { manufacturing: 1, labor_efficiency: 0.6, power_efficiency: 0.4 } },   // the ship's fabricator (his call, 2026-10-30) — the WORKS family is the colony's districts
   sensors:  { name: 'Sensors',          icon: '◉', base: 'Argus',   recipe: { optics: 0.45, information: 0.35, electrics: 0.2 }, channels: { sensor_range: 1, sensor_resolution: 0.6 } },
   farms:    { name: 'Farms',            icon: '🌾', base: 'Harvest', recipe: { life: 0.6, thermal: 0.2, materials: 0.2 }, level: 'food' },
   // THE CLIMATE'S CROPS (his call 2026-10-23): each generation ADAPTS the farms to one hazard (districts.js CLIMATE) — the cut it makes shrinks
@@ -76,6 +77,7 @@ const TEXT = {
   drive:    T3('A smoother fold in the star drive: a ship with it crosses {0} faster between the stars and pushes {1} harder in battle.', 'A lighter drive core: {0} between the stars, {1} thrust.', 'A drive that drinks less: {0} star travel, {1} thrust.'),
   thruster: T3('Vectored nozzles: ships push {0} harder, turn {1} sharper and slip {2} more of the fire.', 'Pulse thrusters: {0} thrust, {1} agility, {2} evasion.', 'Thrust where it is needed: {0} thrust, {1} turn, {2} evasion.'),
   computer: T3('Faster fire control: guns pick their aim {0} better, the computer runs {1} more, and decides {2} more by itself.', 'Predictive tracking: {0} targeting, {1} computing, {2} autonomy.', 'A mind in the turret: {0} targeting, {1} computing, {2} autonomy.'),
+  fab:      T3('Finer feed heads and a cleaner furnace: the fabricator turns out {0} more, wastes {1} less work and draws {2} less.', 'A fabricator that sorts its own scrap: {0} output, {1} less waste, {2} less power.', 'Assemblers small enough to reach inside a seam: {0} output, {1} efficiency, {2} less draw.'),
   sensors:  T3('Wider apertures and a cleaner signal: you see {0} further and {1} sharper.', 'Arrays that listen across the bands: {0} range, {1} resolution.', 'Quiet sensors: {0} range, {1} resolution.'),
   farms:    T3('New strains and closed soil cycles: every farm district feeds {0} more.', 'Layered fields under light: every farm district feeds {0} more.', 'Crops bred for the world they stand on: every farm district feeds {0} more.'),
   homes:    T3('Lighter frames and shared walls: every home district houses {0} more.', 'Towers that breathe: every home district houses {0} more.', 'Homes grown, not built: every home district houses {0} more.'),
@@ -88,7 +90,7 @@ const TEXT = {
 export const CHANNEL_ICON = { beam_power: 'damage', kinetic_penetration: 'pierce', warhead_yield: 'damage', weapon_range: 'range', rate_of_fire: 'rate', accuracy: 'accuracy', targeting: 'accuracy',
   armor_integrity: 'armor', armor_deflection: 'armor', hull_integrity: 'hull', shield_capacity: 'shield', shield_recovery: 'recovery', shield_reach: 'shield',
   reactor_output: 'power', energy_storage: 'storage', power_efficiency: 'power', drive_efficiency: 'reach', thrust: 'speed', agility: 'evasion', evasion: 'evasion',
-  computing: 'computing', synthetic_neural: 'computing', sensor_range: 'sensors', sensor_resolution: 'sensors', food: 'food', housing: 'homes', industry: 'works', science: 'labs',
+  computing: 'computing', synthetic_neural: 'computing', manufacturing: 'works', labor_efficiency: 'works', sensor_range: 'sensors', sensor_resolution: 'sensors', food: 'food', housing: 'homes', industry: 'works', science: 'labs',
   cold: 'cold', heat: 'heat', radiation: 'radiation', affordability: 'cost' };
 // THE FOCUS AND THE PROJECTS (his call, 2026-10-23 — the sweep: the focus bent the chance finds but never the projects). A family's
 // AFFINITY: how much its channels lean the focus's way (a civil family by the channel it stands for — farms food yield, homes

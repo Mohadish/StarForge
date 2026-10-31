@@ -23,6 +23,21 @@ const pct = v => Math.round(v * 100) + '%', num = (v, dec) => dec ? v.toFixed(de
 const peopleWordDefault = v => v >= 1 ? `${v >= 100 ? Math.round(v) : v.toFixed(v >= 10 ? 0 : 1)} M` : v > 0 ? `${Math.max(1, Math.round(v * 1000))} k` : '0';
 export const specBox = (icon, label, val, bad) => `<div class="${bad ? 'bad' : ''}"><i>${icon}</i><span>${label}</span><b>${val}</b></div>`;
 export const specSec = (title, boxes) => boxes ? `<div class="sec"><h3>${title}</h3><div class="sum">${boxes}</div></div>` : '';
+// SOMETHING EXTRAORDINARY aboard (traits.js EXTRA, modules.js designStats): its boxes under Hull — the game's summary and this spec alike
+export function exoticBoxes(t) {
+  const box = specBox; let h = '';
+  if (t.selfHeal) h += box(ICON.upkeep, '★ Knits itself', `${(t.selfHeal * t.hp).toFixed(1)} hull/s, free`);
+  if (t.reactive) h += box('▣', '★ Reactive layer', `${fmt(t.armor * t.reactive)} HP on the armour · a fabricator builds it back`);
+  if (t.hardened) h += box(ICON.shield, '★ Hardened field', `shrugs off ${pct(t.hardened)} of ion drains · holds when dark`);
+  if (t.jam) h += box(ICON.evasion, t.cloak ? '★ Cloaking' : '★ Jamming', `aim at it −${pct(t.jam)}${t.cloak ? ' · unseen far off until it fires' : ''}`);
+  if (t.decoy) h += box(ICON.evasion, '★ Decoys', `fools ${pct(t.decoy)} of missiles and drone volleys`);
+  if (t.surgical) h += box(ICON.fire, '★ Surgical aim', 'hits wear the enemy crew down');
+  if (t.reachX > 1.001) h += box(ICON.reach, '★ Farsight', `every gun reaches +${pct(t.reachX - 1)}`);
+  if (t.nanite) h += box(ICON.upkeep, '★ Nanite mending', `×${(1 + t.nanite).toFixed(1)}, no heat`);
+  if (t.energyFab) h += box(ICON.industry, '★ Energy fabricator', `${fmt(t.energyFab * t.powerOut * 60)} material a minute from the reactor`);
+  if (t.synth > 1.001) h += box(ICON.industry, 'Stock goes', `×${t.synth.toFixed(2)} as far`);
+  return h;
+}
 // the modules as fitted, one line: kind × n, its role, its dial, the capsules on it
 export const modulesLine = ds => ds.mods.map(m => `${esc(m.K.name)}${m.n > 1 ? ' ×' + m.n : ''}${m.mod.preset ? ' · ' + esc((PRESETS[m.mod.preset] && PRESETS[m.mod.preset].name) || m.mod.preset) : ''}${m.mod.k != null && m.mod.k !== 1 ? ' · size ' + m.mod.k : ''}${(m.mod.caps || []).length ? ' · ' + plural(m.mod.caps.length, 'capsule') : ''}`).join(' · ') || 'no modules';
 // opts: reach (a string for the "Between stars" box, the game's), shipHousing (a ship's habitat share of a world's), peopleWord
@@ -33,7 +48,7 @@ export function designSpecHtml(ds, opts = {}) {
   let hull = box(ICON.hp, 'Hull', `${fmt(t.hp)} HP`);
   if (t.armor) hull += box('▣', 'Armour', `${fmt(t.armor)} HP · shrugs ${t.deflect.toFixed(1)}/hit`);
   if (t.hullRepair) hull += box(ICON.upkeep, 'Repairs in battle', `${t.hullRepair.toFixed(1)} hull/s`);
-  if (t.selfHeal) hull += box(ICON.upkeep, '★ Knits itself', `${(t.selfHeal * t.hp).toFixed(1)} hull/s, free`);
+  hull += exoticBoxes(t);
   if (t.shieldRaw) hull += box(ICON.shield, 'Shield', `${fmt(t.shield)} · +${fmt(t.shieldRec)}/s`) + box(ICON.cover, 'Shield covers', pct(t.cover) + ' of the hull', t.cover < 0.999);
   let power = box(ICON.power, 'Power', `${fmt(t.powerOut)} made / ${fmt(t.powerUse)} used`, t.powerFactor < 1);
   if (t.powerFactor < 1) power += box(ICON.runs, 'Runs at', pct(t.powerFactor), true);
