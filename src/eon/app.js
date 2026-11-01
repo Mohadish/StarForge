@@ -33,7 +33,7 @@ import { icon as ticon, slotIcon, personIcon, ICON_COLOR, componentIcon } from '
 import { weaponSvg, drawWeapon, plainLook, isWeaponLook } from './weaponart.js';
 import { traitWords, sWord, rareWords } from './traits.js';
 import { globeTexture, drawGlobe, globeIcon } from './globe.js';
-initResearch({ save: () => save(), refresh: () => refresh(), state: () => S });   // the Research tab's orders save and redraw like every other (state: a breakthrough offered in the report can be started from anywhere)
+initResearch({ save: () => save(), refresh: () => refresh(), state: () => S, fields: () => (LAST ? LAST.fields : null), say: m => say(m) });   // the Research tab's orders save and redraw like every other (state: a breakthrough offered in the report can be started from anywhere)
 import { TRI_COLOR, drawSurface, focusTetra, drawTri as drawEffortTri, triFromPoint, triBall, toCanvas, districtAt as surfaceCellAt, mapSize } from './colonyview.js';
 mountNav('eon', { into: document.getElementById('topbar') });
 

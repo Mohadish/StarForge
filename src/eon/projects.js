@@ -5,8 +5,8 @@
 // project's INFLUENCE (the share of the empire's research it takes) is set on its node; what no project takes flows by itself.
 // The breakthroughs found stay in the background (their capsules still work); a new one shows up as an advisor's suggestion.
 import { FAMILIES, CATEGORIES, FIELD_COL, advisors, qualityOf, needOf, nameOf, generationOf, startProject, setInfluence, dropProject, benefitsOf, textOf, CHANNEL_ICON, giftOf, expectOf, sameAs, techTree, roman,
-  ensureAvenues, heldOf, defaultAv, offered, avName, avNeed, nextStep, avGains, avHint, modelsOf } from './research.js';
-import { AVENUES, hasAvenues, baseAvenue } from './avenues.js';
+  ensureAvenues, heldOf, defaultAv, offered, avName, avNeed, nextStep, avGains, avHint, modelsOf, declineOffer } from './research.js';
+import { AVENUES, BT, hasAvenues, baseAvenue } from './avenues.js';
 import { techArt, reseed, techColor, FAM_ICON } from './techart.js';
 import { weaponSvg, isWeaponLook } from './weaponart.js';
 import { traitWords, sWord, chanceWord, rareWords } from './traits.js';
@@ -39,6 +39,8 @@ const CHIP_WORD = { weapon_energy: ['Beam'], weapon_kinetic: ['Gun'], weapon_mis
 // a finished project in the eon's report: its name and its paragraph with the numbers it came out with
 // the benefits a finished project came out with, as the paragraph's icons and numbers
 const benOf = (F, pcts) => F.adapt ? [{ icon: 'food', icon2: CHANNEL_ICON[F.adapt], pct: pcts[0] }] : F.level ? [{ icon: CHANNEL_ICON[F.level], pct: pcts[0] }] : Object.keys(F.channels).map((ch, i) => ({ icon: CHANNEL_ICON[ch], pct: pcts[i] }));
+// "NO — LOOK FOR SOMETHING ELSE" (his rule, 2026-11-01): turn a found breakthrough down; the scientists roll again in that family
+const declineBtn = (fam, av) => `<button class="x pjdecline" data-pjdecline="${fam}:${av}" title="not this one: they look again in this family at once (and keep looking for a while) — this one is not offered again for ${BT.declineFor} eons">Look for something else</button>`;
 // AN AVENUE's project done (avenues.js): its breakthrough (★, the leap) or its refinement (the small gain), with the capsules
 const gainTokens = gains => (gains || []).map(g => token(g.icon, g.pct, g.icon2)).join(' ');
 function avDoneHtml(r) {
@@ -49,7 +51,8 @@ function avDoneHtml(r) {
 export function offerHtml(o, S = null) {
   const A = AVENUES[o.fam] && AVENUES[o.fam][o.av]; if (!A) return '';
   const done = S && (heldOf(S, o.fam, o.av) || (S.projects || []).some(p => p.fam === o.fam && p.av === o.av));
-  return `<span class="pjrare">★ A breakthrough in ${esc(FAMILIES[o.fam].name.toLowerCase())}: your scientists found <b>${esc(A.name)}</b></span> — ${esc(A.text)} ${done ? '<span class="tiny">(under way)</span>' : `<button class="go" data-pjoffer="${o.fam}:${o.av}" title="start it now — or later, from the Research tab: it waits there">Research it</button>`}`;
+  const gone = S && !(S.offers || []).some(x => x.fam === o.fam && x.av === o.av) && !done;   // turned down since
+  return `<span class="pjrare">★ A breakthrough in ${esc(FAMILIES[o.fam].name.toLowerCase())}: your scientists found <b>${esc(A.name)}</b></span> — ${esc(A.text)} ${done ? '<span class="tiny">(under way)</span>' : gone ? '<span class="tiny">(you sent them to look for something else)</span>' : `<button class="go" data-pjoffer="${o.fam}:${o.av}" title="start it now — or later, from the Research tab: it waits there">Research it</button> ${declineBtn(o.fam, o.av)}`}`;
 }
 export function researchDoneHtml(r) {
   if (r && r.av) return avDoneHtml(r);
@@ -214,7 +217,7 @@ function avCard(S, c, fam, av, why = null, star = false) {
     <p class="pjdesc">${esc(A.text)}</p><div class="tcaps">${gainTokens(gains)}</div>
     <div class="pjrecipe">${ch.map(x => `<span title="strength ${x.strength.toFixed(2)}"><i class="fdot" style="background:${FIELD_COL[x.id]}"></i>${esc(c.fields.find(f => f.id === x.id)?.name || x.id)} ${Math.round(x.w * 100)} %</span>`).join('')}</div>
     <div class="tiny">${avNeed(S, fam, av)} research</div>
-    <button class="go" data-pjstart="${fam}" data-pjav="${av}">Start</button></div>`;
+    <div class="pjbtns"><button class="go" data-pjstart="${fam}" data-pjav="${av}">Start</button>${st.jump && offered(S, fam, av) ? declineBtn(fam, av) : ''}</div></div>`;
 }
 // the avenues of a family the picker offers: what was found for you first, then what you hold (the highest tier first), the basics
 function avChoices(S, fam) {
@@ -232,7 +235,7 @@ function avTreeCard(S, c, fam, av, mini, pop = false) {
 // a breakthrough found, not researched yet — in its tier, with its Start
 function avOfferCard(S, fam, av, mini) {
   const A = AVENUES[fam][av];
-  return `<div class="tcard offer${mini ? ' mini' : ''}" data-avo="${fam}.${av}" style="--tc:${tcol(A.tier, 1)}">${coin(fam)}<div class="ttop">${avArt(S, fam, av, 1, mini ? 64 : 96)}<div><div class="tname">${esc(A.name)}</div><div class="tiny pjrare">★ found — not researched</div></div></div>${mini ? '' : `<p class="pjdesc">${esc(A.text)}</p>`}<button class="go" data-pjstart="${fam}" data-pjav="${av}">Research it</button></div>`;
+  return `<div class="tcard offer${mini ? ' mini' : ''}" data-avo="${fam}.${av}" style="--tc:${tcol(A.tier, 1)}">${coin(fam)}<div class="ttop">${avArt(S, fam, av, 1, mini ? 64 : 96)}<div><div class="tname">${esc(A.name)}</div><div class="tiny pjrare">★ found — not researched</div></div></div>${mini ? '' : `<p class="pjdesc">${esc(A.text)}</p>`}<div class="pjbtns"><button class="go" data-pjstart="${fam}" data-pjav="${av}">Research it</button>${mini ? '' : declineBtn(fam, av)}</div></div>`;
 }
 // THE NODES: one per project under way — what it is, how far, how long, how good, its influence (pop: the opened copy)
 function nodeHtml(pl, S, c, pop = false) {
@@ -417,6 +420,12 @@ document.addEventListener('input', e => { const t = e.target; if (t.dataset?.pji
 document.addEventListener('change', e => { const t = e.target; if (t.dataset?.pjinf == null) return; const i = +t.dataset.pjinf, v = +t.value; act(S => setInfluence(S, i, v)); });
 document.addEventListener('mouseover', e => { if (!ctx) return; const t = e.target.closest?.('[data-pjsel], [data-pjnode], [data-pjnodep], [data-tech], [data-techp], [data-tfam], [data-av], [data-avp], [data-avo]'); const d = t ? t.dataset : {}, node = d.pjnode ?? d.pjnodep, fam = t ? (d.pjsel || d.tfam || (d.tech || d.techp || '').split(':')[0] || (d.av || d.avp || d.avo || '').split('.')[0] || ctx.c.projects?.find(p => p.i === +node)?.fam || null) : null; if (fam !== hiFam) { hiFam = fam; decorate(); drawFlow(); } });
 // A BREAKTHROUGH OFFERED in the report or the notes ("would you like to research it?"): start it — the report lives outside the tab
+document.addEventListener('click', e => {   // "look for something else": they roll again at once among the family's other avenues
+  const b = e.target.closest?.('[data-pjdecline]'), S = (ctx && ctx.S) || (hooks.state && hooks.state()); if (!b || !S) return;
+  const [fam, av] = b.dataset.pjdecline.split(':'), fields = (ctx && ctx.c && ctx.c.fields) || (hooks.fields && hooks.fields()), r = declineOffer(S, fam, av, fields); if (r.error) return alert(r.error);
+  const msg = r.found ? `Your scientists came back with something else: ${AVENUES[fam][r.found].name}` : `Your scientists will keep looking in ${FAMILIES[fam].name.toLowerCase()} — something else may turn up in the next eons`;
+  hooks.save(); hooks.refresh(); if (hooks.say) hooks.say(msg); else alert(msg);
+});
 document.addEventListener('click', e => {
   const b = e.target.closest?.('[data-pjoffer]'), S = (ctx && ctx.S) || (hooks.state && hooks.state()); if (!b || !S) return;
   const [fam, av] = b.dataset.pjoffer.split(':'), err = startProject(S, fam, null, av); if (err) return alert(err); hooks.save(); hooks.refresh();

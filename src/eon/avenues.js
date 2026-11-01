@@ -11,7 +11,13 @@
 //   are PRACTICE — they count everywhere at once (S.refine, S.adaptR, S.waterR).
 export const REFINE = { first: 3.5, decay: 0.85, qMin: 0.5, qMax: 1.6, gunK: 1.5, adaptK: 2, waterK: 2, shipK: 2, btK: 3, xenoK: 3, cheapK: 1, fieldK: 1, flatK: 0.3 };   // flatK: a theory's refinement adds this share of its breakthrough's flat boosts (× how much the refinement gives against the first)
 export const CAPS = { cheap: 0.5, water: 0.85 };   // research can make projects at most half as dear
-export const BT = { at: 1.15, passive: 0.25, effort: 0.4, cap: 0.35, perParent: 0.5 };   // perParent: each more avenue it grows from that you hold, +50 % to its chance
+// perParent: each more avenue it grows from that you hold, +50 % to its chance · fade: an avenue in a tier BELOW the family's highest
+// you hold is hard to see by itself — ×fade a tier behind (his rule, 2026-11-01: "once you go over a tier, the old branches are less
+// obvious — you'd have to keep developing the older tier to see it"; research on what it grows from still finds it) · focus: the empire's
+// FOCUS drives what is found — × (min + k × how much the family leans the focus's way: 1 at an even focus, up to ~2.8 all-in, 0.4 against)
+// · declineFor: eons an offer you turned down ("look for something else") is not offered again · redo: that rolls again at once, the
+// others' chances × redo (at most redoCap); nothing found → search: × searchK in that family for searchFor eons
+export const BT = { at: 1.15, passive: 0.25, effort: 0.4, cap: 0.35, perParent: 0.5, fade: 0.35, focusMin: 0.4, focusK: 2.4, declineFor: 40, redo: 3, redoCap: 0.8, searchK: 2, searchFor: 10 };
 export const AV_NEED = { base: 900, tier: 1.5, per: 0.15 };   // research an avenue takes: base × tier^(t−1) × (1 + per × refinements done)
 // the stats a gun's refinement improves, and the field that drives each (his: materials → damage, motion → range, fabrication → rate)
 export const GUN_STEP = { damage: 'materials', range: 'motion', rate: 'fabrication' };

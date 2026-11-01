@@ -98,7 +98,7 @@ export const CHANNEL_ICON = { beam_power: 'damage', kinetic_penetration: 'pierce
 // a boost in each corner's own direction, by how much the focus leans there — cheaper to build, less power drawn, sensors that reach
 // further, a truer aim (never instead of what you asked for; only with it)
 const XS4 = ['expand', 'exploit', 'explore', 'exterminate'];
-const STANDS_FOR = { farms: { food_yield: 1 }, farms_cold: { food_yield: 1 }, farms_hot: { food_yield: 1 }, farms_rad: { food_yield: 1 }, homes: { habitability: 1 }, works: { manufacturing: 1 }, labs: { computing: 1 } };
+const STANDS_FOR = { farms: { food_yield: 1 }, farms_cold: { food_yield: 1 }, farms_hot: { food_yield: 1 }, farms_rad: { food_yield: 1 }, homes: { habitability: 1 }, works: { manufacturing: 1 }, labs: { computing: 1 }, science: { research_ease: 1 } };
 export function focusAffinity(S, fam) {
   const F = FAMILIES[fam], ch = F.channels || STANDS_FOR[fam] || {}; let a = 0, t = 0;
   for (const [c, w] of Object.entries(ch)) { const i = XS4.indexOf(CHANNEL_X[c]); if (i < 0) continue; a += w * ((S.focus || [])[i] ?? 0.25); t += w; }
@@ -204,18 +204,19 @@ export function nextStep(S, fam, av) { const A = AVENUES[fam][av], h = heldOf(S,
 export function avGains(S, fam, av, q, strengths = {}) {
   const A = AVENUES[fam][av], st = nextStep(S, fam, av), k = qFactor(q), out = [], hz = { cold: 'cold', heat: 'heat', radiation: 'radiation' };
   const fieldWord = f => ({ motion: 'fields & motion', life: 'life & chemistry' }[f] || f);
-  if (st.jump && A.jump) {
-    if (A.jump.food) out.push({ key: 'food', icon: 'food', pct: Math.round(A.jump.food * k), word: 'food from every farm' });
-    if (A.jump.science) out.push({ key: 'science', icon: 'labs', pct: Math.round(A.jump.science * k), word: 'research from every lab' });   // the labs (avenues.js)
-    if (A.jump.shipsci) out.push({ key: 'shipsci', icon: 'labs', pct: Math.round(A.jump.shipsci * k * 100), word: 'research from lab ships' });
-    if (A.jump.bt) out.push({ key: 'bt', icon: 'labs', pct: Math.round(A.jump.bt * k * 100), word: 'chance of breakthroughs' });
-    if (A.jump.cheap) out.push({ key: 'cheap', icon: 'cost', pct: Math.round(A.jump.cheap * k * 100), word: 'less research for every project' });
-    if (A.jump.xeno) out.push({ key: 'xeno', icon: 'labs', pct: Math.round(A.jump.xeno * k * 100), word: 'research from anomalies' });
-    for (const [f, v] of Object.entries(A.jump.fields || {})) out.push({ key: 'field:' + f, icon: 'computing', pct: Math.round(v * k * 100), word: `${fieldWord(f)} stronger` });
-    for (const [ch, v] of Object.entries(A.jump.flat || {})) out.push({ key: 'flat:' + ch, icon: CHANNEL_ICON[ch] || 'power', pct: +(v * k).toFixed(1), word: ch.replace(/_/g, ' ') });   // a theory: a small boost to everything
-    for (const [h, v] of Object.entries(A.jump.adapt || {})) out.push({ key: 'adapt:' + h, icon: 'food', icon2: hz[h], pct: Math.round(v * k * 100), word: `adapted to the ${h === 'heat' ? 'heat' : h}` });
-    if (A.jump.water) out.push({ key: 'water', icon: 'water', pct: Math.round(A.jump.water * k * 100), word: 'less water needed' });
-    for (const [s, v] of Object.entries(A.mul || {})) if (Math.abs(v - 1) > 0.01) out.push({ key: s, icon: s === 'damage' ? 'damage' : s === 'range' ? 'range' : 'rate', pct: Math.round((v - 1) * 100), word: s });
+  if (st.jump) { const J0 = A.jump || {};   // a breakthrough: its leap — a gun's character has no jump object, its mul/fx below
+    if (J0.food) out.push({ key: 'food', icon: 'food', pct: Math.round(J0.food * k), word: 'food from every farm' });
+    if (J0.science) out.push({ key: 'science', icon: 'labs', pct: Math.round(J0.science * k), word: 'research from every lab' });   // the labs (avenues.js)
+    if (J0.shipsci) out.push({ key: 'shipsci', icon: 'labs', pct: Math.round(J0.shipsci * k * 100), word: 'research from lab ships' });
+    if (J0.bt) out.push({ key: 'bt', icon: 'labs', pct: Math.round(J0.bt * k * 100), word: 'chance of breakthroughs' });
+    if (J0.cheap) out.push({ key: 'cheap', icon: 'cost', pct: Math.round(J0.cheap * k * 100), word: 'less research for every project' });
+    if (J0.xeno) out.push({ key: 'xeno', icon: 'labs', pct: Math.round(J0.xeno * k * 100), word: 'research from anomalies' });
+    for (const [f, v] of Object.entries(J0.fields || {})) out.push({ key: 'field:' + f, icon: 'computing', pct: Math.round(v * k * 100), word: `${fieldWord(f)} stronger` });
+    for (const [ch, v] of Object.entries(J0.flat || {})) out.push({ key: 'flat:' + ch, icon: CHANNEL_ICON[ch] || 'power', pct: +(v * k).toFixed(1), word: ch.replace(/_/g, ' ') });   // a theory: a small boost to everything
+    for (const [h, v] of Object.entries(J0.adapt || {})) out.push({ key: 'adapt:' + h, icon: 'food', icon2: hz[h], pct: Math.round(v * k * 100), word: `adapted to the ${h === 'heat' ? 'heat' : h}` });
+    if (J0.water) out.push({ key: 'water', icon: 'water', pct: Math.round(J0.water * k * 100), word: 'less water needed' });
+    for (const [s, v] of Object.entries(A.mul || {})) if (Math.abs(v - 1) > 0.01) out.push({ key: s, icon: s === 'damage' ? 'damage' : s === 'range' ? 'range' : 'rate', pct: Math.round((scaleGood(v, k) - 1) * 100), word: s });   // its good sides by how well it would come out
+    for (const [key, v] of Object.entries(A.fx || {})) if (GOOD_FX.has(key)) out.push({ key: 'fx:' + key, icon: key === 'flak' ? 'rate' : 'pierce', pct: Math.round(key === 'flak' ? (v * k - 1) * 100 : v * k * 100), word: { bypass: 'of a hit skips the armour', shock: 'of what armour stops reaches the hull', pierce: 'through the shield', flak: 'against drones and missiles', surg: 'crew jolt' }[key] || key });
     return out;
   }
   const g = refineGain(st.r, q), step = A.step || '';
@@ -241,11 +242,18 @@ function addFlat(S, fam, av, adds) {
 }
 // a gun avenue's component: its avenue's own character (mul, fx) and every refinement's gain on top — a new version each time (no
 // retrofit: the designs and ships built keep the version they have)
+// ITS CHARACTER BY HOW WELL IT CAME OUT (his rule, 2026-11-01: "the stats are not fixed — great fabrication, materials and thermal make
+// a better Duralloy than another run's"): the breakthrough's quality (h.k, qFactor) scales the avenue's good sides — a bonus multiplier's
+// excess, an effect's strength — its prices (a multiplier under 1, a shield factor) stay as they are
+const scaleGood = (v, k) => v > 1 ? 1 + (v - 1) * k : v;
+const GOOD_FX = new Set(['bypass', 'shock', 'pierce', 'flak', 'surg', 'burn', 'emp', 'delam', 'blast']);
 function avModel(S, fam, av, q) {
-  const A = AVENUES[fam][av], h = heldOf(S, fam, av), F = FAMILIES[fam], mul = { ...(A.mul || {}) };
+  const A = AVENUES[fam][av], h = heldOf(S, fam, av), F = FAMILIES[fam], k = h.k ?? 1, mul = {};
+  for (const [s, v] of Object.entries(A.mul || {})) mul[s] = +scaleGood(v, k).toFixed(4);
   for (const s of Object.keys(h.gain || {})) mul[s] = +((mul[s] || 1) * (1 + h.gain[s] / 100)).toFixed(4);
+  const fx = {}; for (const [key, v] of Object.entries(A.fx || {})) fx[key] = GOOD_FX.has(key) ? +(v * k).toFixed(4) : v;
   const id = `av${S.eon}${fam}${av}${h.n}`, look = lookOf(fam, [], mul, id); look.trait = A.look || null;
-  return { id, fam, av, kind: F.module, name: avName(fam, av, h.n), gen: A.tier, n: h.n, traits: [], mul, fx: { ...(A.fx || {}) }, look, eon: S.eon, q: +q.toFixed(2) };
+  return { id, fam, av, kind: F.module, name: avName(fam, av, h.n), gen: A.tier, n: h.n, traits: [], mul, fx, look, eon: S.eon, q: +q.toFixed(2) };
 }
 // a project on an avenue is through: its breakthrough or its refinement, into the empire
 function applyAvenue(S, pl, rep) {
@@ -278,7 +286,7 @@ function applyAvenue(S, pl, rep) {
     else if (step.startsWith('fields:')) for (const f of step.slice(7).split(',')) { S.fieldBoost = S.fieldBoost || {}; S.fieldBoost[f] = +((S.fieldBoost[f] || 0) + g * REFINE.fieldK / 100).toFixed(4); }
     else if (step === 'flat') addFlat(S, fam, av, Object.fromEntries(gains.map(x => [x.key.slice(5), x.pct])));
   }
-  if (st.jump) h.jumpGains = gains; else if (A.step !== 'gun' && gains[0]) h.sum = +((h.sum || 0) + gains[0].pct).toFixed(2);   // what it has given, for its card in the tree
+  if (st.jump) { h.jumpGains = gains; h.k = +k.toFixed(3); } else if (A.step !== 'gun' && gains[0]) h.sum = +((h.sum || 0) + gains[0].pct).toFixed(2);   // what it has given, for its card in the tree; k: how well its breakthrough came out (its character's strength)
   h.n = (h.n || 0) + 1; h.eon = S.eon; h.q = +pl.q.toFixed(2);
   let model = null; if (FAMILIES[fam].module) { model = avModel(S, fam, av, pl.q); S.models = S.models || []; S.models.push(model); }
   const name = avName(fam, av, h.n), research = { fam, gen: A.tier, av, n: h.n, jump: st.jump, name, gains, model: model ? model.id : null };
@@ -288,14 +296,35 @@ function applyAvenue(S, pl, rep) {
 // THE DISCOVERY (his rule: "it just happens"): every eon, for each avenue that could come (avenues.js candidates), a chance — when the
 // fields it leans on are strong (quality ≥ BT.at) by how far past it they are, plus while you research what it grows from, by how far
 // that went this eon × its quality² (effort with weak fields gets there, slowly); at most BT.cap, one a family an eon. Its own dice
+// the empire's FOCUS on what is found (his rule, 2026-11-01): exploration → drives, sensors, research; extermination → weapons;
+// exploitation → industry; expansion → farms, homes, the colonies — the family's lean (focusAffinity) × BT.focusK
+export const focusMul = (S, fam) => BT.focusMin + BT.focusK * focusAffinity(S, fam);
 export function avChance(S, fields, fam, av, plans = []) {
   const A = AVENUES[fam][av], q = qualityOf(S, fields, fam, av).q;
-  let p = q >= BT.at ? BT.passive * (q - BT.at + 0.1) : 0;
+  if (((S.declined || {})[fam + ':' + av] || 0) > S.eon) return { p: 0, q, held: 0, declined: true };   // you turned it down: not again for a while
+  // BEHIND YOUR NEWEST TIER it is hard to see by itself (BT.fade a tier) — research on what it grows from still finds it
+  const top = Math.max(0, ...Object.entries((S.av || {})[fam] || {}).filter(([, h]) => (h.n || 0) >= 1).map(([id]) => AVENUES[fam][id] ? AVENUES[fam][id].tier : 0));
+  let p = (q >= BT.at ? BT.passive * (q - BT.at + 0.1) : 0) * (A.tier < top ? Math.pow(BT.fade, top - A.tier) : 1);
   for (const pl of plans) if (pl.fam === fam && pl.av && A.from.includes(pl.av) && pl.gain > 0) p += BT.effort * (pl.gain / pl.need) * q * q;
   // EVERY WAY IN THAT YOU HOLD RAISES IT (his rule, 2026-11-01: "if you have four or five of them, each one raises the chances — not
   // lowers them"): one avenue it grows from opens it; each more held adds BT.perParent
   const held = A.from.filter(f => { const h = heldOf(S, fam, f); return h && (h.n || 0) >= 1; }).length;
-  return { p: Math.min(BT.cap, p * (1 + BT.perParent * Math.max(0, held - 1)) * (1 + (S.btBonus || 0))), q, held };   // Specimen Archives (avenues.js labs): breakthroughs come more often
+  const search = ((S.search || {})[fam] || 0) > S.eon ? BT.searchK : 1;   // your scientists are looking for something else in this family
+  return { p: Math.min(BT.cap, p * (1 + BT.perParent * Math.max(0, held - 1)) * focusMul(S, fam) * search * (1 + (S.btBonus || 0))), q, held };   // Specimen Archives (avenues.js labs): breakthroughs come more often
+}
+// "NO — LOOK FOR SOMETHING ELSE" (his rule, 2026-11-01): the offer goes, it is not offered again for BT.declineFor eons, and the scientists
+// roll at once among the family's other avenues (their chances × BT.redo, at most BT.redoCap): something else found → offered; nothing →
+// they keep looking (× BT.searchK in that family for BT.searchFor eons). Returns { found: av | null }
+export function declineOffer(S, fam, av, fields = null) {
+  if (!(S.offers || []).some(o => o.fam === fam && o.av === av)) return { error: 'No such offer' };
+  S.offers = S.offers.filter(o => !(o.fam === fam && o.av === av)); S.declined = { ...(S.declined || {}), [fam + ':' + av]: S.eon + BT.declineFor };
+  const list = fields ? candidates(S, fam).map(x => ({ av: x, p: avChance(S, fields, fam, x).p })).filter(x => x.p > 0) : [], total = Math.min(BT.redoCap, list.reduce((a, x) => a + x.p, 0) * BT.redo);
+  let roll = die(`${S.seed}|${S.eon}|redo|${fam}|${av}`);
+  if (list.length && roll < total) {
+    roll = roll / total * list.reduce((a, x) => a + x.p, 0); let pick = list[list.length - 1]; for (const x of list) { if (roll < x.p) { pick = x; break; } roll -= x.p; }
+    S.offers.push({ fam, av: pick.av, eon: S.eon }); return { found: pick.av };
+  }
+  S.search = { ...(S.search || {}), [fam]: S.eon + BT.searchFor }; return { found: null };
 }
 export function discoverAvenues(S, fields, plans, rep) {
   if (!fields) return [];
