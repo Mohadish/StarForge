@@ -292,7 +292,10 @@ export function avChance(S, fields, fam, av, plans = []) {
   const A = AVENUES[fam][av], q = qualityOf(S, fields, fam, av).q;
   let p = q >= BT.at ? BT.passive * (q - BT.at + 0.1) : 0;
   for (const pl of plans) if (pl.fam === fam && pl.av && A.from.includes(pl.av) && pl.gain > 0) p += BT.effort * (pl.gain / pl.need) * q * q;
-  return { p: Math.min(BT.cap, p * (1 + (S.btBonus || 0))), q };   // Specimen Archives (avenues.js labs): breakthroughs come more often
+  // EVERY WAY IN THAT YOU HOLD RAISES IT (his rule, 2026-11-01: "if you have four or five of them, each one raises the chances — not
+  // lowers them"): one avenue it grows from opens it; each more held adds BT.perParent
+  const held = A.from.filter(f => { const h = heldOf(S, fam, f); return h && (h.n || 0) >= 1; }).length;
+  return { p: Math.min(BT.cap, p * (1 + BT.perParent * Math.max(0, held - 1)) * (1 + (S.btBonus || 0))), q, held };   // Specimen Archives (avenues.js labs): breakthroughs come more often
 }
 export function discoverAvenues(S, fields, plans, rep) {
   if (!fields) return [];
